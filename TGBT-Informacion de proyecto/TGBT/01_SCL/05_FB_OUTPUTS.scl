@@ -1,0 +1,181 @@
+(*
+================================================================================
+  FUNCTION BLOCK: FB_OUTPUTS
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Gestión de salidas físicas (pilotos, LEDs, alarmas) y señales para HMI.
+  
+  RESPONSABILIDADES:
+  1. Activar pilotos de estado (ON_GRID, ON_GD, IN_TRANSFER, FAULT)
+  2. Gestionar alarmas sonoras/visuales
+  3. Consolidar señales para pantalla HMI
+  4. Mapeo DO físicas del tablero
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_OUTPUTS"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT 
+    // ========== ESTADOS SISTEMA (de FB_SCMTA) ==========
+    IS_ON_GRID : Bool;
+    IS_ON_GD : Bool;
+    IS_IN_TRANSFER : Bool;
+    IS_FAULT : Bool;
+    STATE : Int;
+    STATE_NAME : String[30];
+    FAULT_CODE : Int;
+    
+    // ========== ALARMAS (de FB_SCMTA + FB_CMD_ARBITER) ==========
+    ALM_INTERLOCK_VIOLATION : Bool;
+    BLOCK_INTERLOCK : Bool;
+    GRID_FAIL : Bool;
+    GD_ALARM : Bool;
+    
+    // ========== DESLASTRE (de FB_SHED) ==========
+    SHED_ACTIVE : Bool;
+    FEEDERS_SHED : Int;
+    
+    // ========== CONTROL ==========
+    ENABLE_HORN : Bool := TRUE;      // Habilitar bocina alarma
+    ACK_ALARM : Bool;                // Pulso reconocimiento alarma
+END_VAR
+
+VAR_OUTPUT 
+    // ========== SALIDAS FÍSICAS (DO) ==========
+    DO_PILOT_ON_GRID : Bool;         // LED/Piloto "EN RED" (verde)
+    DO_PILOT_ON_GD : Bool;           // LED/Piloto "EN GRUPO" (amarillo)
+    DO_PILOT_TRANSFER : Bool;        // LED/Piloto "TRANSFERENCIA" (amarillo parpadeante)
+    DO_PILOT_FAULT : Bool;           // LED/Piloto "FALLA" (rojo)
+    DO_PILOT_SHED : Bool;            // LED/Piloto "DESLASTRE ACTIVO" (amarillo)
+    
+    DO_ALARM_HORN : Bool;            // Bocina alarma (24VDC)
+    DO_ALARM_BEACON : Bool;          // Baliza alarma (rojo parpadeante)
+    
+    // ========== SEÑALES HMI ==========
+    HMI_STATUS_TEXT : String[50];    // Texto estado para HMI
+    HMI_ALARM_ACTIVE : Bool;         // TRUE = hay alarma activa
+    HMI_ALARM_TEXT : String[100];    // Descripción alarma
+    
+END_VAR
+
+VAR 
+    // ========== MEMORIA INTERNA ==========
+    alarmActive : Bool;              // Alarma activa (latched hasta ACK)
+    alarmAcknowledged : Bool;        // Alarma reconocida
+    alarmText : String[100];
+    
+    // Timer parpadeo
+    tonBlink : TON;
+    blinkState : Bool;
+    
+    // R_TRIG para ACK
+    rtAckAlarm : Bool;
+    memAckAlarm : Bool;
+    
+END_VAR
+
+VAR_TEMP 
+END_VAR
+
+VAR CONSTANT 
+    BLINK_TIME : Time := T#500ms;
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // NETWORK 1: PILOTOS DE ESTADO
+    // ========================================================================
+    
+    // LED "EN RED" (verde fijo)
+    #DO_PILOT_ON_GRID := #IS_ON_GRID AND NOT #IS_FAULT;
+    
+    // LED "EN GRUPO" (amarillo fijo)
+    #DO_PILOT_ON_GD := #IS_ON_GD AND NOT #IS_FAULT;
+    
+    // LED "TRANSFERENCIA" (amarillo parpadeante)
+    #tonBlink(IN := #IS_IN_TRANSFER, PT := #BLINK_TIME);
+    IF #tonBlink.Q THEN
+        #blinkState := NOT #blinkState;
+        #tonBlink(IN := FALSE, PT := T#1s);
+    END_IF;
+    #DO_PILOT_TRANSFER := #IS_IN_TRANSFER AND #blinkState;
+    
+    // LED "FALLA" (rojo fijo)
+    #DO_PILOT_FAULT := #IS_FAULT;
+    
+    // LED "DESLASTRE ACTIVO" (amarillo fijo)
+    #DO_PILOT_SHED := #SHED_ACTIVE;
+    
+    
+    // ========================================================================
+    // NETWORK 2: DETECCIÓN Y GESTIÓN DE ALARMAS
+    // ========================================================================
+    
+    // Alarma activa si hay falla o violación enclavamiento
+    #alarmActive := #IS_FAULT OR #ALM_INTERLOCK_VIOLATION OR #GD_ALARM;
+    
+    // Texto alarma
+    IF #IS_FAULT THEN
+        CASE #FAULT_CODE OF
+            101: #alarmText := 'TIMEOUT: No se pudo abrir QT1';
+            102: #alarmText := 'TIMEOUT: GD no alcanzó estado READY';
+            103: #alarmText := 'TIMEOUT: No se pudo cerrar QG1';
+            104: #alarmText := 'TIMEOUT: No se pudo abrir QG1';
+            105: #alarmText := 'TIMEOUT: No se pudo cerrar QT1';
+            106: #alarmText := 'ALARMA: Falla en Grupo Diésel';
+            107: #alarmText := 'ALARMA: Violación enclavamiento fuente única';
+            108: #alarmText := 'FALLA: Estado máquina desconocido';
+            ELSE
+                #alarmText := 'FALLA: Código desconocido';
+        END_CASE;
+    ELSIF #ALM_INTERLOCK_VIOLATION THEN
+        #alarmText := 'ALARMA: Múltiples fuentes cerradas simultáneamente';
+    ELSIF #GD_ALARM THEN
+        #alarmText := 'ALARMA: Falla en Grupo Diésel';
+    ELSE
+        #alarmText := '';
+    END_IF;
+    
+    // Reconocimiento alarma (R_TRIG)
+    #rtAckAlarm := #ACK_ALARM AND NOT #memAckAlarm;
+    #memAckAlarm := #ACK_ALARM;
+    
+    IF #rtAckAlarm THEN
+        #alarmAcknowledged := TRUE;
+    END_IF;
+    
+    // Reset acknowledged si desaparece alarma
+    IF NOT #alarmActive THEN
+        #alarmAcknowledged := FALSE;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 3: BOCINA Y BALIZA
+    // ========================================================================
+    
+    // Bocina: activa si hay alarma y no está reconocida
+    #DO_ALARM_HORN := #alarmActive AND NOT #alarmAcknowledged AND #ENABLE_HORN;
+    
+    // Baliza: activa si hay alarma (independiente de ACK)
+    #DO_ALARM_BEACON := #alarmActive;
+    
+    
+    // ========================================================================
+    // NETWORK 4: SEÑALES HMI
+    // ========================================================================
+    
+    // Texto estado
+    #HMI_STATUS_TEXT := #STATE_NAME;
+    
+    // Alarma activa para HMI
+    #HMI_ALARM_ACTIVE := #alarmActive;
+    #HMI_ALARM_TEXT := #alarmText;
+    
+END_FUNCTION_BLOCK

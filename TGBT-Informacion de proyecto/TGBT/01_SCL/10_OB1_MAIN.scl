@@ -1,0 +1,370 @@
+(*
+================================================================================
+  ORGANIZATION BLOCK: OB1 (Main Cyclic Execution)
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Programa principal cíclico del sistema SCMTA.
+  Orquesta la ejecución secuencial de todos los Function Blocks.
+  
+  ARQUITECTURA:
+  Network 1: FB_IO_NORMALIZE
+  Network 2: FB_SCMTA
+  Network 3: FB_SHED
+  Network 4: FB_CMD_ARBITER
+  Network 5: FB_OUTPUTS
+  Network 6: Drivers MTZ (QT1, QG1, QG2)
+  Network 7: Cálculos auxiliares (LoadPct, Uptime)
+  
+  TIEMPO DE CICLO RECOMENDADO: 100-200 ms
+  
+================================================================================
+*)
+
+ORGANIZATION_BLOCK "OB1"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+    
+    // ========================================================================
+    // NETWORK 1: NORMALIZACIÓN ENTRADAS/SALIDAS
+    // ========================================================================
+    // Convierte señales físicas DI → señales lógicas
+    // Output: MODE_AUTO, *_REMOTE_ALLOWED, REQ_MAN_*, GD_READY/RUNNING/ALARM
+    
+    "DB_IO"(
+        // Inputs - Mapeo DI físicas (EJEMPLO - ajustar según hardware real)
+        DI_SYS_AUTO := %I0.0,
+        DI_QT1_REMOTE_SEL := %I0.1,
+        DI_QT1_PB_OPEN := %I0.2,
+        DI_QT1_PB_CLOSE := %I0.3,
+        DI_QG1_REMOTE_SEL := %I0.4,
+        DI_QG1_PB_OPEN := %I0.5,
+        DI_QG1_PB_CLOSE := %I0.6,
+        DI_QG2_REMOTE_SEL := %I1.0,
+        DI_QG2_PB_OPEN := %I1.1,
+        DI_QG2_PB_CLOSE := %I1.2,
+        DI_GD_READY := %I1.3,
+        DI_GD_RUNNING := %I1.4,
+        DI_GD_ALARM := %I1.5,
+        
+        // Outputs → DB_GLOBAL_STATUS
+        MODE_AUTO => "DB_GLOBAL_STATUS".MODE_AUTO,
+        MODE_MANUAL => "DB_GLOBAL_STATUS".MODE_MANUAL,
+        QT1_REMOTE_ALLOWED => "DB_GLOBAL_STATUS".QT1_REMOTE_ALLOWED,
+        QG1_REMOTE_ALLOWED => "DB_GLOBAL_STATUS".QG1_REMOTE_ALLOWED,
+        QG2_REMOTE_ALLOWED => "DB_GLOBAL_STATUS".QG2_REMOTE_ALLOWED,
+        REQ_MAN_QT1_OPEN => "DB_GLOBAL_STATUS".REQ_MAN_QT1_OPEN,
+        REQ_MAN_QT1_CLOSE => "DB_GLOBAL_STATUS".REQ_MAN_QT1_CLOSE,
+        REQ_MAN_QG1_OPEN => "DB_GLOBAL_STATUS".REQ_MAN_QG1_OPEN,
+        REQ_MAN_QG1_CLOSE => "DB_GLOBAL_STATUS".REQ_MAN_QG1_CLOSE,
+        REQ_MAN_QG2_OPEN => "DB_GLOBAL_STATUS".REQ_MAN_QG2_OPEN,
+        REQ_MAN_QG2_CLOSE => "DB_GLOBAL_STATUS".REQ_MAN_QG2_CLOSE,
+        GD_READY => "DB_GLOBAL_STATUS".GD_READY,
+        GD_RUNNING => "DB_GLOBAL_STATUS".GD_RUNNING,
+        GD_ALARM => "DB_GLOBAL_STATUS".GD_ALARM,
+        DIAG_MODE_VALID => "DB_GLOBAL_STATUS".DIAG_MODE_VALID
+    );
+    
+    
+    // ========================================================================
+    // NETWORK 2: MÁQUINA DE ESTADOS SCMTA (Transferencia Automática)
+    // ========================================================================
+    // Input: MODE_AUTO, estados interruptores, mediciones red, GD_READY
+    // Output: REQ_SCMTA_*, DO_GD_START/STOP, flags estado (IS_ON_GRID, IS_ON_GD, etc.)
+    
+    "DB_SCMTA"(
+        // Control
+        ENABLE := "DB_PARAMS".ENABLE_SCMTA,
+        MODE_AUTO := "DB_GLOBAL_STATUS".MODE_AUTO,
+        RESET_FAULT := %I2.0,  // TODO: mapear botón reset físico o HMI
+        
+        // Estados interruptores (de drivers Modbus)
+        QT1_STATE := "DB_GLOBAL_STATUS".QT1_STATE,
+        QG1_STATE := "DB_GLOBAL_STATUS".QG1_STATE,
+        QG2_STATE := "DB_GLOBAL_STATUS".QG2_STATE,
+        
+        // Mediciones RED (de PM5350 vía Modbus)
+        GRID_V_L1L2 := "DB_GLOBAL_STATUS".GRID_V_L1L2,
+        GRID_V_L2L3 := "DB_GLOBAL_STATUS".GRID_V_L2L3,
+        GRID_V_L3L1 := "DB_GLOBAL_STATUS".GRID_V_L3L1,
+        GRID_FREQ := "DB_GLOBAL_STATUS".GRID_FREQ,
+        GRID_MEASUREMENT_OK := "DB_GLOBAL_STATUS".GRID_MEASUREMENT_OK,
+        
+        // Señales GD
+        GD_READY := "DB_GLOBAL_STATUS".GD_READY,
+        GD_RUNNING := "DB_GLOBAL_STATUS".GD_RUNNING,
+        GD_ALARM := "DB_GLOBAL_STATUS".GD_ALARM,
+        
+        // Parámetros configurables (de DB_PARAMS)
+        V_NOM := "DB_PARAMS".V_NOM,
+        V_MIN_PCT := "DB_PARAMS".V_MIN_PCT,
+        V_MAX_PCT := "DB_PARAMS".V_MAX_PCT,
+        FREQ_NOM := "DB_PARAMS".FREQ_NOM,
+        FREQ_MIN := "DB_PARAMS".FREQ_MIN,
+        FREQ_MAX := "DB_PARAMS".FREQ_MAX,
+        T_OPEN_QT1 := "DB_PARAMS".T_OPEN_QT1,
+        T_START_GD_DELAY := "DB_PARAMS".T_START_GD_DELAY,
+        T_GD_READY_TIMEOUT := "DB_PARAMS".T_GD_READY_TIMEOUT,
+        T_GD_STABILIZATION := "DB_PARAMS".T_GD_STABILIZATION,
+        T_CLOSE_QG1 := "DB_PARAMS".T_CLOSE_QG1,
+        T_GRID_STABLE := "DB_PARAMS".T_GRID_STABLE,
+        T_OPEN_QG1 := "DB_PARAMS".T_OPEN_QG1,
+        T_CLOSE_QT1 := "DB_PARAMS".T_CLOSE_QT1,
+        T_GD_COOLDOWN := "DB_PARAMS".T_GD_COOLDOWN,
+        T_GRID_FAIL_FILTER := "DB_PARAMS".T_GRID_FAIL_FILTER,
+        
+        // Outputs → DB_GLOBAL_STATUS
+        STATE => "DB_GLOBAL_STATUS".SCMTA_STATE,
+        STATE_NAME => "DB_GLOBAL_STATUS".SCMTA_STATE_NAME,
+        REQ_SCMTA_OPEN_QT1 => "DB_SCMTA".REQ_SCMTA_OPEN_QT1,
+        REQ_SCMTA_CLOSE_QT1 => "DB_SCMTA".REQ_SCMTA_CLOSE_QT1,
+        REQ_SCMTA_OPEN_QG1 => "DB_SCMTA".REQ_SCMTA_OPEN_QG1,
+        REQ_SCMTA_CLOSE_QG1 => "DB_SCMTA".REQ_SCMTA_CLOSE_QG1,
+        REQ_SCMTA_OPEN_QG2 => "DB_SCMTA".REQ_SCMTA_OPEN_QG2,
+        REQ_SCMTA_CLOSE_QG2 => "DB_SCMTA".REQ_SCMTA_CLOSE_QG2,
+        DO_GD_START => %Q0.0,  // TODO: mapear salida física GD
+        DO_GD_STOP => %Q0.1,
+        IS_ON_GRID => "DB_GLOBAL_STATUS".IS_ON_GRID,
+        IS_ON_GD => "DB_GLOBAL_STATUS".IS_ON_GD,
+        IS_IN_TRANSFER => "DB_GLOBAL_STATUS".IS_IN_TRANSFER,
+        IS_FAULT => "DB_GLOBAL_STATUS".IS_FAULT,
+        GRID_OK => "DB_GLOBAL_STATUS".GRID_OK,
+        GRID_FAIL => "DB_GLOBAL_STATUS".GRID_FAIL,
+        FAULT_CODE => "DB_GLOBAL_STATUS".FAULT_CODE,
+        ELAPSED_TIME => "DB_GLOBAL_STATUS".ELAPSED_TIME,
+        DIAG_LAST_TRANSFER_TIME => "DB_GLOBAL_STATUS".DIAG_LAST_TRANSFER_TIME
+    );
+    
+    
+    // ========================================================================
+    // NETWORK 3: DESLASTRE Y REENGANCHE
+    // ========================================================================
+    // Input: IS_ON_GD, GD_LoadPct, TR_LoadPct, arrays SHED_ORDER/ENABLE
+    // Output: REQ_SHED_OPEN/CLOSE[1..18]
+    
+    "DB_SHED"(
+        // Control
+        ENABLE := "DB_PARAMS".ENABLE_SHED,
+        MODE_AUTO := "DB_GLOBAL_STATUS".MODE_AUTO,
+        IS_ON_GD := "DB_GLOBAL_STATUS".IS_ON_GD,
+        IS_ON_GRID := "DB_GLOBAL_STATUS".IS_ON_GRID,
+        
+        // Mediciones
+        GD_LoadPct := "DB_GLOBAL_STATUS".GD_LoadPct,
+        TR_LoadPct := "DB_GLOBAL_STATUS".TR_LoadPct,
+        
+        // Parámetros (de DB_PARAMS)
+        SHED_ON := "DB_PARAMS".SHED_ON,
+        TR_SHED_ON := "DB_PARAMS".TR_SHED_ON,
+        SHED_OFF := "DB_PARAMS".SHED_OFF,
+        T_SHED_STEP := "DB_PARAMS".T_SHED_STEP,
+        T_RECONNECT_STEP := "DB_PARAMS".T_RECONNECT_STEP,
+        T_LOAD_FILTER := "DB_PARAMS".T_LOAD_FILTER,
+        SHED_ORDER := "DB_PARAMS".SHED_ORDER,
+        RECONNECT_ORDER := "DB_PARAMS".RECONNECT_ORDER,
+        SHED_ENABLE := "DB_PARAMS".SHED_ENABLE,
+        
+        // Estados feeders
+        FEEDER_STATE := "DB_GLOBAL_STATUS".FEEDER_STATE,
+        
+        // Outputs → DB_SHED
+        REQ_SHED_OPEN => "DB_SHED".REQ_SHED_OPEN,
+        REQ_SHED_CLOSE => "DB_SHED".REQ_SHED_CLOSE,
+        SHED_ACTIVE => "DB_GLOBAL_STATUS".SHED_ACTIVE,
+        SHED_STEP => "DB_GLOBAL_STATUS".SHED_STEP,
+        RECONNECT_ACTIVE => "DB_GLOBAL_STATUS".RECONNECT_ACTIVE,
+        RECONNECT_STEP => "DB_GLOBAL_STATUS".RECONNECT_STEP,
+        FEEDERS_SHED => "DB_GLOBAL_STATUS".FEEDERS_SHED,
+        DIAG_LOAD_OVER_LIMIT => "DB_GLOBAL_STATUS".DIAG_LOAD_OVER_LIMIT
+    );
+    
+    
+    // ========================================================================
+    // NETWORK 4: ÁRBITRO DE COMANDOS (Enclavamiento + Priorización)
+    // ========================================================================
+    // Input: REQ_SCMTA_*, REQ_SHED_*, REQ_MAN_*, permisos LOCAL/REMOTO
+    // Output: CMD_* (comandos finales para drivers Modbus)
+    
+    "DB_ARBITER"(
+        // Requests SCMTA (Prioridad 1)
+        REQ_SCMTA_OPEN_QT1 := "DB_SCMTA".REQ_SCMTA_OPEN_QT1,
+        REQ_SCMTA_CLOSE_QT1 := "DB_SCMTA".REQ_SCMTA_CLOSE_QT1,
+        REQ_SCMTA_OPEN_QG1 := "DB_SCMTA".REQ_SCMTA_OPEN_QG1,
+        REQ_SCMTA_CLOSE_QG1 := "DB_SCMTA".REQ_SCMTA_CLOSE_QG1,
+        REQ_SCMTA_OPEN_QG2 := "DB_SCMTA".REQ_SCMTA_OPEN_QG2,
+        REQ_SCMTA_CLOSE_QG2 := "DB_SCMTA".REQ_SCMTA_CLOSE_QG2,
+        
+        // Requests SHED (Prioridad 2)
+        REQ_SHED_OPEN := "DB_SHED".REQ_SHED_OPEN,
+        REQ_SHED_CLOSE := "DB_SHED".REQ_SHED_CLOSE,
+        
+        // Requests MANUAL (Prioridad 3)
+        REQ_MAN_QT1_OPEN := "DB_GLOBAL_STATUS".REQ_MAN_QT1_OPEN,
+        REQ_MAN_QT1_CLOSE := "DB_GLOBAL_STATUS".REQ_MAN_QT1_CLOSE,
+        REQ_MAN_QG1_OPEN := "DB_GLOBAL_STATUS".REQ_MAN_QG1_OPEN,
+        REQ_MAN_QG1_CLOSE := "DB_GLOBAL_STATUS".REQ_MAN_QG1_CLOSE,
+        REQ_MAN_QG2_OPEN := "DB_GLOBAL_STATUS".REQ_MAN_QG2_OPEN,
+        REQ_MAN_QG2_CLOSE := "DB_GLOBAL_STATUS".REQ_MAN_QG2_CLOSE,
+        
+        // Modo y permisos
+        MODE_AUTO := "DB_GLOBAL_STATUS".MODE_AUTO,
+        MODE_MANUAL := "DB_GLOBAL_STATUS".MODE_MANUAL,
+        QT1_REMOTE_ALLOWED := "DB_GLOBAL_STATUS".QT1_REMOTE_ALLOWED,
+        QG1_REMOTE_ALLOWED := "DB_GLOBAL_STATUS".QG1_REMOTE_ALLOWED,
+        QG2_REMOTE_ALLOWED := "DB_GLOBAL_STATUS".QG2_REMOTE_ALLOWED,
+        FEEDER_REMOTE_ALLOWED := "DB_GLOBAL_STATUS".FEEDER_REMOTE_ALLOWED,
+        
+        // Estados interruptores
+        QT1_STATE := "DB_GLOBAL_STATUS".QT1_STATE,
+        QG1_STATE := "DB_GLOBAL_STATUS".QG1_STATE,
+        QG2_STATE := "DB_GLOBAL_STATUS".QG2_STATE,
+        FEEDER_STATE := "DB_GLOBAL_STATUS".FEEDER_STATE,
+        
+        // Outputs → DB_ARBITER (comandos finales)
+        CMD_OPEN_QT1 => "DB_ARBITER".CMD_OPEN_QT1,
+        CMD_CLOSE_QT1 => "DB_ARBITER".CMD_CLOSE_QT1,
+        CMD_OPEN_QG1 => "DB_ARBITER".CMD_OPEN_QG1,
+        CMD_CLOSE_QG1 => "DB_ARBITER".CMD_CLOSE_QG1,
+        CMD_OPEN_QG2 => "DB_ARBITER".CMD_OPEN_QG2,
+        CMD_CLOSE_QG2 => "DB_ARBITER".CMD_CLOSE_QG2,
+        CMD_OPEN_FEEDER => "DB_ARBITER".CMD_OPEN_FEEDER,
+        CMD_CLOSE_FEEDER => "DB_ARBITER".CMD_CLOSE_FEEDER,
+        
+        // Bloqueos y alarmas
+        BLOCK_LOCAL => "DB_GLOBAL_STATUS".BLOCK_LOCAL,
+        BLOCK_INTERLOCK => "DB_GLOBAL_STATUS".BLOCK_INTERLOCK,
+        BLOCK_CONFLICT => "DB_GLOBAL_STATUS".BLOCK_CONFLICT,
+        ALM_INTERLOCK_VIOLATION => "DB_GLOBAL_STATUS".ALM_INTERLOCK_VIOLATION
+    );
+    
+    
+    // ========================================================================
+    // NETWORK 5: GESTIÓN DE SALIDAS (Pilotos, Alarmas, HMI)
+    // ========================================================================
+    // Input: Estados SCMTA, alarmas, deslastre
+    // Output: DO pilotos, bocina, baliza, señales HMI
+    
+    "DB_OUTPUTS"(
+        // Estados sistema
+        IS_ON_GRID := "DB_GLOBAL_STATUS".IS_ON_GRID,
+        IS_ON_GD := "DB_GLOBAL_STATUS".IS_ON_GD,
+        IS_IN_TRANSFER := "DB_GLOBAL_STATUS".IS_IN_TRANSFER,
+        IS_FAULT := "DB_GLOBAL_STATUS".IS_FAULT,
+        STATE := "DB_GLOBAL_STATUS".SCMTA_STATE,
+        STATE_NAME := "DB_GLOBAL_STATUS".SCMTA_STATE_NAME,
+        FAULT_CODE := "DB_GLOBAL_STATUS".FAULT_CODE,
+        
+        // Alarmas
+        ALM_INTERLOCK_VIOLATION := "DB_GLOBAL_STATUS".ALM_INTERLOCK_VIOLATION,
+        BLOCK_INTERLOCK := "DB_GLOBAL_STATUS".BLOCK_INTERLOCK,
+        GRID_FAIL := "DB_GLOBAL_STATUS".GRID_FAIL,
+        GD_ALARM := "DB_GLOBAL_STATUS".GD_ALARM,
+        
+        // Deslastre
+        SHED_ACTIVE := "DB_GLOBAL_STATUS".SHED_ACTIVE,
+        FEEDERS_SHED := "DB_GLOBAL_STATUS".FEEDERS_SHED,
+        
+        // Control
+        ENABLE_HORN := "DB_PARAMS".ENABLE_HORN,
+        ACK_ALARM := %I2.1,  // TODO: mapear botón ACK físico o HMI
+        
+        // Outputs → DO físicas (EJEMPLO - ajustar según hardware)
+        DO_PILOT_ON_GRID => %Q1.0,
+        DO_PILOT_ON_GD => %Q1.1,
+        DO_PILOT_TRANSFER => %Q1.2,
+        DO_PILOT_FAULT => %Q1.3,
+        DO_PILOT_SHED => %Q1.4,
+        DO_ALARM_HORN => %Q1.5,
+        DO_ALARM_BEACON => %Q1.6,
+        
+        // Outputs HMI
+        HMI_ALARM_ACTIVE => "DB_GLOBAL_STATUS".HMI_ALARM_ACTIVE,
+        HMI_ALARM_TEXT => "DB_GLOBAL_STATUS".HMI_ALARM_TEXT
+    );
+    
+    
+    // ========================================================================
+    // NETWORK 6: DRIVERS MODBUS MTZ (QT1, QG1, QG2)
+    // ========================================================================
+    
+    // Driver QT1 (Interruptor RED)
+    "DB_QT1_DRV"(
+        ENABLE := TRUE,
+        CMD_OPEN := "DB_ARBITER".CMD_OPEN_QT1,
+        CMD_CLOSE := "DB_ARBITER".CMD_CLOSE_QT1,
+        CMD_RESET := FALSE,
+        SLAVE_ID := "DB_PARAMS".SLAVE_ID_QT1,
+        PASSWORD := "DB_PARAMS".PASSWORD_MTZ_QT1,
+        T_POLL_TIMEOUT := "DB_PARAMS".T_MODBUS_POLL_TIMEOUT,
+        T_CONFIRM_TIMEOUT := "DB_PARAMS".T_MODBUS_CONFIRM_TIMEOUT,
+        
+        CB_STATE => "DB_GLOBAL_STATUS".QT1_STATE,
+        CB_TRIPPED => "DB_GLOBAL_STATUS".QT1_TRIPPED,
+        CB_READY => "DB_GLOBAL_STATUS".QT1_READY
+    );
+    
+    // Driver QG1 (Interruptor GD01)
+    "DB_QG1_DRV"(
+        ENABLE := TRUE,
+        CMD_OPEN := "DB_ARBITER".CMD_OPEN_QG1,
+        CMD_CLOSE := "DB_ARBITER".CMD_CLOSE_QG1,
+        CMD_RESET := FALSE,
+        SLAVE_ID := "DB_PARAMS".SLAVE_ID_QG1,
+        PASSWORD := "DB_PARAMS".PASSWORD_MTZ_QG1,
+        T_POLL_TIMEOUT := "DB_PARAMS".T_MODBUS_POLL_TIMEOUT,
+        T_CONFIRM_TIMEOUT := "DB_PARAMS".T_MODBUS_CONFIRM_TIMEOUT,
+        
+        CB_STATE => "DB_GLOBAL_STATUS".QG1_STATE,
+        CB_TRIPPED => "DB_GLOBAL_STATUS".QG1_TRIPPED,
+        CB_READY => "DB_GLOBAL_STATUS".QG1_READY
+    );
+    
+    // Driver QG2 (Interruptor GD02 - futuro)
+    "DB_QG2_DRV"(
+        ENABLE := TRUE,
+        CMD_OPEN := "DB_ARBITER".CMD_OPEN_QG2,
+        CMD_CLOSE := "DB_ARBITER".CMD_CLOSE_QG2,
+        CMD_RESET := FALSE,
+        SLAVE_ID := "DB_PARAMS".SLAVE_ID_QG2,
+        PASSWORD := "DB_PARAMS".PASSWORD_MTZ_QG2,
+        T_POLL_TIMEOUT := "DB_PARAMS".T_MODBUS_POLL_TIMEOUT,
+        T_CONFIRM_TIMEOUT := "DB_PARAMS".T_MODBUS_CONFIRM_TIMEOUT,
+        
+        CB_STATE => "DB_GLOBAL_STATUS".QG2_STATE,
+        CB_TRIPPED => "DB_GLOBAL_STATUS".QG2_TRIPPED,
+        CB_READY => "DB_GLOBAL_STATUS".QG2_READY
+    );
+    
+    
+    // ========================================================================
+    // NETWORK 7: CÁLCULOS AUXILIARES
+    // ========================================================================
+    
+    // Cálculo GD_LoadPct (carga GD en porcentaje)
+    // LoadPct = (P_TOTAL / P_NOMINAL) * 100
+    IF "DB_PARAMS".GD_POWER_NOMINAL > 0.0 THEN
+        "DB_GLOBAL_STATUS".GD_LoadPct := 
+            ("DB_GLOBAL_STATUS".GD_P_TOTAL / "DB_PARAMS".GD_POWER_NOMINAL) * 100.0;
+    ELSE
+        "DB_GLOBAL_STATUS".GD_LoadPct := 0.0;
+    END_IF;
+    
+    // Cálculo TR_LoadPct (carga transformador en porcentaje)
+    IF "DB_PARAMS".TR_POWER_NOMINAL > 0.0 THEN
+        "DB_GLOBAL_STATUS".TR_LoadPct := 
+            ("DB_GLOBAL_STATUS".TR_P_TOTAL / "DB_PARAMS".TR_POWER_NOMINAL) * 100.0;
+    ELSE
+        "DB_GLOBAL_STATUS".TR_LoadPct := 0.0;
+    END_IF;
+    
+    // Contador Uptime (tiempo desde inicio PLC)
+    // TODO: implementar con timer acumulativo
+    
+    // Incrementar contador transferencias al entrar en estado ON_GD
+    // TODO: detectar flanco IS_ON_GD y incrementar TRANSFER_COUNT
+    
+END_ORGANIZATION_BLOCK

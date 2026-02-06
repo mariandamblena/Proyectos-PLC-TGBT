@@ -1,0 +1,132 @@
+@startuml SHED_Activity
+
+title FB_SHED - Diagrama de Actividad Deslastre y Reenganche
+
+|Sistema SCMTA|
+start
+
+:Operando en modo ON_GD;
+
+|FB_SHED|
+:Monitorear carga GD y Trafo;
+
+if (GD_LoadPct > SHED_ON\nOR\nTR_LoadPct > TR_SHED_ON) then (YES)
+    
+    :Filtrar señal 2s\n(evitar bouncing);
+    
+    if (Carga sostenida > umbral) then (YES)
+        
+        |Deslastre Escalonado|
+        :SHED_ACTIVE = TRUE;
+        :SHED_STEP = 1;
+        
+        repeat
+            :Obtener feederID = SHED_ORDER[SHED_STEP];
+            
+            if (SHED_ENABLE[feederID] = TRUE) then (YES)
+                if (FEEDER_STATE[feederID] = CERRADO) then (YES)
+                    :REQ_SHED_OPEN[feederID] = TRUE;
+                    :Enviar a ARBITER;
+                    
+                    |FB_CMD_ARBITER|
+                    :Verificar LOCAL/REMOTO;
+                    :CMD_OPEN_FEEDER[feederID] = TRUE;
+                    
+                    |Driver NSX|
+                    :Ejecutar comando Modbus\nOpen feeder;
+                    
+                    |FB_SHED|
+                    :Esperar T_SHED_STEP (3-5s);
+                endif
+            endif
+            
+            :SHED_STEP = SHED_STEP + 1;
+            
+            if (GD_LoadPct < SHED_OFF\nAND\nTR_LoadPct < SHED_OFF) then (YES)
+                :Cancelar deslastre\n(histéresis);
+                stop
+            endif
+            
+        repeat while (SHED_STEP <= 18) is (NO) not (YES)
+        
+        :SHED_ACTIVE = FALSE;
+        :Deslastre completado;
+        
+    endif
+    
+endif
+
+:Continuar operando en GD;
+
+|Sistema SCMTA|
+if (RED retorna estable 120s) then (YES)
+    
+    :Transferir a RED;
+    :IS_ON_GRID = TRUE;
+    
+    |FB_SHED - Reenganche|
+    :RECONNECT_ACTIVE = TRUE;
+    :RECONNECT_STEP = 1;
+    
+    repeat
+        :Obtener feederID = RECONNECT_ORDER[RECONNECT_STEP];
+        
+        if (SHED_ENABLE[feederID] = TRUE) then (YES)
+            if (FEEDER_STATE[feederID] = ABIERTO) then (YES)
+                :REQ_SHED_CLOSE[feederID] = TRUE;
+                
+                |FB_CMD_ARBITER|
+                :CMD_CLOSE_FEEDER[feederID] = TRUE;
+                
+                |Driver NSX|
+                :Ejecutar comando Modbus\nClose feeder;
+                
+                |FB_SHED|
+                :Esperar T_RECONNECT_STEP (3-5s);
+            endif
+        endif
+        
+        :RECONNECT_STEP = RECONNECT_STEP + 1;
+        
+        if (RED falla nuevamente) then (YES)
+            :Cancelar reenganche;
+            stop
+        endif
+        
+    repeat while (RECONNECT_STEP <= 18) is (NO) not (YES)
+    
+    :RECONNECT_ACTIVE = FALSE;
+    :Reenganche completado;
+    
+endif
+
+stop
+
+note right of "Filtrar señal 2s"
+    Evita deslastre por picos
+    transitorios de carga
+end note
+
+note right of "SHED_ORDER[SHED_STEP]"
+    Array configurable desde HMI
+    Define prioridad de corte
+    
+    Ejemplo:
+    [5, 12, 3, 8, ...] = 
+    Paso 1: cortar feeder 5
+    Paso 2: cortar feeder 12
+    Paso 3: cortar feeder 3
+    etc.
+    
+    Típicamente mayor amperaje primero:
+    400A → 320A → 250A → etc.
+end note
+
+note right of "RECONNECT_ORDER"
+    Puede ser igual a SHED_ORDER
+    (misma secuencia)
+    o diferente si se requiere
+    orden distinto al reenganche
+end note
+
+@enduml

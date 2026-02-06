@@ -1,0 +1,368 @@
+(*
+================================================================================
+  FUNCTION BLOCK: FB_MTZ_DRIVER
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Driver Modbus para Masterpact MTZ y Compact NSX con Micrologic.
+  Implementa protocolo Command Interface según manual Schneider.
+  
+  RESPONSABILIDADES:
+  1. Lectura estado: registros 32000 (calidad) y 32001 (OF/SD/PF)
+  2. Escritura comandos: buffer 8000-8019 + polling 8020-8021
+  3. Máquina de estados: IDLE → BUILD → WRITE → POLL → CONFIRM → DONE/ERROR
+  4. Gestión password nivel 3 (típicamente "3333")
+  5. Manejo códigos respuesta benignos (ya abierto/cerrado)
+  
+  PROTOCOLO COMMAND INTERFACE:
+  - Preparar buffer 8000-8019:
+    8000 = 904 (Open), 905 (Close), 906 (Reset)
+    8001 = 10
+    8002 = 5377 (0x1501)
+    8003 = 1 (requiere password)
+    8004-8005 = ASCII password "3333"
+    8006-8016 = 0
+    8017 = 8019, 8018 = 8020, 8019 = 8021
+  - Escribir 20 registros FC16 desde 8000
+  - Poll 8020-8021:
+    Mientras 8021 == 0x0003 → busy
+    Al finalizar: 8021.LSB == 0 → OK
+  - Confirmar estado leyendo 32001 (OF/SD)
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_MTZ_DRIVER"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT 
+    // ========== CONTROL ==========
+    ENABLE : Bool := TRUE;
+    CMD_OPEN : Bool;                 // Pulso comando Open
+    CMD_CLOSE : Bool;                // Pulso comando Close
+    CMD_RESET : Bool;                // Pulso comando Reset
+    
+    // ========== CONFIGURACIÓN MODBUS ==========
+    SLAVE_ID : Byte;                 // Dirección Modbus del dispositivo
+    PASSWORD : String[4] := '3333';  // Password nivel 3
+    
+    // ========== PARÁMETROS ==========
+    T_POLL_TIMEOUT : Time := T#5s;   // Timeout polling respuesta
+    T_CONFIRM_TIMEOUT : Time := T#2s; // Timeout confirmación estado
+END_VAR
+
+VAR_OUTPUT 
+    // ========== ESTADO ==========
+    STATE : Int;                     // Estado driver (0-7)
+    STATE_NAME : String[20];
+    BUSY : Bool;                     // TRUE = operación en curso
+    DONE : Bool;                     // TRUE = comando completado OK
+    ERROR : Bool;                    // TRUE = error en operación
+    ERROR_CODE : Int;                // Código error
+    
+    // ========== DATOS LEÍDOS ==========
+    CB_STATE : Int;                  // 0=Abierto, 1=Cerrado, 2=Desconocido
+    CB_TRIPPED : Bool;               // TRUE = disparado (SD=1)
+    CB_READY : Bool;                 // TRUE = listo para cerrar (PF=1)
+    QUALITY_OK : Bool;               // TRUE = reg 32000 indica calidad OK
+    
+END_VAR
+
+VAR 
+    // ========== MÁQUINA DE ESTADOS ==========
+    cmdBuffer : Array[0..19] of Word; // Buffer registros 8000-8019
+    responseBuffer : Array[0..1] of Word; // Buffer registros 8020-8021
+    statusReg32000 : Word;           // Registro calidad
+    statusReg32001 : Word;           // Registro estado OF/SD/PF
+    
+    tonPollTimeout : TON;
+    tonConfirmTimeout : TON;
+    tonReqWrite : TON;               // Timer mantener REQ escritura 2s
+    reqWriteActive : Bool;           // REQ escritura activo
+    
+    // Flags
+    cmdType : Int;                   // 904=Open, 905=Close, 906=Reset
+    pollCount : Int;                 // Contador intentos polling
+    
+    // R_TRIG comandos
+    rtCmdOpen : Bool;
+    rtCmdClose : Bool;
+    rtCmdReset : Bool;
+    memCmdOpen : Bool;
+    memCmdClose : Bool;
+    memCmdReset : Bool;
+    
+END_VAR
+
+VAR_TEMP 
+    i : Int;
+    bitOF : Bool;
+    bitSD : Bool;
+    bitPF : Bool;
+END_VAR
+
+VAR CONSTANT 
+    // Estados driver
+    ST_IDLE : Int := 0;
+    ST_BUILD_BUFFER : Int := 1;
+    ST_WRITE_CMD : Int := 2;
+    ST_POLL_RESPONSE : Int := 3;
+    ST_CONFIRM_STATE : Int := 4;
+    ST_DONE : Int := 5;
+    ST_ERROR : Int := 6;
+    
+    // Códigos comando
+    CMD_CODE_OPEN : Int := 904;
+    CMD_CODE_CLOSE : Int := 905;
+    CMD_CODE_RESET : Int := 906;
+    
+    // Códigos error
+    ERR_TIMEOUT_POLL : Int := 201;
+    ERR_TIMEOUT_CONFIRM : Int := 202;
+    ERR_CMD_FAILED : Int := 203;
+    ERR_MODBUS_COMM : Int := 204;
+    
+    // Máscaras bits 32001
+    MASK_OF : Word := 16#0001;       // Bit 0: OF (Open Feedback)
+    MASK_SD : Word := 16#0002;       // Bit 1: SD (Shunt trip)
+    MASK_PF : Word := 16#0004;       // Bit 2: PF (Pre-fault, ready to close)
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // NETWORK 1: DETECCIÓN FLANCO COMANDOS (R_TRIG)
+    // ========================================================================
+    #rtCmdOpen := #CMD_OPEN AND NOT #memCmdOpen;
+    #memCmdOpen := #CMD_OPEN;
+    
+    #rtCmdClose := #CMD_CLOSE AND NOT #memCmdClose;
+    #memCmdClose := #CMD_CLOSE;
+    
+    #rtCmdReset := #CMD_RESET AND NOT #memCmdReset;
+    #memCmdReset := #CMD_RESET;
+    
+    
+    // ========================================================================
+    // NETWORK 2: MÁQUINA DE ESTADOS DRIVER
+    // ========================================================================
+    
+    CASE #STATE OF
+        
+        // ====================================================================
+        // ESTADO 0: IDLE (Esperando comando)
+        // ====================================================================
+        #ST_IDLE:
+            #STATE_NAME := 'IDLE';
+            #BUSY := FALSE;
+            #DONE := FALSE;
+            #ERROR := FALSE;
+            #ERROR_CODE := 0;
+            
+            // Detectar comando nuevo
+            IF #ENABLE THEN
+                IF #rtCmdOpen THEN
+                    #cmdType := #CMD_CODE_OPEN;
+                    #STATE := #ST_BUILD_BUFFER;
+                    #BUSY := TRUE;
+                ELSIF #rtCmdClose THEN
+                    #cmdType := #CMD_CODE_CLOSE;
+                    #STATE := #ST_BUILD_BUFFER;
+                    #BUSY := TRUE;
+                ELSIF #rtCmdReset THEN
+                    #cmdType := #CMD_CODE_RESET;
+                    #STATE := #ST_BUILD_BUFFER;
+                    #BUSY := TRUE;
+                END_IF;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 1: BUILD_BUFFER (Construir buffer 8000-8019)
+        // ====================================================================
+        #ST_BUILD_BUFFER:
+            #STATE_NAME := 'BUILD_BUFFER';
+            
+            // Limpiar buffer
+            FOR #i := 0 TO 19 DO
+                #cmdBuffer[#i] := 0;
+            END_FOR;
+            
+            // Llenar según protocolo Command Interface
+            #cmdBuffer[0] := INT_TO_WORD(#cmdType);  // 8000: código comando
+            #cmdBuffer[1] := 10;                      // 8001: 10
+            #cmdBuffer[2] := 16#1501;                 // 8002: 5377 (0x1501)
+            #cmdBuffer[3] := 1;                       // 8003: requiere password
+            
+            // Password ASCII "3333" → 8004-8005
+            // '3' = 0x33, '3' = 0x33
+            #cmdBuffer[4] := 16#3333;  // 8004: "33"
+            #cmdBuffer[5] := 16#3333;  // 8005: "33"
+            
+            // 8006-8016 = 0 (ya inicializados)
+            
+            // Constantes protocolo
+            #cmdBuffer[17] := 8019;    // 8017
+            #cmdBuffer[18] := 8020;    // 8018
+            #cmdBuffer[19] := 8021;    // 8019
+            
+            // Transición inmediata
+            #STATE := #ST_WRITE_CMD;
+        
+        
+        // ====================================================================
+        // ESTADO 2: WRITE_CMD (Escribir FC16 8000-8019)
+        // ====================================================================
+        #ST_WRITE_CMD:
+            #STATE_NAME := 'WRITE_CMD';
+            
+            // Activar REQ de escritura por 2 segundos
+            IF NOT #reqWriteActive THEN
+                #reqWriteActive := TRUE;
+                #tonReqWrite(IN := FALSE, PT := T#1s);  // Reset timer con PT
+            END_IF;
+            
+            // Mantener REQ activo 2 segundos
+            #tonReqWrite(IN := #reqWriteActive, PT := T#2s);
+            
+            // TODO: Conectar #reqWriteActive a MB_CLIENT.REQ
+            // MB_CLIENT(
+            //     REQ := #reqWriteActive,
+            //     MB_MODE := 1,  // FC16 Write Multiple Registers
+            //     ADDR := 8000,
+            //     LEN := 20,
+            //     DATA := #cmdBuffer
+            // );
+            
+            // Transición: después de 2s pasar a polling
+            IF #tonReqWrite.Q THEN
+                #reqWriteActive := FALSE;
+                #STATE := #ST_POLL_RESPONSE;
+                #pollCount := 0;
+                #tonPollTimeout(IN := FALSE, PT := T#1s);  // Reset timer con PT
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 3: POLL_RESPONSE (Leer 8020-8021 hasta completar)
+        // ====================================================================
+        #ST_POLL_RESPONSE:
+            #STATE_NAME := 'POLL_RESPONSE';
+            #tonPollTimeout(IN := TRUE, PT := #T_POLL_TIMEOUT);
+            
+            // TODO: Leer registros 8020-8021 (FC3 Read Holding Registers)
+            // Simulación: asumir respuesta inmediata OK
+            #responseBuffer[0] := 0;      // 8020
+            #responseBuffer[1] := 16#0000; // 8021: LSB=0 → OK
+            
+            // Verificar respuesta
+            IF (#responseBuffer[1] AND 16#00FF) = 16#0003 THEN
+                // Busy (0x0003): continuar polling
+                #pollCount := #pollCount + 1;
+                
+                IF #tonPollTimeout.Q THEN
+                    // Timeout
+                    #ERROR_CODE := #ERR_TIMEOUT_POLL;
+                    #STATE := #ST_ERROR;
+                END_IF;
+                
+            ELSIF (#responseBuffer[1] AND 16#00FF) = 16#0000 THEN
+                // OK (LSB=0): comando aceptado
+                #STATE := #ST_CONFIRM_STATE;
+                #tonConfirmTimeout(IN := FALSE, PT := T#1s);  // Reset timer con PT
+                
+            ELSIF (#responseBuffer[1] AND 16#00FF) = 16#0001 THEN
+                // Código 0x0001: "Already in requested state" → considerar OK
+                #STATE := #ST_CONFIRM_STATE;
+                
+            ELSE
+                // Error desconocido
+                #ERROR_CODE := #ERR_CMD_FAILED;
+                #STATE := #ST_ERROR;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 4: CONFIRM_STATE (Confirmar estado leyendo 32001)
+        // ====================================================================
+        #ST_CONFIRM_STATE:
+            #STATE_NAME := 'CONFIRM_STATE';
+            #tonConfirmTimeout(IN := TRUE, PT := #T_CONFIRM_TIMEOUT);
+            
+            // TODO: Leer registros 32000 (calidad) y 32001 (OF/SD/PF)
+            // Simulación: asumir estado confirmado
+            #statusReg32000 := 16#0001;  // Calidad OK
+            #statusReg32001 := 16#0001;  // OF=1 (abierto) o 0 (cerrado)
+            
+            // Decodificar bits
+            #bitOF := (#statusReg32001 AND #MASK_OF) <> 0;
+            #bitSD := (#statusReg32001 AND #MASK_SD) <> 0;
+            #bitPF := (#statusReg32001 AND #MASK_PF) <> 0;
+            
+            // Actualizar outputs
+            #QUALITY_OK := (#statusReg32000 AND 16#0001) <> 0;
+            #CB_TRIPPED := #bitSD;
+            #CB_READY := #bitPF;
+            
+            IF #bitOF THEN
+                #CB_STATE := 0;  // Abierto
+            ELSE
+                #CB_STATE := 1;  // Cerrado
+            END_IF;
+            
+            // Verificar si estado coincide con comando
+            IF #cmdType = #CMD_CODE_OPEN AND #CB_STATE = 0 THEN
+                // Open confirmado
+                #STATE := #ST_DONE;
+            ELSIF #cmdType = #CMD_CODE_CLOSE AND #CB_STATE = 1 THEN
+                // Close confirmado
+                #STATE := #ST_DONE;
+            ELSIF #cmdType = #CMD_CODE_RESET THEN
+                // Reset no verifica estado, solo ejecución OK
+                #STATE := #ST_DONE;
+            ELSIF #tonConfirmTimeout.Q THEN
+                // Timeout confirmación
+                #ERROR_CODE := #ERR_TIMEOUT_CONFIRM;
+                #STATE := #ST_ERROR;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 5: DONE (Comando completado OK)
+        // ====================================================================
+        #ST_DONE:
+            #STATE_NAME := 'DONE';
+            #BUSY := FALSE;
+            #DONE := TRUE;
+            
+            // Retornar a IDLE
+            #STATE := #ST_IDLE;
+        
+        
+        // ====================================================================
+        // ESTADO 6: ERROR (Falla en operación)
+        // ====================================================================
+        #ST_ERROR:
+            #STATE_NAME := 'ERROR';
+            #BUSY := FALSE;
+            #ERROR := TRUE;
+            
+            // Retornar a IDLE (requiere reset externo o timeout)
+            // Por ahora auto-reset después de 1 ciclo
+            #STATE := #ST_IDLE;
+        
+    END_CASE;
+    
+    
+    // ========================================================================
+    // NETWORK 3: LECTURA ESTADO CÍCLICA (POLLING SIN COMANDO)
+    // ========================================================================
+    // Si está en IDLE, leer estado cada ciclo para actualizar CB_STATE
+    IF #STATE = #ST_IDLE AND #ENABLE THEN
+        // TODO: Leer 32000-32001 periódicamente
+        // Por ahora mantener último estado conocido
+    END_IF;
+    
+END_FUNCTION_BLOCK

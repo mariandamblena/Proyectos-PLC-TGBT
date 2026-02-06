@@ -1,0 +1,107 @@
+@startuml MTZ_Driver_StateMachine
+
+title FB_MTZ_DRIVER - Máquina de Estados Driver Modbus MTZ/NSX
+
+[*] --> IDLE
+
+state IDLE {
+    IDLE : Esperando comando
+    IDLE : BUSY = FALSE
+    IDLE : Lectura cíclica estado (32000-32001)
+}
+
+IDLE --> BUILD_BUFFER : CMD_OPEN = TRUE\no CMD_CLOSE = TRUE\no CMD_RESET = TRUE
+
+state BUILD_BUFFER {
+    BUILD_BUFFER : Construir buffer 8000-8019
+    BUILD_BUFFER : según protocolo Command Interface
+    BUILD_BUFFER : ---
+    BUILD_BUFFER : 8000 = código (904/905/906)
+    BUILD_BUFFER : 8001 = 10
+    BUILD_BUFFER : 8002 = 0x1501
+    BUILD_BUFFER : 8003 = 1 (password required)
+    BUILD_BUFFER : 8004-8005 = "3333" (ASCII)
+    BUILD_BUFFER : 8017-8019 = constantes
+}
+
+BUILD_BUFFER --> WRITE_CMD : Buffer completo
+
+state WRITE_CMD {
+    WRITE_CMD : Escribir 20 registros
+    WRITE_CMD : FC16 Write Multiple Registers
+    WRITE_CMD : desde 8000 a 8019
+}
+
+WRITE_CMD --> POLL_RESPONSE : Escritura OK
+
+state POLL_RESPONSE {
+    POLL_RESPONSE : Leer registros 8020-8021
+    POLL_RESPONSE : FC3 Read Holding Registers
+    POLL_RESPONSE : Timeout: 5s
+    POLL_RESPONSE : ---
+    POLL_RESPONSE : Mientras 8021 == 0x0003 → busy
+    POLL_RESPONSE : 8021.LSB == 0 → OK
+    POLL_RESPONSE : 8021.LSB == 1 → Already in state (OK)
+}
+
+POLL_RESPONSE --> POLL_RESPONSE : 8021 = 0x0003\n(busy, continuar)
+POLL_RESPONSE --> CONFIRM_STATE : 8021.LSB = 0\n(comando OK)
+POLL_RESPONSE --> CONFIRM_STATE : 8021.LSB = 1\n(already in state)
+POLL_RESPONSE --> ERROR : Timeout\no código error
+
+state CONFIRM_STATE {
+    CONFIRM_STATE : Confirmar estado físico
+    CONFIRM_STATE : Leer 32000 (calidad)
+    CONFIRM_STATE : Leer 32001 (OF/SD/PF)
+    CONFIRM_STATE : Timeout: 2s
+    CONFIRM_STATE : ---
+    CONFIRM_STATE : OF (bit 0) = Open Feedback
+    CONFIRM_STATE : SD (bit 1) = Shunt trip
+    CONFIRM_STATE : PF (bit 2) = Ready to close
+}
+
+CONFIRM_STATE --> DONE : Estado coincide\ncon comando
+CONFIRM_STATE --> CONFIRM_STATE : Esperando\nconfirmación física
+CONFIRM_STATE --> ERROR : Timeout confirmación
+
+state DONE {
+    DONE : Comando completado OK
+    DONE : BUSY = FALSE
+    DONE : DONE = TRUE
+    DONE : CB_STATE actualizado
+}
+
+DONE --> IDLE : Auto-reset
+
+state ERROR {
+    ERROR : Falla en operación
+    ERROR : BUSY = FALSE
+    ERROR : ERROR = TRUE
+    ERROR : ERROR_CODE actualizado
+}
+
+ERROR --> IDLE : Auto-reset\n(1 ciclo)
+
+note right of POLL_RESPONSE
+    Códigos respuesta benignos:
+    - 0x0001: Already in requested state
+      → Considerar OK
+    - 0x0003: Busy (continuar polling)
+    - 0x0000: OK
+end note
+
+note right of ERROR
+    Códigos error:
+    201: Timeout polling respuesta
+    202: Timeout confirmación estado
+    203: Comando rechazado
+    204: Error comunicación Modbus
+end note
+
+note bottom of IDLE
+    Lectura cíclica estado cada ciclo PLC
+    para mantener CB_STATE actualizado
+    (sin comando activo)
+end note
+
+@enduml

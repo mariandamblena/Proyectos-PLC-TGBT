@@ -1,0 +1,160 @@
+@startuml SCMTA_StateMachine
+
+title Sistema SCMTA - Máquina de Estados Transferencia Automática
+
+[*] --> INIT
+
+state INIT {
+    INIT : Inicialización sistema
+    INIT : Verificar estado interruptores
+}
+
+INIT --> NORMAL_ON_GRID : QT1 cerrado\n(operación normal)
+INIT --> ON_GD : QG1 cerrado\n(ya en GD)
+INIT --> CLOSE_QT1 : Red OK y todos abiertos
+INIT --> START_GD : Sin red y todos abiertos
+
+state "NORMAL_ON_GRID" as NORMAL {
+    NORMAL : ✓ Operación normal con RED
+    NORMAL : QT1 cerrado, QG1/QG2 abiertos
+    NORMAL : IS_ON_GRID = TRUE
+}
+
+NORMAL --> GRID_FAIL_DETECTED : GRID_FAIL = TRUE\nMODE_AUTO = TRUE
+
+state GRID_FAIL_DETECTED {
+    GRID_FAIL_DETECTED : Falla de RED detectada
+    GRID_FAIL_DETECTED : (tensión/frecuencia/fase)
+}
+
+GRID_FAIL_DETECTED --> OPEN_QT1
+
+state OPEN_QT1 {
+    OPEN_QT1 : Abriendo QT1
+    OPEN_QT1 : REQ_SCMTA_OPEN_QT1 = TRUE
+    OPEN_QT1 : Timeout: 2s
+}
+
+OPEN_QT1 --> START_GD_DELAY : QT1 abierto\n(confirmado)
+OPEN_QT1 --> FAULT_LOCKOUT : Timeout
+
+state START_GD_DELAY {
+    START_GD_DELAY : Delay 3s antes arranque GD
+    START_GD_DELAY : (seguridad)
+}
+
+START_GD_DELAY --> START_GD : Timer 3s
+
+state START_GD {
+    START_GD : Dando orden marcha GD
+    START_GD : DO_GD_START = TRUE
+}
+
+START_GD --> WAIT_GD_READY : GD_RUNNING = TRUE
+START_GD --> FAULT_LOCKOUT : GD_ALARM = TRUE
+
+state WAIT_GD_READY {
+    WAIT_GD_READY : Esperando GD_READY
+    WAIT_GD_READY : + estabilización 5s
+    WAIT_GD_READY : Timeout: 30s
+}
+
+WAIT_GD_READY --> CLOSE_QG1 : GD_READY estable 5s
+WAIT_GD_READY --> FAULT_LOCKOUT : Timeout o GD_ALARM
+
+state CLOSE_QG1 {
+    CLOSE_QG1 : Cerrando QG1
+    CLOSE_QG1 : REQ_SCMTA_CLOSE_QG1 = TRUE
+    CLOSE_QG1 : Timeout: 2s
+    CLOSE_QG1 : (Enclavamiento verificado)
+}
+
+CLOSE_QG1 --> ON_GD : QG1 cerrado
+CLOSE_QG1 --> FAULT_LOCKOUT : Timeout
+
+state "ON_GD" as ON_GD_STATE {
+    ON_GD_STATE : ✓ Operación con GRUPO DIÉSEL
+    ON_GD_STATE : QG1 cerrado, QT1/QG2 abiertos
+    ON_GD_STATE : IS_ON_GD = TRUE
+    ON_GD_STATE : (Deslastre activo si carga > 90%)
+}
+
+ON_GD_STATE --> GRID_RETURN_DETECTED : GRID_OK = TRUE\nMODE_AUTO = TRUE
+ON_GD_STATE --> FAULT_LOCKOUT : GD_ALARM = TRUE
+
+state GRID_RETURN_DETECTED {
+    GRID_RETURN_DETECTED : Retorno de RED detectado
+}
+
+GRID_RETURN_DETECTED --> WAIT_GRID_STABLE
+
+state WAIT_GRID_STABLE {
+    WAIT_GRID_STABLE : Esperando estabilidad RED
+    WAIT_GRID_STABLE : Timer: 120s
+}
+
+WAIT_GRID_STABLE --> OPEN_QG1 : Timer 120s cumplido
+WAIT_GRID_STABLE --> ON_GD_STATE : GRID_FAIL = TRUE\n(rebote)
+
+state OPEN_QG1 {
+    OPEN_QG1 : Abriendo QG1
+    OPEN_QG1 : REQ_SCMTA_OPEN_QG1 = TRUE
+    OPEN_QG1 : Timeout: 2s
+}
+
+OPEN_QG1 --> CLOSE_QT1 : QG1 abierto
+OPEN_QG1 --> FAULT_LOCKOUT : Timeout
+
+state CLOSE_QT1 {
+    CLOSE_QT1 : Cerrando QT1
+    CLOSE_QT1 : REQ_SCMTA_CLOSE_QT1 = TRUE
+    CLOSE_QT1 : Timeout: 2s
+    CLOSE_QT1 : (Enclavamiento verificado)
+}
+
+CLOSE_QT1 --> GD_COOLDOWN : QT1 cerrado
+CLOSE_QT1 --> FAULT_LOCKOUT : Timeout
+
+state GD_COOLDOWN {
+    GD_COOLDOWN : Cooldown GD 60s
+    GD_COOLDOWN : Luego DO_GD_STOP = TRUE
+}
+
+GD_COOLDOWN --> NORMAL : Timer 60s\n(GD parado)
+
+state "FAULT_LOCKOUT" as FAULT {
+    FAULT : ⚠ FALLA - Lockout
+    FAULT : IS_FAULT = TRUE
+    FAULT : Requiere RESET_FAULT manual
+    FAULT : (Ver FAULT_CODE)
+}
+
+FAULT --> NORMAL : RESET_FAULT = TRUE\nGRID_OK = TRUE
+FAULT --> ON_GD_STATE : RESET_FAULT = TRUE\nGRID_FAIL = TRUE
+
+note right of FAULT
+    Códigos de falla:
+    101: Timeout Open QT1
+    102: GD no alcanzó READY
+    103: Timeout Close QG1
+    104: Timeout Open QG1
+    105: Timeout Close QT1
+    106: Alarma GD
+    107: Violación enclavamiento
+    108: Estado desconocido
+end note
+
+note bottom of NORMAL
+    PRIORIDAD: RED > GD
+    Retorno automático
+    (sin confirmación operador)
+end note
+
+note bottom of ON_GD_STATE
+    Deslastre activo si:
+    - GD_LoadPct > 90%
+    - TR_LoadPct > 95%
+    Escalonado 3-5s entre pasos
+end note
+
+@enduml

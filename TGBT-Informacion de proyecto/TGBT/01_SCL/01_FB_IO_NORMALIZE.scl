@@ -1,0 +1,224 @@
+(*
+================================================================================
+  FUNCTION BLOCK: FB_IO_NORMALIZE
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Normaliza las entradas físicas del sistema (selectores Local/Remoto, 
+  pulsadores Open/Close, selector Auto/Manual) a señales lógicas internas.
+  
+  RESPONSABILIDADES:
+  1. Conversión de selector AUTO/MANUAL → MODE_AUTO / MODE_MANUAL
+  2. Interpretación de selectores LOCAL/REMOTO → *_REMOTE_ALLOWED
+  3. Detección de flancos en pulsadores Open/Close → REQ_MAN_* (pulsos 1 scan)
+  4. Validación básica de consistencia de señales
+  
+  SEGURIDAD:
+  - Si selector AUTO está indefinido → DEFAULT a MANUAL (fail-safe)
+  - Pulsadores se filtran por debounce de 50ms
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_IO_NORMALIZE"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT 
+    // ===== ===== ENTRADAS FÍSICAS (DI) ==========
+    // Selector Auto/Manual del sistema
+    DI_SYS_AUTO : Bool;             // TRUE = Auto, FALSE = Manual
+    
+    // QT1 - Interruptor de RED
+    DI_QT1_REMOTE_SEL : Bool;       // TRUE = Remoto (PLC control), FALSE = Local
+    DI_QT1_PB_OPEN : Bool;          // Pulsador Open (NA, 24VDC)
+    DI_QT1_PB_CLOSE : Bool;         // Pulsador Close (NA, 24VDC)
+    
+    // QG1 - Interruptor GD01
+    DI_QG1_REMOTE_SEL : Bool;
+    DI_QG1_PB_OPEN : Bool;
+    DI_QG1_PB_CLOSE : Bool;
+    
+    // QG2 - Interruptor GD02 (futuro)
+    DI_QG2_REMOTE_SEL : Bool;
+    DI_QG2_PB_OPEN : Bool;
+    DI_QG2_PB_CLOSE : Bool;
+    
+    // Grupo Diésel - señales estado
+    DI_GD_READY : Bool;             // GD listo para transferir (contacto auxiliar)
+    DI_GD_RUNNING : Bool;           // GD en marcha
+    DI_GD_ALARM : Bool;             // GD en alarma/falla
+END_VAR
+
+VAR_OUTPUT 
+    // ========== SEÑALES LÓGICAS NORMALIZADAS ==========
+    // Modo operativo
+    MODE_AUTO : Bool;               // TRUE = Automático (SCMTA activo)
+    MODE_MANUAL : Bool;             // TRUE = Manual (operador)
+    
+    // Permisos de control remoto por interruptor
+    QT1_REMOTE_ALLOWED : Bool;      // TRUE = PLC puede comandar QT1
+    QG1_REMOTE_ALLOWED : Bool;      // TRUE = PLC puede comandar QG1
+    QG2_REMOTE_ALLOWED : Bool;      // TRUE = PLC puede comandar QG2
+    
+    // Requests manuales (pulsos de 1 scan generados por flanco)
+    REQ_MAN_QT1_OPEN : Bool;        // Pulso: solicitud manual abrir QT1
+    REQ_MAN_QT1_CLOSE : Bool;       // Pulso: solicitud manual cerrar QT1
+    REQ_MAN_QG1_OPEN : Bool;
+    REQ_MAN_QG1_CLOSE : Bool;
+    REQ_MAN_QG2_OPEN : Bool;
+    REQ_MAN_QG2_CLOSE : Bool;
+    
+    // Estados GD normalizados (passthrough)
+    GD_READY : Bool;
+    GD_RUNNING : Bool;
+    GD_ALARM : Bool;
+    
+    // Diagnóstico
+    DIAG_MODE_VALID : Bool;         // TRUE = modo válido detectado
+END_VAR
+
+VAR 
+    // ========== MEMORIA INTERNA ==========
+    // R_TRIG para detección de flancos positivos en pulsadores
+    rtQT1_Open : Bool;
+    rtQT1_Close : Bool;
+    rtQG1_Open : Bool;
+    rtQG1_Close : Bool;
+    rtQG2_Open : Bool;
+    rtQG2_Close : Bool;
+    
+    // Memoria para detección de flanco (estado anterior)
+    memQT1_PB_Open : Bool;
+    memQT1_PB_Close : Bool;
+    memQG1_PB_Open : Bool;
+    memQG1_PB_Close : Bool;
+    memQG2_PB_Open : Bool;
+    memQG2_PB_Close : Bool;
+    
+    // Timer debounce (50ms) para filtrar rebotes mecánicos
+    tonDebounce_QT1_Open : TON;
+    tonDebounce_QT1_Close : TON;
+    tonDebounce_QG1_Open : TON;
+    tonDebounce_QG1_Close : TON;
+    tonDebounce_QG2_Open : TON;
+    tonDebounce_QG2_Close : TON;
+    
+    // Señales debounced
+    QT1_PB_Open_DB : Bool;
+    QT1_PB_Close_DB : Bool;
+    QG1_PB_Open_DB : Bool;
+    QG1_PB_Close_DB : Bool;
+    QG2_PB_Open_DB : Bool;
+    QG2_PB_Close_DB : Bool;
+END_VAR
+
+VAR_TEMP 
+END_VAR
+
+VAR CONSTANT 
+    DEBOUNCE_TIME : Time := T#50ms; // Tiempo debounce pulsadores
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // NETWORK 1: NORMALIZACIÓN MODO AUTO/MANUAL
+    // ========================================================================
+    // Lógica fail-safe: si señal indefinida, default a MANUAL
+    MODE_AUTO := DI_SYS_AUTO;
+    MODE_MANUAL := NOT DI_SYS_AUTO;
+    DIAG_MODE_VALID := TRUE;  // TODO: agregar validación si hay señal redundante
+    
+    
+    // ========================================================================
+    // NETWORK 2: NORMALIZACIÓN LOCAL/REMOTO
+    // ========================================================================
+    // TRUE = Selector en posición REMOTO → PLC puede comandar
+    // FALSE = Selector en posición LOCAL → PLC SOLO monitorea
+    QT1_REMOTE_ALLOWED := DI_QT1_REMOTE_SEL;
+    QG1_REMOTE_ALLOWED := DI_QG1_REMOTE_SEL;
+    QG2_REMOTE_ALLOWED := DI_QG2_REMOTE_SEL;
+    
+    
+    // ========================================================================
+    // NETWORK 3: DEBOUNCE PULSADORES (50ms)
+    // ========================================================================
+    // Filtro anti-rebote mecánico con TON
+    
+    // QT1 Open
+    #tonDebounce_QT1_Open(IN := #DI_QT1_PB_OPEN,
+                          PT := #DEBOUNCE_TIME,
+                          Q => #QT1_PB_Open_DB);
+    
+    // QT1 Close
+    #tonDebounce_QT1_Close(IN := #DI_QT1_PB_CLOSE,
+                           PT := #DEBOUNCE_TIME,
+                           Q => #QT1_PB_Close_DB);
+    
+    // QG1 Open
+    #tonDebounce_QG1_Open(IN := #DI_QG1_PB_OPEN,
+                          PT := #DEBOUNCE_TIME,
+                          Q => #QG1_PB_Open_DB);
+    
+    // QG1 Close
+    #tonDebounce_QG1_Close(IN := #DI_QG1_PB_CLOSE,
+                           PT := #DEBOUNCE_TIME,
+                           Q => #QG1_PB_Close_DB);
+    
+    // QG2 Open
+    #tonDebounce_QG2_Open(IN := #DI_QG2_PB_OPEN,
+                          PT := #DEBOUNCE_TIME,
+                          Q => #QG2_PB_Open_DB);
+    
+    // QG2 Close
+    #tonDebounce_QG2_Close(IN := #DI_QG2_PB_CLOSE,
+                           PT := #DEBOUNCE_TIME,
+                           Q => #QG2_PB_Close_DB);
+    
+    
+    // ========================================================================
+    // NETWORK 4: DETECCIÓN DE FLANCO POSITIVO (R_TRIG) → REQUESTS MANUALES
+    // ========================================================================
+    // Generamos PULSOS de 1 scan al detectar flanco ascendente 0→1
+    
+    // QT1 Open: flanco 0→1 en señal debounced
+    #rtQT1_Open := #QT1_PB_Open_DB AND NOT #memQT1_PB_Open;
+    #REQ_MAN_QT1_OPEN := #rtQT1_Open;
+    #memQT1_PB_Open := #QT1_PB_Open_DB;
+    
+    // QT1 Close
+    #rtQT1_Close := #QT1_PB_Close_DB AND NOT #memQT1_PB_Close;
+    #REQ_MAN_QT1_CLOSE := #rtQT1_Close;
+    #memQT1_PB_Close := #QT1_PB_Close_DB;
+    
+    // QG1 Open
+    #rtQG1_Open := #QG1_PB_Open_DB AND NOT #memQG1_PB_Open;
+    #REQ_MAN_QG1_OPEN := #rtQG1_Open;
+    #memQG1_PB_Open := #QG1_PB_Open_DB;
+    
+    // QG1 Close
+    #rtQG1_Close := #QG1_PB_Close_DB AND NOT #memQG1_PB_Close;
+    #REQ_MAN_QG1_CLOSE := #rtQG1_Close;
+    #memQG1_PB_Close := #QG1_PB_Close_DB;
+    
+    // QG2 Open
+    #rtQG2_Open := #QG2_PB_Open_DB AND NOT #memQG2_PB_Open;
+    #REQ_MAN_QG2_OPEN := #rtQG2_Open;
+    #memQG2_PB_Open := #QG2_PB_Open_DB;
+    
+    // QG2 Close
+    #rtQG2_Close := #QG2_PB_Close_DB AND NOT #memQG2_PB_Close;
+    #REQ_MAN_QG2_CLOSE := #rtQG2_Close;
+    #memQG2_PB_Close := #QG2_PB_Close_DB;
+    
+    
+    // ========================================================================
+    // NETWORK 5: NORMALIZACIÓN SEÑALES GD (PASSTHROUGH)
+    // ========================================================================
+    #GD_READY := #DI_GD_READY;
+    #GD_RUNNING := #DI_GD_RUNNING;
+    #GD_ALARM := #DI_GD_ALARM;
+    
+END_FUNCTION_BLOCK

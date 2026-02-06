@@ -1,0 +1,166 @@
+(*
+================================================================================
+  DATA BLOCK: DB_GLOBAL_STATUS
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Data Block global con estados consolidados del sistema.
+  Contiene señales normalizadas, estados de interruptores, mediciones,
+  y flags de estado que son compartidos entre todos los FBs.
+  
+================================================================================
+*)
+
+DATA_BLOCK "DB_GLOBAL_STATUS"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+
+STRUCT
+    // ========================================================================
+    // SECCIÓN 1: MODO OPERATIVO (de FB_IO_NORMALIZE)
+    // ========================================================================
+    MODE_AUTO : Bool;                // TRUE = Modo Automático
+    MODE_MANUAL : Bool;              // TRUE = Modo Manual
+    DIAG_MODE_VALID : Bool;          // TRUE = modo válido detectado
+    
+    // ========================================================================
+    // SECCIÓN 2: PERMISOS LOCAL/REMOTO (de FB_IO_NORMALIZE)
+    // ========================================================================
+    QT1_REMOTE_ALLOWED : Bool;       // TRUE = PLC puede comandar QT1
+    QG1_REMOTE_ALLOWED : Bool;
+    QG2_REMOTE_ALLOWED : Bool;
+    FEEDER_REMOTE_ALLOWED : Array[1..18] of Bool;
+    
+    // ========================================================================
+    // SECCIÓN 3: REQUESTS MANUALES (de FB_IO_NORMALIZE)
+    // ========================================================================
+    REQ_MAN_QT1_OPEN : Bool;
+    REQ_MAN_QT1_CLOSE : Bool;
+    REQ_MAN_QG1_OPEN : Bool;
+    REQ_MAN_QG1_CLOSE : Bool;
+    REQ_MAN_QG2_OPEN : Bool;
+    REQ_MAN_QG2_CLOSE : Bool;
+    
+    // ========================================================================
+    // SECCIÓN 4: SEÑALES GRUPO DIÉSEL (de FB_IO_NORMALIZE)
+    // ========================================================================
+    GD_READY : Bool;                 // GD listo para transferir
+    GD_RUNNING : Bool;               // GD en marcha
+    GD_ALARM : Bool;                 // GD en alarma/falla
+    
+    // ========================================================================
+    // SECCIÓN 5: ESTADOS INTERRUPTORES (de drivers Modbus)
+    // ========================================================================
+    QT1_STATE : Int;                 // 0=Abierto, 1=Cerrado, 2=Desconocido, 3=Transición
+    QT1_TRIPPED : Bool;              // TRUE = disparado
+    QT1_READY : Bool;                // TRUE = listo para cerrar
+    
+    QG1_STATE : Int;
+    QG1_TRIPPED : Bool;
+    QG1_READY : Bool;
+    
+    QG2_STATE : Int;
+    QG2_TRIPPED : Bool;
+    QG2_READY : Bool;
+    
+    FEEDER_STATE : Array[1..18] of Int;
+    FEEDER_TRIPPED : Array[1..18] of Bool;
+    FEEDER_READY : Array[1..18] of Bool;
+    
+    // ========================================================================
+    // SECCIÓN 6: MEDICIONES ELÉCTRICAS (de PM5350 vía Modbus)
+    // ========================================================================
+    // Red (entrada)
+    GRID_V_L1L2 : Real;              // Tensión L1-L2 [V]
+    GRID_V_L2L3 : Real;
+    GRID_V_L3L1 : Real;
+    GRID_I_L1 : Real;                // Corriente L1 [A]
+    GRID_I_L2 : Real;
+    GRID_I_L3 : Real;
+    GRID_FREQ : Real;                // Frecuencia [Hz]
+    GRID_P_TOTAL : Real;             // Potencia activa total [kW]
+    GRID_Q_TOTAL : Real;             // Potencia reactiva total [kVAr]
+    GRID_S_TOTAL : Real;             // Potencia aparente total [kVA]
+    GRID_PF : Real;                  // Factor potencia [-]
+    GRID_ENERGY : Real;              // Energía acumulada [kWh]
+    GRID_MEASUREMENT_OK : Bool;      // TRUE = medición Modbus válida
+    
+    // Grupo Diésel (medidor GD)
+    GD_V_L1L2 : Real;
+    GD_V_L2L3 : Real;
+    GD_V_L3L1 : Real;
+    GD_I_L1 : Real;
+    GD_I_L2 : Real;
+    GD_I_L3 : Real;
+    GD_FREQ : Real;
+    GD_P_TOTAL : Real;
+    GD_LoadPct : Real;               // Carga GD [%] (0-100)
+    GD_MEASUREMENT_OK : Bool;
+    
+    // Transformador (medidor salida)
+    TR_I_L1 : Real;
+    TR_I_L2 : Real;
+    TR_I_L3 : Real;
+    TR_P_TOTAL : Real;
+    TR_LoadPct : Real;               // Carga transformador [%]
+    TR_MEASUREMENT_OK : Bool;
+    
+    // ========================================================================
+    // SECCIÓN 7: ESTADO SCMTA (de FB_SCMTA)
+    // ========================================================================
+    SCMTA_STATE : Int;               // Estado máquina (0-14)
+    SCMTA_STATE_NAME : String[30];
+    IS_ON_GRID : Bool;
+    IS_ON_GD : Bool;
+    IS_IN_TRANSFER : Bool;
+    IS_FAULT : Bool;
+    GRID_OK : Bool;
+    GRID_FAIL : Bool;
+    FAULT_CODE : Int;
+    ELAPSED_TIME : Time;
+    DIAG_LAST_TRANSFER_TIME : Time;
+    
+    // ========================================================================
+    // SECCIÓN 8: ESTADO DESLASTRE (de FB_SHED)
+    // ========================================================================
+    SHED_ACTIVE : Bool;
+    SHED_STEP : Int;
+    RECONNECT_ACTIVE : Bool;
+    RECONNECT_STEP : Int;
+    FEEDERS_SHED : Int;
+    DIAG_LOAD_OVER_LIMIT : Bool;
+    
+    // ========================================================================
+    // SECCIÓN 9: ALARMAS Y BLOQUEOS (de FB_CMD_ARBITER + FB_OUTPUTS)
+    // ========================================================================
+    ALM_INTERLOCK_VIOLATION : Bool;
+    BLOCK_LOCAL : Bool;
+    BLOCK_INTERLOCK : Bool;
+    BLOCK_CONFLICT : Bool;
+    HMI_ALARM_ACTIVE : Bool;
+    HMI_ALARM_TEXT : String[100];
+    
+    // ========================================================================
+    // SECCIÓN 10: DIAGNÓSTICO COMUNICACIONES (de FB_MODBUS_MANAGER)
+    // ========================================================================
+    COMM_OK : Bool;
+    COMM_ERRORS : Int;
+    ACTIVE_DEVICE : String[20];
+    
+    // ========================================================================
+    // SECCIÓN 11: TIMESTAMPS Y CONTADORES
+    // ========================================================================
+    SYSTEM_UPTIME : Time;            // Tiempo operación sistema
+    TRANSFER_COUNT : Int;            // Contador transferencias Red→GD
+    FAULT_COUNT : Int;               // Contador fallas totales
+    LAST_TRANSFER_TIMESTAMP : DTL;   // Timestamp última transferencia
+    LAST_FAULT_TIMESTAMP : DTL;      // Timestamp última falla
+    
+END_STRUCT;
+
+BEGIN
+    // Inicialización valores por defecto si necesario
+END_DATA_BLOCK

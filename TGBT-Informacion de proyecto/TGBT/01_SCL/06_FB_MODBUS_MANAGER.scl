@@ -1,0 +1,147 @@
+(*
+================================================================================
+  FUNCTION BLOCK: FB_MODBUS_MANAGER
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Scheduler y gestor de comunicaciones Modbus RTU.
+  
+  RESPONSABILIDADES:
+  1. Gestionar cola de operaciones Modbus (lecturas y escrituras)
+  2. Priorizar comandos críticos (escrituras > lecturas)
+  3. Distribuir tiempo de ciclo entre equipos
+  4. Coordinar drivers MTZ/NSX
+  5. Diagnóstico básico de comunicación
+  
+  ARQUITECTURA:
+  - Polling cíclico de lecturas (estado interruptores, mediciones)
+  - Escrituras bajo demanda (comandos desde ARBITER)
+  - Time-slicing: un equipo por ciclo para no saturar bus
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_MODBUS_MANAGER"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT 
+    ENABLE : Bool := TRUE;
+    
+    // ========== COMANDOS (de FB_CMD_ARBITER) ==========
+    CMD_OPEN_QT1 : Bool;
+    CMD_CLOSE_QT1 : Bool;
+    CMD_OPEN_QG1 : Bool;
+    CMD_CLOSE_QG1 : Bool;
+    CMD_OPEN_QG2 : Bool;
+    CMD_CLOSE_QG2 : Bool;
+    CMD_OPEN_FEEDER : Array[1..18] of Bool;
+    CMD_CLOSE_FEEDER : Array[1..18] of Bool;
+    
+    // ========== PARÁMETROS ==========
+    T_POLL_CYCLE : Time := T#1s;     // Ciclo polling lecturas
+END_VAR
+
+VAR_OUTPUT 
+    // ========== DIAGNÓSTICO ==========
+    COMM_OK : Bool;                  // TRUE = comunicación OK
+    COMM_ERRORS : Int;               // Contador errores comunicación
+    ACTIVE_DEVICE : String[20];     // Equipo activo en ciclo actual
+    
+END_VAR
+
+VAR 
+    // ========== SCHEDULER ==========
+    pollIndex : Int := 0;            // Índice equipo en polling cíclico
+    tonPollCycle : TON;
+    tonReqActive : TON;              // Timer para mantener REQ activo 2s
+    reqModbusActive : Bool;          // REQ activo para Modbus Master
+    
+    // ========== COLA DE COMANDOS ==========
+    cmdPending : Bool;               // TRUE = hay comando pendiente
+    
+END_VAR
+
+VAR_TEMP 
+END_VAR
+
+VAR CONSTANT 
+    N_DEVICES : Int := 21;           // QT1, QG1, QG2 + 18 feeders
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // NETWORK 1: DETECCIÓN COMANDOS PENDIENTES
+    // ========================================================================
+    
+    #cmdPending := #CMD_OPEN_QT1 OR #CMD_CLOSE_QT1 OR
+                   #CMD_OPEN_QG1 OR #CMD_CLOSE_QG1 OR
+                   #CMD_OPEN_QG2 OR #CMD_CLOSE_QG2;
+    
+    // TODO: agregar detección comandos feeders
+    
+    
+    // ========================================================================
+    // NETWORK 2: SCHEDULER POLLING CÍCLICO
+    // ========================================================================
+    
+    // Timer ciclo polling
+    #tonPollCycle(IN := #ENABLE, PT := #T_POLL_CYCLE);
+    
+    IF #tonPollCycle.Q THEN
+        #tonPollCycle(IN := FALSE, PT := T#1s);
+        
+        // Activar REQ por 2 segundos
+        #reqModbusActive := TRUE;
+        #tonReqActive(IN := FALSE, PT := T#1s);  // Reset timer con PT
+        
+        // Avanzar índice
+        #pollIndex := #pollIndex + 1;
+        IF #pollIndex > #N_DEVICES THEN
+            #pollIndex := 1;
+        END_IF;
+    END_IF;
+    
+    // Mantener REQ activo por 2 segundos
+    #tonReqActive(IN := #reqModbusActive, PT := T#2s);
+    IF #tonReqActive.Q THEN
+        #reqModbusActive := FALSE;  // Desactivar después de 2s
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 3: DISTRIBUCIÓN DE TIEMPO (time-slicing)
+    // ========================================================================
+    
+    // Prioridad: comandos > polling
+    // Si hay comando pendiente, ejecutarlo primero
+    
+    IF #cmdPending THEN
+        // Ejecutar comando (delegar a drivers)
+        #ACTIVE_DEVICE := 'CMD_EXEC';
+        
+        // TODO: llamar drivers MTZ/NSX según comando
+        
+    ELSE
+        // Polling cíclico según índice
+        CASE #pollIndex OF
+            1:  #ACTIVE_DEVICE := 'QT1';
+            2:  #ACTIVE_DEVICE := 'QG1';
+            3:  #ACTIVE_DEVICE := 'QG2';
+            4..21:  #ACTIVE_DEVICE := 'FEEDER_' + INT_TO_STRING(#pollIndex - 3);
+        END_CASE;
+        
+        // TODO: llamar driver correspondiente para lectura estado
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 4: DIAGNÓSTICO COMUNICACIÓN
+    // ========================================================================
+    
+    // TODO: implementar contadores timeout/error
+    #COMM_OK := TRUE;  // Por ahora asumir OK
+    
+END_FUNCTION_BLOCK

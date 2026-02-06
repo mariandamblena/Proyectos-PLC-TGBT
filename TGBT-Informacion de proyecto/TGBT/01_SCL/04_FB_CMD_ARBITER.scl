@@ -1,0 +1,339 @@
+(*
+================================================================================
+  FUNCTION BLOCK: FB_CMD_ARBITER
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Árbitro de comandos con gestión de prioridades, enclavamiento fuente única,
+  y bloqueo por selector Local/Remoto.
+  
+  RESPONSABILIDADES:
+  1. Priorizar requests: SCMTA > SHED > MANUAL
+  2. Verificar enclavamiento fuente única (QT1/QG1/QG2)
+  3. Bloquear comandos si interruptor en LOCAL
+  4. Evitar comandos simultáneos Open+Close
+  5. Generar comandos finales (CMD_*) para drivers Modbus
+  
+  REGLA ABSOLUTA:
+  - Solo un interruptor de fuente (QT1/QG1/QG2) puede estar cerrado
+  - Antes de cerrar uno, se exige que los otros dos estén abiertos
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_CMD_ARBITER"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT 
+    // ========== REQUESTS SCMTA (Prioridad 1) ==========
+    REQ_SCMTA_OPEN_QT1 : Bool;
+    REQ_SCMTA_CLOSE_QT1 : Bool;
+    REQ_SCMTA_OPEN_QG1 : Bool;
+    REQ_SCMTA_CLOSE_QG1 : Bool;
+    REQ_SCMTA_OPEN_QG2 : Bool;
+    REQ_SCMTA_CLOSE_QG2 : Bool;
+    
+    // ========== REQUESTS SHED (Prioridad 2) ==========
+    REQ_SHED_OPEN : Array[1..18] of Bool;
+    REQ_SHED_CLOSE : Array[1..18] of Bool;
+    
+    // ========== REQUESTS MANUALES (Prioridad 3) ==========
+    REQ_MAN_QT1_OPEN : Bool;
+    REQ_MAN_QT1_CLOSE : Bool;
+    REQ_MAN_QG1_OPEN : Bool;
+    REQ_MAN_QG1_CLOSE : Bool;
+    REQ_MAN_QG2_OPEN : Bool;
+    REQ_MAN_QG2_CLOSE : Bool;
+    
+    // ========== MODO Y PERMISOS ==========
+    MODE_AUTO : Bool;                // TRUE = Automático
+    MODE_MANUAL : Bool;              // TRUE = Manual
+    QT1_REMOTE_ALLOWED : Bool;       // TRUE = PLC puede comandar QT1
+    QG1_REMOTE_ALLOWED : Bool;
+    QG2_REMOTE_ALLOWED : Bool;
+    FEEDER_REMOTE_ALLOWED : Array[1..18] of Bool; // Por feeder
+    
+    // ========== ESTADOS INTERRUPTORES ==========
+    QT1_STATE : Int;                 // 0=Abierto, 1=Cerrado, 2=Desconocido
+    QG1_STATE : Int;
+    QG2_STATE : Int;
+    FEEDER_STATE : Array[1..18] of Int;
+END_VAR
+
+VAR_OUTPUT 
+    // ========== COMANDOS FINALES (para drivers Modbus) ==========
+    CMD_OPEN_QT1 : Bool;
+    CMD_CLOSE_QT1 : Bool;
+    CMD_OPEN_QG1 : Bool;
+    CMD_CLOSE_QG1 : Bool;
+    CMD_OPEN_QG2 : Bool;
+    CMD_CLOSE_QG2 : Bool;
+    CMD_OPEN_FEEDER : Array[1..18] of Bool;
+    CMD_CLOSE_FEEDER : Array[1..18] of Bool;
+    
+    // ========== BLOQUEOS Y ALARMAS ==========
+    BLOCK_LOCAL : Bool;              // TRUE = comando bloqueado por LOCAL
+    BLOCK_INTERLOCK : Bool;          // TRUE = comando bloqueado por enclavamiento
+    BLOCK_CONFLICT : Bool;           // TRUE = conflicto Open+Close simultáneo
+    ALM_INTERLOCK_VIOLATION : Bool;  // ALARMA: violación enclavamiento
+    
+    // ========== DIAGNÓSTICO ==========
+    DIAG_CMD_SOURCE : String[10];   // Fuente comando: "SCMTA", "SHED", "MANUAL"
+END_VAR
+
+VAR 
+    // ========== MEMORIA INTERNA ==========
+    i : Int;
+    
+    // Requests priorizados (temporal)
+    reqOpenQT1 : Bool;
+    reqCloseQT1 : Bool;
+    reqOpenQG1 : Bool;
+    reqCloseQG1 : Bool;
+    reqOpenQG2 : Bool;
+    reqCloseQG2 : Bool;
+    
+    // Flags enclavamiento
+    interlockOkCloseQT1 : Bool;
+    interlockOkCloseQG1 : Bool;
+    interlockOkCloseQG2 : Bool;
+    
+    // Detectar violación enclavamiento
+    multipleSourcesClosed : Bool;
+    
+END_VAR
+
+VAR_TEMP 
+END_VAR
+
+VAR CONSTANT 
+    N_FEEDERS : Int := 18;
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // NETWORK 1: RESET COMANDOS (1 scan pulse)
+    // ========================================================================
+    #CMD_OPEN_QT1 := FALSE;
+    #CMD_CLOSE_QT1 := FALSE;
+    #CMD_OPEN_QG1 := FALSE;
+    #CMD_CLOSE_QG1 := FALSE;
+    #CMD_OPEN_QG2 := FALSE;
+    #CMD_CLOSE_QG2 := FALSE;
+    
+    FOR #i := 1 TO #N_FEEDERS DO
+        #CMD_OPEN_FEEDER[#i] := FALSE;
+        #CMD_CLOSE_FEEDER[#i] := FALSE;
+    END_FOR;
+    
+    #BLOCK_LOCAL := FALSE;
+    #BLOCK_INTERLOCK := FALSE;
+    #BLOCK_CONFLICT := FALSE;
+    #DIAG_CMD_SOURCE := '';
+    
+    
+    // ========================================================================
+    // NETWORK 2: PRIORIZACIÓN DE REQUESTS (SCMTA > SHED > MANUAL)
+    // ========================================================================
+    
+    // ---- Fuentes QT1/QG1/QG2 ----
+    
+    // Prioridad 1: SCMTA (siempre tiene prioridad si MODE_AUTO)
+    IF #MODE_AUTO THEN
+        #reqOpenQT1 := #REQ_SCMTA_OPEN_QT1;
+        #reqCloseQT1 := #REQ_SCMTA_CLOSE_QT1;
+        #reqOpenQG1 := #REQ_SCMTA_OPEN_QG1;
+        #reqCloseQG1 := #REQ_SCMTA_CLOSE_QG1;
+        #reqOpenQG2 := #REQ_SCMTA_OPEN_QG2;
+        #reqCloseQG2 := #REQ_SCMTA_CLOSE_QG2;
+        
+        IF #reqOpenQT1 OR #reqCloseQT1 OR #reqOpenQG1 OR #reqCloseQG1 OR #reqOpenQG2 OR #reqCloseQG2 THEN
+            #DIAG_CMD_SOURCE := 'SCMTA';
+        END_IF;
+    
+    // Prioridad 3: MANUAL (solo si MODE_MANUAL)
+    ELSIF #MODE_MANUAL THEN
+        #reqOpenQT1 := #REQ_MAN_QT1_OPEN;
+        #reqCloseQT1 := #REQ_MAN_QT1_CLOSE;
+        #reqOpenQG1 := #REQ_MAN_QG1_OPEN;
+        #reqCloseQG1 := #REQ_MAN_QG1_CLOSE;
+        #reqOpenQG2 := #REQ_MAN_QG2_OPEN;
+        #reqCloseQG2 := #REQ_MAN_QG2_CLOSE;
+        
+        IF #reqOpenQT1 OR #reqCloseQT1 OR #reqOpenQG1 OR #reqCloseQG1 OR #reqOpenQG2 OR #reqCloseQG2 THEN
+            #DIAG_CMD_SOURCE := 'MANUAL';
+        END_IF;
+    
+    ELSE
+        #reqOpenQT1 := FALSE;
+        #reqCloseQT1 := FALSE;
+        #reqOpenQG1 := FALSE;
+        #reqCloseQG1 := FALSE;
+        #reqOpenQG2 := FALSE;
+        #reqCloseQG2 := FALSE;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 3: VERIFICACIÓN ENCLAVAMIENTO FUENTE ÚNICA
+    // ========================================================================
+    
+    // Antes de cerrar QT1, verificar que QG1 y QG2 estén abiertos
+    #interlockOkCloseQT1 := (#QG1_STATE = 0) AND (#QG2_STATE = 0);
+    
+    // Antes de cerrar QG1, verificar que QT1 y QG2 estén abiertos
+    #interlockOkCloseQG1 := (#QT1_STATE = 0) AND (#QG2_STATE = 0);
+    
+    // Antes de cerrar QG2, verificar que QT1 y QG1 estén abiertos
+    #interlockOkCloseQG2 := (#QT1_STATE = 0) AND (#QG1_STATE = 0);
+    
+    // Detectar violación (múltiples fuentes cerradas simultáneamente)
+    #multipleSourcesClosed := FALSE;
+    IF (#QT1_STATE = 1) AND (#QG1_STATE = 1) THEN
+        #multipleSourcesClosed := TRUE;
+    ELSIF (#QT1_STATE = 1) AND (#QG2_STATE = 1) THEN
+        #multipleSourcesClosed := TRUE;
+    ELSIF (#QG1_STATE = 1) AND (#QG2_STATE = 1) THEN
+        #multipleSourcesClosed := TRUE;
+    END_IF;
+    
+    #ALM_INTERLOCK_VIOLATION := #multipleSourcesClosed;
+    
+    
+    // ========================================================================
+    // NETWORK 4: BLOQUEO POR LOCAL/REMOTO
+    // ========================================================================
+    
+    // QT1: bloquear si está en LOCAL
+    IF (#reqOpenQT1 OR #reqCloseQT1) AND NOT #QT1_REMOTE_ALLOWED THEN
+        #reqOpenQT1 := FALSE;
+        #reqCloseQT1 := FALSE;
+        #BLOCK_LOCAL := TRUE;
+    END_IF;
+    
+    // QG1: bloquear si está en LOCAL
+    IF (#reqOpenQG1 OR #reqCloseQG1) AND NOT #QG1_REMOTE_ALLOWED THEN
+        #reqOpenQG1 := FALSE;
+        #reqCloseQG1 := FALSE;
+        #BLOCK_LOCAL := TRUE;
+    END_IF;
+    
+    // QG2: bloquear si está en LOCAL
+    IF (#reqOpenQG2 OR #reqCloseQG2) AND NOT #QG2_REMOTE_ALLOWED THEN
+        #reqOpenQG2 := FALSE;
+        #reqCloseQG2 := FALSE;
+        #BLOCK_LOCAL := TRUE;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 5: BLOQUEO POR CONFLICTO OPEN+CLOSE SIMULTÁNEO
+    // ========================================================================
+    
+    // QT1: si hay Open Y Close simultáneos, bloquear ambos
+    IF #reqOpenQT1 AND #reqCloseQT1 THEN
+        #reqOpenQT1 := FALSE;
+        #reqCloseQT1 := FALSE;
+        #BLOCK_CONFLICT := TRUE;
+    END_IF;
+    
+    // QG1
+    IF #reqOpenQG1 AND #reqCloseQG1 THEN
+        #reqOpenQG1 := FALSE;
+        #reqCloseQG1 := FALSE;
+        #BLOCK_CONFLICT := TRUE;
+    END_IF;
+    
+    // QG2
+    IF #reqOpenQG2 AND #reqCloseQG2 THEN
+        #reqOpenQG2 := FALSE;
+        #reqCloseQG2 := FALSE;
+        #BLOCK_CONFLICT := TRUE;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 6: APLICAR ENCLAVAMIENTO Y GENERAR COMANDOS FINALES
+    // ========================================================================
+    
+    // QT1 Open (siempre permitido)
+    IF #reqOpenQT1 THEN
+        #CMD_OPEN_QT1 := TRUE;
+    END_IF;
+    
+    // QT1 Close (solo si enclavamiento OK)
+    IF #reqCloseQT1 THEN
+        IF #interlockOkCloseQT1 THEN
+            #CMD_CLOSE_QT1 := TRUE;
+        ELSE
+            #BLOCK_INTERLOCK := TRUE;
+        END_IF;
+    END_IF;
+    
+    // QG1 Open (siempre permitido)
+    IF #reqOpenQG1 THEN
+        #CMD_OPEN_QG1 := TRUE;
+    END_IF;
+    
+    // QG1 Close (solo si enclavamiento OK)
+    IF #reqCloseQG1 THEN
+        IF #interlockOkCloseQG1 THEN
+            #CMD_CLOSE_QG1 := TRUE;
+        ELSE
+            #BLOCK_INTERLOCK := TRUE;
+        END_IF;
+    END_IF;
+    
+    // QG2 Open (siempre permitido)
+    IF #reqOpenQG2 THEN
+        #CMD_OPEN_QG2 := TRUE;
+    END_IF;
+    
+    // QG2 Close (solo si enclavamiento OK)
+    IF #reqCloseQG2 THEN
+        IF #interlockOkCloseQG2 THEN
+            #CMD_CLOSE_QG2 := TRUE;
+        ELSE
+            #BLOCK_INTERLOCK := TRUE;
+        END_IF;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 7: PROCESAMIENTO FEEDERS (SHED + MANUAL)
+    // ========================================================================
+    
+    FOR #i := 1 TO #N_FEEDERS DO
+        
+        // Prioridad: SHED (AUTO) > MANUAL
+        IF #MODE_AUTO THEN
+            // SHED requests
+            IF #REQ_SHED_OPEN[#i] THEN
+                IF #FEEDER_REMOTE_ALLOWED[#i] THEN
+                    #CMD_OPEN_FEEDER[#i] := TRUE;
+                    #DIAG_CMD_SOURCE := 'SHED';
+                ELSE
+                    #BLOCK_LOCAL := TRUE;
+                END_IF;
+            END_IF;
+            
+            IF #REQ_SHED_CLOSE[#i] THEN
+                IF #FEEDER_REMOTE_ALLOWED[#i] THEN
+                    #CMD_CLOSE_FEEDER[#i] := TRUE;
+                    #DIAG_CMD_SOURCE := 'SHED';
+                ELSE
+                    #BLOCK_LOCAL := TRUE;
+                END_IF;
+            END_IF;
+        
+        ELSIF #MODE_MANUAL THEN
+            // TODO: agregar requests manuales por feeder si se implementan pulsadores
+            // Por ahora feeders solo controlables por SHED o HMI
+        END_IF;
+        
+    END_FOR;
+    
+END_FUNCTION_BLOCK

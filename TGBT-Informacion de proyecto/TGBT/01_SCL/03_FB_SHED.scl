@@ -1,0 +1,253 @@
+(*
+================================================================================
+  FUNCTION BLOCK: FB_SHED
+  Versión: 1.0
+  Fecha: 2026-02-04
+  Autor: Sistema SCMTA TGBT
+================================================================================
+  DESCRIPCIÓN:
+  Gestión de deslastre (load shedding) y reenganche de cargas no esenciales.
+  
+  RESPONSABILIDADES:
+  1. Deslastre escalonado cuando GD_LoadPct > umbral (solo en modo ON_GD)
+  2. Reenganche escalonado al retornar a red
+  3. Gestión de prioridades mediante arrays SHED_ORDER[] y RECONNECT_ORDER[]
+  4. Generación de requests abstractos para FB_CMD_ARBITER
+  5. Soporte para habilitar/deshabilitar deslastre por feeder
+  
+  ARQUITECTURA:
+  - N_FEEDERS = 18 feeders controlables (NSX con Micrologic)
+  - Arrays configurables sin sorting en PLC (Ladder-friendly)
+  - Tiempos de paso escalonados (3-5s)
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_SHED"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT 
+    // ========== CONTROL ==========
+    ENABLE : Bool := TRUE;           // Habilita sistema de deslastre
+    MODE_AUTO : Bool;                // TRUE = Automático (de FB_IO_NORMALIZE)
+    IS_ON_GD : Bool;                 // TRUE = operando con GD (de FB_SCMTA)
+    IS_ON_GRID : Bool;               // TRUE = operando con red (de FB_SCMTA)
+    
+    // ========== MEDICIONES (de Modbus) ==========
+    GD_LoadPct : Real;               // Carga GD [%] (0-100)
+    TR_LoadPct : Real;               // Carga transformador [%] (0-100)
+    
+    // ========== PARÁMETROS CONFIGURABLES ==========
+    SHED_ON : Real := 90.0;          // Umbral deslastre GD [%]
+    TR_SHED_ON : Real := 95.0;       // Umbral deslastre por trafo [%] (contingencia)
+    SHED_OFF : Real := 70.0;         // Umbral fin deslastre (histéresis) [%]
+    T_SHED_STEP : Time := T#5s;      // Tiempo entre pasos deslastre
+    T_RECONNECT_STEP : Time := T#5s; // Tiempo entre pasos reenganche
+    T_LOAD_FILTER : Time := T#2s;    // Filtro carga para evitar bouncing
+    
+    // ========== ARRAYS CONFIGURABLES (DB_PARAMS) ==========
+    // SHED_ORDER[1..18]: ID del feeder a deslastar en cada paso (1-18)
+    // Ejemplo: [5, 12, 3, ...] = paso 1 corta feeder 5, paso 2 corta feeder 12, etc.
+    SHED_ORDER : Array[1..18] of Int;
+    
+    // RECONNECT_ORDER[1..18]: ID del feeder a reenganchar en cada paso
+    // Puede ser igual a SHED_ORDER (misma secuencia) o diferente
+    RECONNECT_ORDER : Array[1..18] of Int;
+    
+    // SHED_ENABLE[1..18]: habilita deslastre por feeder (TRUE=habilitado)
+    SHED_ENABLE : Array[1..18] of Bool;
+    
+    // ========== ESTADOS FEEDERS (de DB_GLOBAL_STATUS) ==========
+    FEEDER_STATE : Array[1..18] of Int; // 0=Abierto, 1=Cerrado, 2=Desconocido
+END_VAR
+
+VAR_OUTPUT 
+    // ========== REQUESTS ABSTRACTOS (para FB_CMD_ARBITER) ==========
+    // Arrays de requests por feeder
+    REQ_SHED_OPEN : Array[1..18] of Bool;  // Solicitud abrir feeder[i]
+    REQ_SHED_CLOSE : Array[1..18] of Bool; // Solicitud cerrar feeder[i]
+    
+    // ========== ESTADO DESLASTRE ==========
+    SHED_ACTIVE : Bool;              // TRUE = deslastre activo
+    SHED_STEP : Int;                 // Paso actual deslastre (0-18)
+    RECONNECT_ACTIVE : Bool;         // TRUE = reenganche activo
+    RECONNECT_STEP : Int;            // Paso actual reenganche (0-18)
+    
+    FEEDERS_SHED : Int;              // Cantidad feeders deslastrados
+    
+    // ========== DIAGNÓSTICO ==========
+    DIAG_LOAD_OVER_LIMIT : Bool;    // TRUE = carga sobre umbral
+END_VAR
+
+VAR 
+    // ========== TIMERS ==========
+    tonShedStep : TON;               // Timer paso deslastre
+    tonReconnectStep : TON;          // Timer paso reenganche
+    tonLoadFilter : TON;             // Filtro carga
+    
+    // ========== MEMORIA INTERNA ==========
+    shedTrigger : Bool;              // Trigger deslastre filtrado
+    reconnectTrigger : Bool;         // Trigger reenganche
+    loadOverLimit : Bool;            // Carga sobre umbral (sin filtro)
+    loadFiltered : Bool;             // Carga filtrada por TON
+    
+    // Estados máquina deslastre
+    shedStatePrev : Int := 0;        // Estado anterior (0=idle, 1=shedding, 2=waiting)
+    reconnectStatePrev : Int := 0;   // Estado anterior reenganche
+    
+    // Contadores
+    i : Int;                         // Loop counter
+    feederId : Int;                  // ID del feeder actual en proceso
+    
+END_VAR
+
+VAR_TEMP 
+END_VAR
+
+VAR CONSTANT 
+    N_FEEDERS : Int := 18;           // Cantidad total feeders
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // NETWORK 1: RESET REQUESTS (1 scan pulse)
+    // ========================================================================
+    FOR #i := 1 TO #N_FEEDERS DO
+        #REQ_SHED_OPEN[#i] := FALSE;
+        #REQ_SHED_CLOSE[#i] := FALSE;
+    END_FOR;
+    
+    
+    // ========================================================================
+    // NETWORK 2: CONDICIÓN DE DESLASTRE (con filtro 2s)
+    // ========================================================================
+    // Trigger si carga GD O carga trafo superan umbral
+    #loadOverLimit := (#GD_LoadPct > #SHED_ON) OR (#TR_LoadPct > #TR_SHED_ON);
+    
+    // Filtro para evitar bouncing
+    #tonLoadFilter(IN := #loadOverLimit,
+                   PT := #T_LOAD_FILTER,
+                   Q => #loadFiltered);
+    #shedTrigger := #loadFiltered AND #IS_ON_GD AND #MODE_AUTO AND #ENABLE;
+    #DIAG_LOAD_OVER_LIMIT := #shedTrigger;
+    
+    // Trigger reenganche: al volver a red
+    #reconnectTrigger := #IS_ON_GRID AND #MODE_AUTO AND #ENABLE;
+    
+    
+    // ========================================================================
+    // NETWORK 3: MÁQUINA DESLASTRE ESCALONADO
+    // ========================================================================
+    
+    // ---- Inicio deslastre ----
+    IF #shedTrigger AND NOT #SHED_ACTIVE AND #SHED_STEP = 0 THEN
+        #SHED_ACTIVE := TRUE;
+        #SHED_STEP := 1;  // Comenzar paso 1
+        #tonShedStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+    END_IF;
+    
+    // ---- Ejecutar pasos de deslastre ----
+    IF #SHED_ACTIVE AND #SHED_STEP > 0 AND #SHED_STEP <= #N_FEEDERS THEN
+        
+        // Obtener ID del feeder a deslastar en este paso
+        #feederId := #SHED_ORDER[#SHED_STEP];
+        
+        // Validar ID y si está habilitado
+        IF #feederId >= 1 AND #feederId <= #N_FEEDERS AND #SHED_ENABLE[#feederId] THEN
+            
+            // Verificar si feeder está cerrado (solo abrir si cerrado)
+            IF #FEEDER_STATE[#feederId] = 1 THEN
+                #REQ_SHED_OPEN[#feederId] := TRUE;  // Request abrir
+            END_IF;
+            
+            // Timer paso
+            #tonShedStep(IN := TRUE, PT := #T_SHED_STEP);
+            
+            // Avanzar al siguiente paso
+            IF #tonShedStep.Q THEN
+                #SHED_STEP := #SHED_STEP + 1;
+                #tonShedStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+            END_IF;
+        ELSE
+            // Feeder no válido o deshabilitado: saltar
+            #SHED_STEP := #SHED_STEP + 1;
+        END_IF;
+        
+        // Finalizar si se completaron todos los pasos
+        IF #SHED_STEP > #N_FEEDERS THEN
+            #SHED_ACTIVE := FALSE;
+            #SHED_STEP := 0;
+        END_IF;
+        
+        // Cancelar si carga bajó por debajo de histéresis
+        IF #GD_LoadPct < #SHED_OFF AND #TR_LoadPct < #SHED_OFF THEN
+            #SHED_ACTIVE := FALSE;
+            #SHED_STEP := 0;
+        END_IF;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 4: MÁQUINA REENGANCHE ESCALONADO
+    // ========================================================================
+    
+    // ---- Inicio reenganche ----
+    IF #reconnectTrigger AND NOT #RECONNECT_ACTIVE AND #RECONNECT_STEP = 0 THEN
+        #RECONNECT_ACTIVE := TRUE;
+        #RECONNECT_STEP := 1;  // Comenzar paso 1
+        #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+    END_IF;
+    
+    // ---- Ejecutar pasos de reenganche ----
+    IF #RECONNECT_ACTIVE AND #RECONNECT_STEP > 0 AND #RECONNECT_STEP <= #N_FEEDERS THEN
+        
+        // Obtener ID del feeder a reenganchar en este paso
+        #feederId := #RECONNECT_ORDER[#RECONNECT_STEP];
+        
+        // Validar ID y si estaba deslastrado (abierto)
+        IF #feederId >= 1 AND #feederId <= #N_FEEDERS AND #SHED_ENABLE[#feederId] THEN
+            
+            // Verificar si feeder está abierto (solo cerrar si abierto)
+            IF #FEEDER_STATE[#feederId] = 0 THEN
+                #REQ_SHED_CLOSE[#feederId] := TRUE;  // Request cerrar
+            END_IF;
+            
+            // Timer paso
+            #tonReconnectStep(IN := TRUE, PT := #T_RECONNECT_STEP);
+            
+            // Avanzar al siguiente paso
+            IF #tonReconnectStep.Q THEN
+                #RECONNECT_STEP := #RECONNECT_STEP + 1;
+                #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+            END_IF;
+        ELSE
+            // Feeder no válido o deshabilitado: saltar
+            #RECONNECT_STEP := #RECONNECT_STEP + 1;
+        END_IF;
+        
+        // Finalizar si se completaron todos los pasos
+        IF #RECONNECT_STEP > #N_FEEDERS THEN
+            #RECONNECT_ACTIVE := FALSE;
+            #RECONNECT_STEP := 0;
+        END_IF;
+        
+        // Cancelar si vuelve a fallar la red
+        IF NOT #IS_ON_GRID THEN
+            #RECONNECT_ACTIVE := FALSE;
+            #RECONNECT_STEP := 0;
+        END_IF;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 5: CONTADOR FEEDERS DESLASTRADOS
+    // ========================================================================
+    #FEEDERS_SHED := 0;
+    FOR #i := 1 TO #N_FEEDERS DO
+        IF #FEEDER_STATE[#i] = 0 THEN  // Abierto
+            #FEEDERS_SHED := #FEEDERS_SHED + 1;
+        END_IF;
+    END_FOR;
+    
+END_FUNCTION_BLOCK
