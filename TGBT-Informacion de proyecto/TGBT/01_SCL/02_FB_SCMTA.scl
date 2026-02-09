@@ -223,7 +223,7 @@ BEGIN
     // ========================================================================
     IF #STATE <> #statePrev THEN
         #statePrev := #STATE;
-        #tonStateTimer(IN := FALSE, PT := T#1s);  // Reset timer con PT
+        #tonStateTimer(IN := FALSE, PT := T#10m);  // Reset timer con PT largo
         #timeoutDetected := FALSE;
         #cmdQT1OpenDone := FALSE;
         #cmdQG1CloseDone := FALSE;
@@ -231,12 +231,53 @@ BEGIN
         #cmdQT1CloseDone := FALSE;
     END_IF;
     
-    #tonStateTimer(IN := TRUE, PT := T#1s);
+    #tonStateTimer(IN := TRUE, PT := T#10m);  // 10 minutos para medir todos los estados
     #ELAPSED_TIME := #tonStateTimer.ET;
     
     
     // ========================================================================
-    // NETWORK 4: MÁQUINA DE ESTADOS SCMTA
+    // NETWORK 4: RESET FORZADO - Funciona desde TODOS los estados
+    // ========================================================================
+    // Cuando RESET_FAULT está activo, resetea la máquina completa
+    // independientemente del estado actual (0-14)
+    IF #RESET_FAULT THEN
+        // Limpiar todas las salidas de comando
+        #DO_GD_START := FALSE;
+        #DO_GD_STOP := FALSE;
+        #REQ_SCMTA_OPEN_QT1 := FALSE;
+        #REQ_SCMTA_CLOSE_QT1 := FALSE;
+        #REQ_SCMTA_OPEN_QG1 := FALSE;
+        #REQ_SCMTA_CLOSE_QG1 := FALSE;
+        
+        // Limpiar banderas de estado
+        #IS_IN_TRANSFER := FALSE;
+        #IS_FAULT := FALSE;
+        #FAULT_CODE := 0;
+        #faultCodeLatch := 0;
+        
+        // Determinar estado seguro según condiciones actuales
+        IF #GRID_OK THEN
+            #STATE := #ST_NORMAL_ON_GRID;  // Volver a RED si está OK
+            #IS_ON_GRID := TRUE;
+            #IS_ON_GD := FALSE;
+        ELSE
+            #STATE := #ST_INIT;  // Ir a INIT si RED no está OK
+            #IS_ON_GRID := FALSE;
+            #IS_ON_GD := FALSE;
+        END_IF;
+        
+        // Forzar detección de cambio de estado en próximo ciclo
+        // Esto hace que NETWORK 3 resetee el timer aunque vayamos al mismo estado
+        #statePrev := -1;  // Valor inválido para forzar reset de timer
+        
+        // Resetear timer de estado inmediatamente
+        #tonStateTimer(IN := FALSE, PT := T#10m);
+        #ELAPSED_TIME := T#0ms;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 5: MÁQUINA DE ESTADOS SCMTA
     // ========================================================================
     
     CASE #STATE OF
@@ -508,18 +549,8 @@ BEGIN
             #DO_GD_STOP := FALSE;
             #faultCodeLatch := #FAULT_CODE;
             
-            // Reset manual
-            IF #RESET_FAULT THEN
-                #FAULT_CODE := 0;
-                #faultCodeLatch := 0;
-                #IS_FAULT := FALSE;
-                // Retornar a estado seguro
-                IF #GRID_OK THEN
-                    #STATE := #ST_NORMAL_ON_GRID;
-                ELSE
-                    #STATE := #ST_ON_GD;
-                END_IF;
-            END_IF;
+            // NOTA: El reset se procesa en NETWORK 4 (antes del CASE)
+            // No necesita lógica de reset aquí
         
         
         // ====================================================================
@@ -532,7 +563,7 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 5: RESET PULSO GD_STOP (después de 2s)
+    // NETWORK 6: RESET PULSO GD_STOP (después de 2s)
     // ========================================================================
     IF #DO_GD_STOP AND #STATE = #ST_NORMAL_ON_GRID THEN
         IF #ELAPSED_TIME > T#2s THEN

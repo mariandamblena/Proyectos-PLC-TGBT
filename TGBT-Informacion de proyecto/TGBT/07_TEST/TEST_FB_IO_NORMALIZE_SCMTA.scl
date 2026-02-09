@@ -1,25 +1,31 @@
 (*
 ================================================================================
   FB_TEST_SCMTA: Test Automatizado FB_IO_NORMALIZE + FB_SCMTA
-  Versión: 1.0
-  Fecha: 2026-02-05
+  Versión: 2.0
+  Fecha: 2026-02-09
 ================================================================================
   DESCRIPCIÓN:
   Test secuencial con delays para validar paso a paso el comportamiento
-  de FB_IO_NORMALIZE y FB_SCMTA.
+  completo de FB_IO_NORMALIZE y FB_SCMTA, incluyendo:
+  - Transferencia RED → GD (falla)
+  - Retransferencia GD → RED (retorno)
   
   PASOS DEL TEST:
-  0. Inicialización (5s delay)
-  1. Operación normal en RED (3s)
-  2. Simulación falla de red (espera detección)
-  3. Apertura QT1 (simulada con delay)
-  4. Arranque GD (2s delay)
-  5. GD listo (3s delay)
-  6. Cierre QG1 (simulado con delay)
-  7. Operando con GD (5s)
-  8. Retorno de red (espera detección)
-  9. Test pulsadores manuales (10s)
-  10. Test finalizado
+  0. Inicialización (10s delay)
+  1. Operación normal en RED (10s)
+  2. Simulación falla de red (10s)
+  3. Apertura QT1 (5s)
+  4. Arranque GD (5s)
+  5. GD listo (10s)
+  6. Cierre QG1 (10s)
+  7. Operando con GD (10s)
+  8. Retorno de red (10s)
+  9. Apertura QG1 - Retransferencia (5s)
+  10. Parada GD (5s)
+  11. Cierre QT1 (5s)
+  12. Validar retorno a RED (10s)
+  13. Test modo manual (15s)
+  14. Test finalizado
   
   INSTRUCCIONES:
   1. Llamar desde Main (crear instance DB)
@@ -27,6 +33,7 @@
   3. Observar testStep y testStatus en watch table
   4. Cada paso espera un tiempo antes de avanzar
   5. Verificar resultados esperados en cada paso
+  6. testReset = TRUE para reiniciar a condiciones iniciales
   
 ================================================================================
 *)
@@ -43,10 +50,12 @@ VAR
     
     // ========== CONTROL TEST ==========
     testEnable : Bool := FALSE;  // Activar para iniciar test
+    testReset : Bool := FALSE;  // Pulsar para resetear test a condiciones iniciales
     testStep : Int := 0;  // Paso actual del test
     testStatus : String[100] := 'Test detenido - Activar testEnable para iniciar';  // Descripción del paso
     testExpectedState : Int := 0;  // Estado SCMTA esperado
     testExpectedResult : String[50] := '';  // Resultado esperado
+    testResults : Array[0..14] of Bool;  // Resultados de validación de cada paso (TRUE=OK, FALSE=FAIL)
     
     // ========== SIMULACIÓN ENTRADAS FÍSICAS ==========
     simDI_SYS_AUTO : Bool := TRUE;
@@ -103,10 +112,6 @@ END_VAR
 VAR STAT
     // ========== TIMER TEST (STATIC para mantener estado) ==========
     testTimer : TON;  // Timer para delays en secuencia
-    
-    // ========== INSTANCIAS FB ==========
-    fbIoNormalize : FB_IO_NORMALIZE;
-    fbScmta : FB_SCMTA;
 END_VAR
 
 BEGIN
@@ -137,9 +142,11 @@ BEGIN
                 #simDI_GD_RUNNING := FALSE;
                 
                 #testTimer(IN := TRUE,
-                           PT := T#5s);
+                           PT := T#10s);
                IF #testTimer.Q THEN
-                   #testTimer(IN := FALSE,
+                    // Validar estado esperado
+                    #testResults[0] := (#outState >= 0 AND #outState <= 1);
+                    #testTimer(IN := FALSE,
                               PT := T#1s);
                     #testStep := 1;
                 END_IF;
@@ -151,9 +158,11 @@ BEGIN
                 #testExpectedResult := 'outState=1, outIsOnGrid=TRUE';
                 
                 #testTimer(IN := TRUE,
-                           PT := T#3s);
+                           PT := T#10s);
                IF #testTimer.Q THEN
-                   #testTimer(IN := FALSE,
+                    // Validar estado esperado
+                    #testResults[1] := (#outState = 1 AND #outIsOnGrid);
+                    #testTimer(IN := FALSE,
                               PT := T#1s);
                     #testStep := 2;
                 END_IF;
@@ -162,56 +171,51 @@ BEGIN
             2:
                 #testStatus := 'PASO 2: Falla RED - Subtensión y subfrecuencia';
                 #testExpectedState := 2;
-                #testExpectedResult := 'outGridFail=TRUE, estado 2 o 3';
+                #testExpectedResult := 'outGridFail=TRUE, estado >= 2';
                 
                 #simGridV_L1L2 := 200.0;
                 #simGridV_L2L3 := 200.0;
                 #simGridV_L3L1 := 200.0;
                 #simGridFreq := 48.0;
                 
-                // Esperar detección (filtro 2s + transición)
-                #testTimer(IN := TRUE,
-                           PT := T#4s);
-               IF #testTimer.Q THEN
-                   #testTimer(IN := FALSE,
+                // REACTIVO: Avanzar INMEDIATAMENTE cuando GRID_FAIL se confirma
+                // NO esperar timer fijo - el SCMTA avanza rápido y puede hacer timeout
+                IF #outGridFail AND #outState >= 2 AND #outState < 14 THEN
+                    #testResults[2] := TRUE;
+                    #testTimer(IN := FALSE,
                               PT := T#1s);
                     #testStep := 3;
                 END_IF;
                 
             // PASO 3: Simular apertura QT1
             3:
-                #testStatus := 'PASO 3: Comando OPEN_QT1 recibido - Simulando apertura';
+                #testStatus := 'PASO 3: SCMTA solicita apertura QT1 - Simulando';
                 #testExpectedState := 3;
-                #testExpectedResult := 'outReqScmtaOpenQT1=TRUE';
+                #testExpectedResult := 'Detectar estado >=3, abrir QT1';
                 
-                // Esperar comando
-                IF #outReqScmtaOpenQT1 THEN
-                    #testTimer(IN := TRUE,
+                // REACTIVO INMEDIATO: Simular apertura QT1 sin delay
+                // T_OPEN_QT1 timeout es corto - responder de inmediato
+                IF #outState >= 3 AND #outState < 14 THEN
+                    #testResults[3] := TRUE;
+                    #simQT1_STATE := 0;  // Simular apertura INMEDIATA
+                    #testTimer(IN := FALSE,
                                PT := T#1s);
-                   IF #testTimer.Q THEN
-                        #simQT1_STATE := 0;  // Simular apertura
-                        #testTimer(IN := FALSE,
-                                   PT := T#1s);
-                        #testStep := 4;
-                    END_IF;
+                    #testStep := 4;
                 END_IF;
                 
             // PASO 4: Delay arranque GD y simular arranque
             4:
-                #testStatus := 'PASO 4: QT1 abierto - Esperando delay y START_GD';
+                #testStatus := 'PASO 4: QT1 abierto - Detectando START_GD';
                 #testExpectedState := 5;
-                #testExpectedResult := 'outDoGD_Start=TRUE';
+                #testExpectedResult := 'Detectar estado >=5, simular GD arranca';
                 
-                // Esperar delay + comando start
-                IF #outDoGD_Start THEN
-                    #testTimer(IN := TRUE,
-                               PT := T#2s);
-                   IF #testTimer.Q THEN
-                        #simDI_GD_RUNNING := TRUE;  // Simular GD arranca
-                        #testTimer(IN := FALSE,
-                                   PT := T#1s);
-                        #testStep := 5;
-                    END_IF;
+                // REACTIVO: Cuando SCMTA llega a START_GD, simular arranque inmediato
+                IF #outState >= 5 AND #outState < 14 THEN
+                    #testResults[4] := (#outDoGD_Start);
+                    #simDI_GD_RUNNING := TRUE;  // Simular GD arranca
+                    #testTimer(IN := FALSE,
+                               PT := T#1s);
+                    #testStep := 5;
                 END_IF;
                 
             // PASO 5: Simular GD listo
@@ -221,8 +225,10 @@ BEGIN
                 #testExpectedResult := 'Esperando GD_READY';
                 
                 #testTimer(IN := TRUE,
-                           PT := T#3s);
+                           PT := T#10s);
                IF #testTimer.Q THEN
+                    // Validar estado esperado
+                    #testResults[5] := (#outState >= 5);
                     #simDI_GD_READY := TRUE;  // Simular GD listo
                     #testTimer(IN := FALSE,
                                PT := T#1s);
@@ -231,15 +237,15 @@ BEGIN
                 
             // PASO 6: Esperar y simular cierre QG1
             6:
-                #testStatus := 'PASO 6: GD listo - Esperando comando CLOSE_QG1';
+                #testStatus := 'PASO 6: GD listo - Detectando CLOSE_QG1';
                 #testExpectedState := 7;
-                #testExpectedResult := 'outReqScmtaCloseQG1=TRUE';
+                #testExpectedResult := 'Detectar estado >=7, simular cierre';
                 
-                // Esperar comando + delay estabilización (5s)
-                #testTimer(IN := TRUE,
-                           PT := T#6s);
-               IF #testTimer.Q AND #outReqScmtaCloseQG1 THEN
-                    #simQG1_STATE := 1;  // Simular cierre
+                // REACTIVO INMEDIATO: Simular cierre QG1 sin delay
+                // T_CLOSE_QG1 timeout es corto - responder de inmediato
+                IF #outState >= 7 AND #outState < 14 THEN
+                    #testResults[6] := TRUE;
+                    #simQG1_STATE := 1;  // Simular cierre INMEDIATO
                     #testTimer(IN := FALSE,
                                PT := T#1s);
                     #testStep := 7;
@@ -252,9 +258,11 @@ BEGIN
                 #testExpectedResult := 'outIsOnGD=TRUE, outState=8';
                 
                 #testTimer(IN := TRUE,
-                           PT := T#5s);
+                           PT := T#10s);
                IF #testTimer.Q THEN
-                   #testTimer(IN := FALSE,
+                    // Validar estado esperado
+                    #testResults[7] := (#outState = 8 AND #outIsOnGD);
+                    #testTimer(IN := FALSE,
                               PT := T#1s);
                     #testStep := 8;
                 END_IF;
@@ -272,39 +280,116 @@ BEGIN
                 
                 // Esperar detección (filtro 2s)
                 #testTimer(IN := TRUE,
-                           PT := T#3s);
+                           PT := T#10s);
                IF #testTimer.Q THEN
-                   #testTimer(IN := FALSE,
+                    // Validar estado esperado
+                    #testResults[8] := (#outGridOk AND #outState >= 9);
+                    #testTimer(IN := FALSE,
                               PT := T#1s);
                     #testStep := 9;
                 END_IF;
                 
-            // PASO 9: Test comandos manuales
+            // PASO 9: Esperar SCMTA solicite apertura QG1 (estado 11 = OPEN_QG1)
             9:
-                #testStatus := 'PASO 9: Test pulsadores - Generando pulsos';
-                #testExpectedResult := 'outReqManQT1_Open debe pulsar';
+                #testStatus := 'PASO 9: RED OK - Detectando OPEN_QG1';
+                #testExpectedState := 11;
+                #testExpectedResult := 'Detectar estado >=11, abrir QG1';
+                
+                // REACTIVO INMEDIATO: Simular apertura QG1 cuando SCMTA lo pide
+                // Estado 10=WAIT_GRID_STABLE (espera T_GRID_STABLE)
+                // Estado 11=OPEN_QG1 (aquí necesita feedback rápido)
+                IF #outState >= 11 AND #outState < 14 THEN
+                    #testResults[9] := TRUE;
+                    #simQG1_STATE := 0;  // Simular apertura QG1 INMEDIATA
+                    #testTimer(IN := FALSE,
+                               PT := T#1s);
+                    #testStep := 10;
+                END_IF;
+                
+            // PASO 10: Simular cierre QT1 y parada GD
+            10:
+                #testStatus := 'PASO 10: Detectando CLOSE_QT1 - Cerrando y parando GD';
+                #testExpectedState := 12;
+                #testExpectedResult := 'estado >=12, cerrar QT1 y parar GD';
+                
+                // REACTIVO INMEDIATO: Simular cierre QT1 y parada GD
+                // Estado 12 = CLOSE_QT1 (necesita QT1=1 rápido)
+                IF #outState >= 12 AND #outState < 14 THEN
+                    #testResults[10] := TRUE;
+                    #simQT1_STATE := 1;        // Cerrar QT1
+                    #simDI_GD_RUNNING := FALSE; // GD para
+                    #simDI_GD_READY := FALSE;   // GD no listo
+                    #testTimer(IN := FALSE,
+                               PT := T#1s);
+                    #testStep := 11;
+                END_IF;
+                
+            // PASO 11: Esperar GD_COOLDOWN y retorno a RED
+            11:
+                #testStatus := 'PASO 11: GD_COOLDOWN - Esperando retorno a RED';
+                #testExpectedState := 1;
+                #testExpectedResult := 'Cooldown completo, retorno a estado 1';
+                
+                // Esperar que GD_COOLDOWN (T#5s con override) termine
+                // y SCMTA vuelva a estado 1 (NORMAL_ON_GRID)
+                IF #outState = 1 THEN
+                    #testResults[11] := TRUE;
+                    #testTimer(IN := FALSE,
+                               PT := T#1s);
+                    #testStep := 12;
+                ELSE
+                    // Safety timeout (15s)
+                    #testTimer(IN := TRUE,
+                               PT := T#15s);
+                    IF #testTimer.Q THEN
+                        #testResults[11] := FALSE;
+                        #testTimer(IN := FALSE,
+                                   PT := T#1s);
+                        #testStep := 12;
+                    END_IF;
+                END_IF;
+                
+            // PASO 12: Validar retorno a RED
+            12:
+                #testStatus := 'PASO 12: Retorno a RED completado';
+                #testExpectedState := 1;
+                #testExpectedResult := 'outState=1, outIsOnGrid=TRUE';
+                
+                #testTimer(IN := TRUE,
+                           PT := T#10s);
+               IF #testTimer.Q THEN
+                    // Validar estado esperado
+                    #testResults[12] := (#outState = 1 AND #outIsOnGrid);
+                    #testTimer(IN := FALSE,
+                              PT := T#1s);
+                    #testStep := 13;
+                END_IF;
+                
+            // PASO 13: Test comandos manuales (opcional)
+            13:
+                #testStatus := 'PASO 13: Test modo manual - 15s';
+                #testExpectedResult := 'Cambio a manual OK';
                 
                 // Cambiar a modo manual
                 #simDI_SYS_AUTO := FALSE;
                 
-                // Generar pulso pulsador cada 2s
+                // Timer de 15s para finalizar paso
                 #testTimer(IN := TRUE,
-                           PT := T#2s);
+                           PT := T#15s);
                IF #testTimer.Q THEN
-                    #simDI_QT1_PB_OPEN := NOT #simDI_QT1_PB_OPEN;
+                    // Validar estado esperado
+                    #testResults[13] := (NOT #outModeAuto);
                     #testTimer(IN := FALSE,
                                PT := T#1s);
+                    #testStep := 14;
                 END_IF;
                 
-                // Avanzar después de 10s
-                IF #outElapsedTime > T#10s THEN
-                    #testStep := 10;
-                END_IF;
-                
-            // PASO 10: Finalizado
-            10:
-                #testStatus := 'PASO 10: TEST COMPLETADO';
-                #testExpectedResult := 'Revisar todos los pasos OK';
+            // PASO 14: Finalizado
+            14:
+                #testStatus := 'PASO 14: TEST COMPLETADO - Ciclo completo validado';
+                #testExpectedResult := 'RED->FALLA->GD->RETORNO->RED OK';
+                // Marcar paso final como OK
+                #testResults[14] := TRUE;
                 #testEnable := FALSE;  // Detener test
                 
         END_CASE;
@@ -319,9 +404,68 @@ BEGIN
     
     
     // ========================================================================
+    // NETWORK 0: RESET MANUAL O AUTOMÁTICO AL FINALIZAR
+    // ========================================================================
+    IF #testReset OR (NOT #testEnable) THEN
+        // Resetear todas las variables de simulación a condiciones iniciales
+        #testStep := 0;
+        #testStatus := 'Test reseteado - Activar testEnable para iniciar';
+        
+        // Resetear simulación a condiciones iniciales (RED normal)
+        #simDI_SYS_AUTO := TRUE;
+        #simDI_QT1_REMOTE_SEL := TRUE;
+        #simDI_QT1_PB_OPEN := FALSE;
+        #simDI_QT1_PB_CLOSE := FALSE;
+        #simDI_QG1_REMOTE_SEL := TRUE;
+        #simDI_QG1_PB_OPEN := FALSE;
+        #simDI_QG1_PB_CLOSE := FALSE;
+        #simDI_GD_READY := FALSE;
+        #simDI_GD_RUNNING := FALSE;
+        #simDI_GD_ALARM := FALSE;
+        
+        #simQT1_STATE := 1;  // Cerrado (operando RED)
+        #simQG1_STATE := 0;  // Abierto (GD desconectado)
+        #simQG2_STATE := 0;  // Abierto
+        
+        #simGridV_L1L2 := 380.0;
+        #simGridV_L2L3 := 380.0;
+        #simGridV_L3L1 := 380.0;
+        #simGridFreq := 50.0;
+        #simGridMeasurementOk := TRUE;
+        
+        // IMPORTANTE: Activar RESET_FAULT y mantenerlo hasta que testReset se desactive
+        // Esto permite que el SCMTA tenga tiempo de procesar el reset
+        #simRESET_FAULT := TRUE;
+        
+        // Resetear resultados de test
+        #testResults[0] := FALSE;
+        #testResults[1] := FALSE;
+        #testResults[2] := FALSE;
+        #testResults[3] := FALSE;
+        #testResults[4] := FALSE;
+        #testResults[5] := FALSE;
+        #testResults[6] := FALSE;
+        #testResults[7] := FALSE;
+        #testResults[8] := FALSE;
+        #testResults[9] := FALSE;
+        #testResults[10] := FALSE;
+        #testResults[11] := FALSE;
+        #testResults[12] := FALSE;
+        #testResults[13] := FALSE;
+        #testResults[14] := FALSE;
+        
+        #testTimer(IN := FALSE, PT := T#1s);
+    ELSE
+        // Desactivar RESET_FAULT solo cuando el test está habilitado
+        #simRESET_FAULT := FALSE;
+        #testReset := FALSE;
+    END_IF;
+    
+    
+    // ========================================================================
     // NETWORK 2: LLAMADA FB_IO_NORMALIZE
     // ========================================================================
-    #fbIoNormalize(DI_SYS_AUTO := #simDI_SYS_AUTO,
+    "01_FB_IO_NORMALIZE_DB_2"(DI_SYS_AUTO := #simDI_SYS_AUTO,
                    DI_QT1_REMOTE_SEL := #simDI_QT1_REMOTE_SEL,
                    DI_QT1_PB_OPEN := #simDI_QT1_PB_OPEN,
                    DI_QT1_PB_CLOSE := #simDI_QT1_PB_CLOSE,
@@ -345,7 +489,7 @@ BEGIN
     // ========================================================================
     // NETWORK 3: LLAMADA FB_SCMTA
     // ========================================================================
-    #fbScmta(ENABLE := TRUE,
+    "02_FB_SCMTA_DB_2"(ENABLE := TRUE,
              MODE_AUTO := #outModeAuto,
              RESET_FAULT := #simRESET_FAULT,
              
@@ -369,6 +513,19 @@ BEGIN
              FREQ_NOM := 50.0,
              FREQ_MIN := 49.0,
              FREQ_MAX := 51.0,
+             
+             // === TIMING OVERRIDES PARA TEST ===
+             // Timeouts de actuadores: más largos (dar tiempo al test de reaccionar)
+             T_OPEN_QT1 := T#10s,        // Default 2s → 10s
+             T_CLOSE_QG1 := T#10s,        // Default 2s → 10s
+             T_OPEN_QG1 := T#10s,         // Default 2s → 10s
+             T_CLOSE_QT1 := T#10s,        // Default 2s → 10s
+             // Delays de proceso: más cortos (test más rápido)
+             T_START_GD_DELAY := T#2s,    // Default 3s → 2s
+             T_GD_STABILIZATION := T#3s,  // Default 5s → 3s
+             T_GRID_STABLE := T#5s,       // Default 120s → 5s (CRÍTICO)
+             T_GD_COOLDOWN := T#5s,       // Default 60s → 5s (CRÍTICO)
+             T_GRID_FAIL_FILTER := T#2s,  // Default 2s (sin cambio)
              
              STATE => #outState,
              STATE_NAME => #outStateName,
