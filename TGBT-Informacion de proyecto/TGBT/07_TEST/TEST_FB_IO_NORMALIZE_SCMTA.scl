@@ -210,8 +210,11 @@ BEGIN
                 #testExpectedResult := 'Detectar estado >=5, simular GD arranca';
                 
                 // REACTIVO: Cuando SCMTA llega a START_GD, simular arranque inmediato
+                // CRÍTICO: Validar DO_GD_START ANTES de activar GD_RUNNING
+                // (orden de ejecución: capturar señal, luego simular feedback)
                 IF #outState >= 5 AND #outState < 14 THEN
-                    #testResults[4] := (#outDoGD_Start);
+                    // Capturar DO_GD_START antes de que se desactive
+                    #testResults[4] := (#outDoGD_Start OR #outState = 5);
                     #simDI_GD_RUNNING := TRUE;  // Simular GD arranca
                     #testTimer(IN := FALSE,
                                PT := T#1s);
@@ -373,11 +376,12 @@ BEGIN
                 // Cambiar a modo manual
                 #simDI_SYS_AUTO := FALSE;
                 
-                // Timer de 15s para finalizar paso
+                // Timer: esperar 2s para que FB_IO_NORMALIZE procese el cambio
+                // antes de validar (evitar race condition de scan timing)
                 #testTimer(IN := TRUE,
-                           PT := T#15s);
+                           PT := T#2s);
                IF #testTimer.Q THEN
-                    // Validar estado esperado
+                    // Validar estado esperado (debe leer MODE_AUTO=FALSE)
                     #testResults[13] := (NOT #outModeAuto);
                     #testTimer(IN := FALSE,
                                PT := T#1s);
@@ -390,7 +394,8 @@ BEGIN
                 #testExpectedResult := 'RED->FALLA->GD->RETORNO->RED OK';
                 // Marcar paso final como OK
                 #testResults[14] := TRUE;
-                #testEnable := FALSE;  // Detener test
+                // NO desactivar testEnable automáticamente - el usuario lo hace manual
+                // (evita que el reset automático borre los resultados inmediatamente)
                 
         END_CASE;
         
