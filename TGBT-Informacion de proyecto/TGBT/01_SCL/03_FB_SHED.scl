@@ -1,31 +1,51 @@
 (*
 ================================================================================
   FUNCTION BLOCK: FB_SHED
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 2.0
+  Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
-  Gestión de deslastre (load shedding) y reenganche de cargas no esenciales.
+  Gestión de deslastre (load shedding), desacople y acoplamiento de cargas.
+  
+  CAMBIO V2.0 (Reunión 2026-02-10):
+  - Deslastre opera TANTO en RED como en GD (antes solo en GD)
+  - Feeders clasificados como ESENCIALES o NO-ESENCIALES
+  - En RED: deslastre REACTIVO de no-esenciales si TR_LoadPct > GRID_SHED_ON
+  - En GD: no-esenciales inician DESACOPLADAS, acoplamiento escalonado
+           automático verificando GD_LoadPct < GD_SHED_ON
+  - Deslastre reactivo en GD si carga sube por encima del límite
+  
+  MODOS DE OPERACIÓN (SHED_MODE):
+  0 = IDLE                 : Sin actividad de deslastre
+  1 = GRID_SHED            : Deslastre reactivo en RED (TR_LoadPct > GRID_SHED_ON)
+  2 = GD_INITIAL_SHED      : Desacople inicial no-esenciales al transferir a GD
+  3 = GD_RECONNECT         : Acoplamiento escalonado en GD (carga < límite)
+  4 = GD_REACTIVE_SHED     : Deslastre reactivo en GD (GD_LoadPct > GD_SHED_ON)
+  5 = GRID_RECONNECT       : Reenganche al volver a RED
   
   RESPONSABILIDADES:
-  1. Deslastre escalonado cuando GD_LoadPct > umbral (solo en modo ON_GD)
-  2. Reenganche escalonado al retornar a red
-  3. Gestión de prioridades mediante arrays SHED_ORDER[] y RECONNECT_ORDER[]
-  4. Generación de requests abstractos para FB_CMD_ARBITER
-  5. Soporte para habilitar/deshabilitar deslastre por feeder
+  1. Clasificar feeders en esenciales/no-esenciales
+  2. Deslastre escalonado en RED cuando TR_LoadPct > umbral
+  3. Desacople automático de no-esenciales al transferir a GD
+  4. Acoplamiento escalonado en GD verificando carga
+  5. Deslastre reactivo en GD cuando GD_LoadPct > umbral
+  6. Reenganche al retornar a RED
+  7. Generación de requests abstractos para FB_CMD_ARBITER
   
   ARQUITECTURA:
   - N_FEEDERS = 18 feeders controlables (NSX con Micrologic)
-  - Arrays configurables sin sorting en PLC (Ladder-friendly)
+  - FEEDER_ESSENTIAL[1..18]: clasificación esencial/no-esencial (parametrizable HMI)
+  - Arrays configurables SHED_ORDER[] y RECONNECT_ORDER[]
   - Tiempos de paso escalonados (3-5s)
+  - Esenciales NUNCA se deslastan
   
 ================================================================================
 *)
 
 FUNCTION_BLOCK "FB_SHED"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
+VERSION : 0.2
 
 VAR_INPUT 
     // ========== CONTROL ==========
@@ -33,29 +53,39 @@ VAR_INPUT
     MODE_AUTO : Bool;                // TRUE = Automático (de FB_IO_NORMALIZE)
     IS_ON_GD : Bool;                 // TRUE = operando con GD (de FB_SCMTA)
     IS_ON_GRID : Bool;               // TRUE = operando con red (de FB_SCMTA)
+    IS_IN_TRANSFER : Bool;           // TRUE = transferencia en curso (de FB_SCMTA)
+    TRANSFER_TO_GD : Bool;           // TRUE = transferencia RED→GD iniciada (flanco OPEN_QT1)
     
     // ========== MEDICIONES (de Modbus) ==========
     GD_LoadPct : Real;               // Carga GD [%] (0-100)
     TR_LoadPct : Real;               // Carga transformador [%] (0-100)
     
-    // ========== PARÁMETROS CONFIGURABLES ==========
-    SHED_ON : Real := 90.0;          // Umbral deslastre GD [%]
-    TR_SHED_ON : Real := 95.0;       // Umbral deslastre por trafo [%] (contingencia)
-    SHED_OFF : Real := 70.0;         // Umbral fin deslastre (histéresis) [%]
+    // ========== PARÁMETROS DESLASTRE GD ==========
+    GD_SHED_ON : Real := 90.0;       // Umbral deslastre GD [%]
+    GD_SHED_OFF : Real := 70.0;      // Umbral fin deslastre GD (histéresis) [%]
+    
+    // ========== PARÁMETROS DESLASTRE RED ==========
+    GRID_SHED_ON : Real := 85.0;     // Umbral deslastre RED [%] (carga trafo)
+    GRID_SHED_OFF : Real := 70.0;    // Umbral fin deslastre RED (histéresis) [%]
+    
+    // ========== PARÁMETROS TIEMPOS ==========
     T_SHED_STEP : Time := T#5s;      // Tiempo entre pasos deslastre
-    T_RECONNECT_STEP : Time := T#5s; // Tiempo entre pasos reenganche
+    T_RECONNECT_STEP : Time := T#5s; // Tiempo entre pasos reenganche/acoplamiento
     T_LOAD_FILTER : Time := T#2s;    // Filtro carga para evitar bouncing
+    T_LOAD_CHECK_DELAY : Time := T#3s; // Delay verificación carga post-acoplamiento en GD
     
     // ========== ARRAYS CONFIGURABLES (DB_PARAMS) ==========
     // SHED_ORDER[1..18]: ID del feeder a deslastar en cada paso (1-18)
-    // Ejemplo: [5, 12, 3, ...] = paso 1 corta feeder 5, paso 2 corta feeder 12, etc.
     SHED_ORDER : Array[1..18] of Int;
     
-    // RECONNECT_ORDER[1..18]: ID del feeder a reenganchar en cada paso
-    // Puede ser igual a SHED_ORDER (misma secuencia) o diferente
+    // RECONNECT_ORDER[1..18]: ID del feeder a reenganchar/acoplar en cada paso
     RECONNECT_ORDER : Array[1..18] of Int;
     
+    // FEEDER_ESSENTIAL[1..18]: TRUE = esencial (nunca se deslasta), FALSE = no-esencial
+    FEEDER_ESSENTIAL : Array[1..18] of Bool;
+    
     // SHED_ENABLE[1..18]: habilita deslastre por feeder (TRUE=habilitado)
+    // ESSENTIAL tiene prioridad: un feeder esencial NUNCA se deslasta aunque SHED_ENABLE=TRUE
     SHED_ENABLE : Array[1..18] of Bool;
     
     // ========== ESTADOS FEEDERS (de DB_GLOBAL_STATUS) ==========
@@ -64,37 +94,52 @@ END_VAR
 
 VAR_OUTPUT 
     // ========== REQUESTS ABSTRACTOS (para FB_CMD_ARBITER) ==========
-    // Arrays de requests por feeder
     REQ_SHED_OPEN : Array[1..18] of Bool;  // Solicitud abrir feeder[i]
     REQ_SHED_CLOSE : Array[1..18] of Bool; // Solicitud cerrar feeder[i]
     
     // ========== ESTADO DESLASTRE ==========
-    SHED_ACTIVE : Bool;              // TRUE = deslastre activo
+    SHED_ACTIVE : Bool;              // TRUE = deslastre activo (abriendo feeders)
     SHED_STEP : Int;                 // Paso actual deslastre (0-18)
-    RECONNECT_ACTIVE : Bool;         // TRUE = reenganche activo
+    RECONNECT_ACTIVE : Bool;         // TRUE = reenganche/acoplamiento activo
     RECONNECT_STEP : Int;            // Paso actual reenganche (0-18)
     
-    FEEDERS_SHED : Int;              // Cantidad feeders deslastrados
+    SHED_MODE : Int;                 // Modo actual (0-5, ver descripción arriba)
+    FEEDERS_SHED : Int;              // Cantidad feeders no-esenciales abiertos
+    FEEDERS_ESSENTIAL_COUNT : Int;   // Cantidad feeders esenciales
+    FEEDERS_NON_ESSENTIAL_COUNT : Int; // Cantidad feeders no-esenciales
     
     // ========== DIAGNÓSTICO ==========
-    DIAG_LOAD_OVER_LIMIT : Bool;    // TRUE = carga sobre umbral
+    DIAG_LOAD_OVER_LIMIT : Bool;    // TRUE = carga sobre umbral (GD o RED)
+    DIAG_GD_LOAD_OK : Bool;         // TRUE = carga GD permite acoplar más
+    DIAG_GRID_LOAD_OK : Bool;       // TRUE = carga RED dentro de límites
 END_VAR
 
 VAR 
     // ========== TIMERS ==========
     tonShedStep : TON;               // Timer paso deslastre
-    tonReconnectStep : TON;          // Timer paso reenganche
-    tonLoadFilter : TON;             // Filtro carga
+    tonReconnectStep : TON;          // Timer paso reenganche/acoplamiento
+    tonLoadFilter : TON;             // Filtro carga GD
+    tonGridLoadFilter : TON;         // Filtro carga RED
+    tonLoadCheckDelay : TON;         // Delay verificación carga post-acoplamiento
     
     // ========== MEMORIA INTERNA ==========
-    shedTrigger : Bool;              // Trigger deslastre filtrado
-    reconnectTrigger : Bool;         // Trigger reenganche
-    loadOverLimit : Bool;            // Carga sobre umbral (sin filtro)
-    loadFiltered : Bool;             // Carga filtrada por TON
+    // Triggers
+    gridShedTrigger : Bool;          // Trigger deslastre en RED filtrado
+    gdShedTrigger : Bool;            // Trigger deslastre reactivo en GD filtrado
+    gdLoadOverLimit : Bool;          // Carga GD sobre umbral (sin filtro)
+    gdLoadFiltered : Bool;           // Carga GD filtrada por TON
+    gridLoadOverLimit : Bool;        // Carga RED sobre umbral (sin filtro)
+    gridLoadFiltered : Bool;         // Carga RED filtrada por TON
     
-    // Estados máquina deslastre
-    shedStatePrev : Int := 0;        // Estado anterior (0=idle, 1=shedding, 2=waiting)
-    reconnectStatePrev : Int := 0;   // Estado anterior reenganche
+    // Detección flancos
+    isOnGdPrev : Bool;               // IS_ON_GD anterior (detección flanco)
+    transferToGdPrev : Bool;         // TRANSFER_TO_GD anterior (detección flanco)
+    isOnGridPrev : Bool;             // IS_ON_GRID anterior (detección flanco)
+    
+    // Estados internos
+    initialShedDone : Bool;          // TRUE = desacople inicial completado
+    gdReconnectDone : Bool;          // TRUE = acoplamiento en GD completado
+    waitingLoadCheck : Bool;         // TRUE = esperando verificación carga post-acople
     
     // Contadores
     i : Int;                         // Loop counter
@@ -103,10 +148,21 @@ VAR
 END_VAR
 
 VAR_TEMP 
+    tempFeedersEssential : Int;
+    tempFeedersNonEssential : Int;
+    tempFeedersShed : Int;
 END_VAR
 
 VAR CONSTANT 
     N_FEEDERS : Int := 18;           // Cantidad total feeders
+    
+    // Modos de operación
+    MODE_IDLE : Int := 0;
+    MODE_GRID_SHED : Int := 1;
+    MODE_GD_INITIAL_SHED : Int := 2;
+    MODE_GD_RECONNECT : Int := 3;
+    MODE_GD_REACTIVE_SHED : Int := 4;
+    MODE_GRID_RECONNECT : Int := 5;
 END_VAR
 
 BEGIN
@@ -120,57 +176,166 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 2: CONDICIÓN DE DESLASTRE (con filtro 2s)
+    // NETWORK 2: CONTADORES DE CLASIFICACIÓN
     // ========================================================================
-    // Trigger si carga GD O carga trafo superan umbral
-    #loadOverLimit := (#GD_LoadPct > #SHED_ON) OR (#TR_LoadPct > #TR_SHED_ON);
+    #tempFeedersEssential := 0;
+    #tempFeedersNonEssential := 0;
+    #tempFeedersShed := 0;
     
-    // Filtro para evitar bouncing
-    #tonLoadFilter(IN := #loadOverLimit,
-                   PT := #T_LOAD_FILTER,
-                   Q => #loadFiltered);
-    #shedTrigger := #loadFiltered AND #IS_ON_GD AND #MODE_AUTO AND #ENABLE;
-    #DIAG_LOAD_OVER_LIMIT := #shedTrigger;
+    FOR #i := 1 TO #N_FEEDERS DO
+        IF #FEEDER_ESSENTIAL[#i] THEN
+            #tempFeedersEssential := #tempFeedersEssential + 1;
+        ELSE
+            #tempFeedersNonEssential := #tempFeedersNonEssential + 1;
+        END_IF;
+        
+        // Contar no-esenciales actualmente abiertos
+        IF NOT #FEEDER_ESSENTIAL[#i] AND (#FEEDER_STATE[#i] = 0) THEN
+            #tempFeedersShed := #tempFeedersShed + 1;
+        END_IF;
+    END_FOR;
     
-    // Trigger reenganche: al volver a red
-    #reconnectTrigger := #IS_ON_GRID AND #MODE_AUTO AND #ENABLE;
+    #FEEDERS_ESSENTIAL_COUNT := #tempFeedersEssential;
+    #FEEDERS_NON_ESSENTIAL_COUNT := #tempFeedersNonEssential;
+    #FEEDERS_SHED := #tempFeedersShed;
     
     
     // ========================================================================
-    // NETWORK 3: MÁQUINA DESLASTRE ESCALONADO
+    // NETWORK 3: CONDICIONES DE CARGA (con filtros anti-bouncing)
     // ========================================================================
     
-    // ---- Inicio deslastre ----
-    IF #shedTrigger AND NOT #SHED_ACTIVE AND #SHED_STEP = 0 THEN
-        #SHED_ACTIVE := TRUE;
-        #SHED_STEP := 1;  // Comenzar paso 1
-        #tonShedStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+    // --- Carga GD sobre umbral ---
+    #gdLoadOverLimit := (#GD_LoadPct > #GD_SHED_ON);
+    #tonLoadFilter(IN := #gdLoadOverLimit,
+                   PT := #T_LOAD_FILTER);
+    #gdLoadFiltered := #tonLoadFilter.Q;
+    
+    // --- Carga RED sobre umbral ---
+    #gridLoadOverLimit := (#TR_LoadPct > #GRID_SHED_ON);
+    #tonGridLoadFilter(IN := #gridLoadOverLimit,
+                       PT := #T_LOAD_FILTER);
+    #gridLoadFiltered := #tonGridLoadFilter.Q;
+    
+    // Triggers finales (condiciones completas)
+    #gdShedTrigger := #gdLoadFiltered AND #IS_ON_GD AND #MODE_AUTO AND #ENABLE;
+    #gridShedTrigger := #gridLoadFiltered AND #IS_ON_GRID AND #MODE_AUTO AND #ENABLE;
+    
+    // Diagnóstico
+    #DIAG_LOAD_OVER_LIMIT := #gdShedTrigger OR #gridShedTrigger;
+    #DIAG_GD_LOAD_OK := (#GD_LoadPct < #GD_SHED_ON) AND #IS_ON_GD;
+    #DIAG_GRID_LOAD_OK := (#TR_LoadPct < #GRID_SHED_ON) AND #IS_ON_GRID;
+    
+    
+    // ========================================================================
+    // NETWORK 4: DETECCIÓN FLANCOS DE TRANSFERENCIA
+    // ========================================================================
+    
+    // --- Flanco ascendente TRANSFER_TO_GD: desacoplar no-esenciales ---
+    // Se dispara cuando SCMTA entra en OPEN_QT1 (antes de arrancar GD)
+    IF #TRANSFER_TO_GD AND NOT #transferToGdPrev THEN
+        #SHED_MODE := #MODE_GD_INITIAL_SHED;
+        #initialShedDone := FALSE;
+        #gdReconnectDone := FALSE;
+        
+        // Abrir TODAS las no-esenciales de inmediato (no escalonado)
+        // Las esenciales permanecen cerradas
+        FOR #i := 1 TO #N_FEEDERS DO
+            IF NOT #FEEDER_ESSENTIAL[#i] AND #SHED_ENABLE[#i] THEN
+                IF #FEEDER_STATE[#i] = 1 THEN  // Solo si está cerrado
+                    #REQ_SHED_OPEN[#i] := TRUE;
+                END_IF;
+            END_IF;
+        END_FOR;
+        
+        // Cancelar cualquier deslastre/reenganche previo
+        #SHED_ACTIVE := FALSE;
+        #SHED_STEP := 0;
+        #RECONNECT_ACTIVE := FALSE;
+        #RECONNECT_STEP := 0;
+    END_IF;
+    #transferToGdPrev := #TRANSFER_TO_GD;
+    
+    // --- Flanco ascendente IS_ON_GD: comenzar acoplamiento escalonado ---
+    // Se dispara cuando SCMTA confirma ON_GD (QG1 cerrado)
+    IF #IS_ON_GD AND NOT #isOnGdPrev THEN
+        IF NOT #gdReconnectDone THEN
+            #SHED_MODE := #MODE_GD_RECONNECT;
+            #RECONNECT_ACTIVE := TRUE;
+            #RECONNECT_STEP := 1;
+            #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer
+            #waitingLoadCheck := FALSE;
+            #initialShedDone := TRUE;
+        END_IF;
+    END_IF;
+    #isOnGdPrev := #IS_ON_GD;
+    
+    // --- Flanco ascendente IS_ON_GRID: reenganche al volver a RED ---
+    IF #IS_ON_GRID AND NOT #isOnGridPrev THEN
+        #SHED_MODE := #MODE_GRID_RECONNECT;
+        #RECONNECT_ACTIVE := TRUE;
+        #RECONNECT_STEP := 1;
+        #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer
+        #waitingLoadCheck := FALSE;
+        #initialShedDone := FALSE;
+        #gdReconnectDone := FALSE;
+        
+        // Cancelar deslastre en curso
+        #SHED_ACTIVE := FALSE;
+        #SHED_STEP := 0;
+    END_IF;
+    #isOnGridPrev := #IS_ON_GRID;
+    
+    
+    // ========================================================================
+    // NETWORK 5: DESLASTRE REACTIVO (RED y GD)
+    // ========================================================================
+    // Deslastre REACTIVO: se activa cuando la carga supera el umbral
+    // Opera tanto en RED (gridShedTrigger) como en GD (gdShedTrigger)
+    // Solo deslasta feeders NO-ESENCIALES
+    
+    // ---- Inicio deslastre reactivo ----
+    IF (#gridShedTrigger OR #gdShedTrigger) AND NOT #SHED_ACTIVE AND #SHED_STEP = 0 THEN
+        // No iniciar si estamos en desacople inicial (ya se abrieron las no-esenciales)
+        IF #SHED_MODE <> #MODE_GD_INITIAL_SHED THEN
+            IF #gridShedTrigger THEN
+                #SHED_MODE := #MODE_GRID_SHED;
+            ELSE
+                #SHED_MODE := #MODE_GD_REACTIVE_SHED;
+            END_IF;
+            #SHED_ACTIVE := TRUE;
+            #SHED_STEP := 1;
+            #tonShedStep(IN := FALSE, PT := T#1s);  // Reset timer
+            
+            // Si estábamos acoplando en GD, cancelar acoplamiento
+            IF #RECONNECT_ACTIVE AND (#SHED_MODE = #MODE_GD_REACTIVE_SHED) THEN
+                #RECONNECT_ACTIVE := FALSE;
+                #RECONNECT_STEP := 0;
+            END_IF;
+        END_IF;
     END_IF;
     
-    // ---- Ejecutar pasos de deslastre ----
+    // ---- Ejecutar pasos de deslastre reactivo ----
     IF #SHED_ACTIVE AND #SHED_STEP > 0 AND #SHED_STEP <= #N_FEEDERS THEN
         
-        // Obtener ID del feeder a deslastar en este paso
         #feederId := #SHED_ORDER[#SHED_STEP];
         
-        // Validar ID y si está habilitado
-        IF #feederId >= 1 AND #feederId <= #N_FEEDERS AND #SHED_ENABLE[#feederId] THEN
+        // Validar ID, habilitación, Y que NO sea esencial
+        IF #feederId >= 1 AND #feederId <= #N_FEEDERS 
+           AND #SHED_ENABLE[#feederId] 
+           AND NOT #FEEDER_ESSENTIAL[#feederId] THEN
             
-            // Verificar si feeder está cerrado (solo abrir si cerrado)
             IF #FEEDER_STATE[#feederId] = 1 THEN
-                #REQ_SHED_OPEN[#feederId] := TRUE;  // Request abrir
+                #REQ_SHED_OPEN[#feederId] := TRUE;
             END_IF;
             
-            // Timer paso
             #tonShedStep(IN := TRUE, PT := #T_SHED_STEP);
             
-            // Avanzar al siguiente paso
             IF #tonShedStep.Q THEN
                 #SHED_STEP := #SHED_STEP + 1;
-                #tonShedStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+                #tonShedStep(IN := FALSE, PT := T#1s);  // Reset timer
             END_IF;
         ELSE
-            // Feeder no válido o deshabilitado: saltar
+            // Feeder no válido, esencial, o deshabilitado: saltar
             #SHED_STEP := #SHED_STEP + 1;
         END_IF;
         
@@ -180,74 +345,201 @@ BEGIN
             #SHED_STEP := 0;
         END_IF;
         
-        // Cancelar si carga bajó por debajo de histéresis
-        IF #GD_LoadPct < #SHED_OFF AND #TR_LoadPct < #SHED_OFF THEN
+        // Cancelar por histéresis según fuente
+        IF #IS_ON_GD AND (#GD_LoadPct < #GD_SHED_OFF) THEN
             #SHED_ACTIVE := FALSE;
             #SHED_STEP := 0;
+            // Retomar acoplamiento en GD si no se completó
+            IF NOT #gdReconnectDone THEN
+                #SHED_MODE := #MODE_GD_RECONNECT;
+                #RECONNECT_ACTIVE := TRUE;
+                #RECONNECT_STEP := 1;
+                #tonReconnectStep(IN := FALSE, PT := T#1s);
+                #waitingLoadCheck := FALSE;
+            END_IF;
+        END_IF;
+        
+        IF #IS_ON_GRID AND (#TR_LoadPct < #GRID_SHED_OFF) THEN
+            #SHED_ACTIVE := FALSE;
+            #SHED_STEP := 0;
+            // Reenganchar lo deslastrado en RED
+            #SHED_MODE := #MODE_GRID_RECONNECT;
+            #RECONNECT_ACTIVE := TRUE;
+            #RECONNECT_STEP := 1;
+            #tonReconnectStep(IN := FALSE, PT := T#1s);
+            #waitingLoadCheck := FALSE;
         END_IF;
     END_IF;
     
     
     // ========================================================================
-    // NETWORK 4: MÁQUINA REENGANCHE ESCALONADO
+    // NETWORK 6: ACOPLAMIENTO ESCALONADO EN GD
     // ========================================================================
+    // En GD: acoplar no-esenciales una por una
+    // Verificar que la carga no supere GD_SHED_ON después de cada acople
     
-    // ---- Inicio reenganche ----
-    IF #reconnectTrigger AND NOT #RECONNECT_ACTIVE AND #RECONNECT_STEP = 0 THEN
-        #RECONNECT_ACTIVE := TRUE;
-        #RECONNECT_STEP := 1;  // Comenzar paso 1
-        #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
-    END_IF;
-    
-    // ---- Ejecutar pasos de reenganche ----
-    IF #RECONNECT_ACTIVE AND #RECONNECT_STEP > 0 AND #RECONNECT_STEP <= #N_FEEDERS THEN
+    IF #SHED_MODE = #MODE_GD_RECONNECT AND #RECONNECT_ACTIVE 
+       AND #RECONNECT_STEP > 0 AND #RECONNECT_STEP <= #N_FEEDERS 
+       AND #IS_ON_GD THEN
         
-        // Obtener ID del feeder a reenganchar en este paso
-        #feederId := #RECONNECT_ORDER[#RECONNECT_STEP];
-        
-        // Validar ID y si estaba deslastrado (abierto)
-        IF #feederId >= 1 AND #feederId <= #N_FEEDERS AND #SHED_ENABLE[#feederId] THEN
+        // Solo acoplar si carga permite
+        IF #GD_LoadPct < #GD_SHED_ON THEN
             
-            // Verificar si feeder está abierto (solo cerrar si abierto)
-            IF #FEEDER_STATE[#feederId] = 0 THEN
-                #REQ_SHED_CLOSE[#feederId] := TRUE;  // Request cerrar
-            END_IF;
+            #feederId := #RECONNECT_ORDER[#RECONNECT_STEP];
             
-            // Timer paso
-            #tonReconnectStep(IN := TRUE, PT := #T_RECONNECT_STEP);
-            
-            // Avanzar al siguiente paso
-            IF #tonReconnectStep.Q THEN
+            // Solo acoplar no-esenciales que estén abiertos
+            IF #feederId >= 1 AND #feederId <= #N_FEEDERS 
+               AND #SHED_ENABLE[#feederId]
+               AND NOT #FEEDER_ESSENTIAL[#feederId] THEN
+                
+                IF #FEEDER_STATE[#feederId] = 0 THEN
+                    IF NOT #waitingLoadCheck THEN
+                        // Dar orden de cierre
+                        #REQ_SHED_CLOSE[#feederId] := TRUE;
+                        #waitingLoadCheck := TRUE;
+                        #tonLoadCheckDelay(IN := FALSE, PT := T#1s);  // Reset timer
+                    ELSE
+                        // Esperando estabilización de carga post-acople
+                        #tonLoadCheckDelay(IN := TRUE, PT := #T_LOAD_CHECK_DELAY);
+                        
+                        IF #tonLoadCheckDelay.Q THEN
+                            IF #GD_LoadPct >= #GD_SHED_ON THEN
+                                // Carga superó límite: PARAR acoplamiento
+                                #RECONNECT_ACTIVE := FALSE;
+                                #RECONNECT_STEP := 0;
+                                #waitingLoadCheck := FALSE;
+                                #gdReconnectDone := TRUE;
+                            ELSE
+                                // Carga OK: avanzar al siguiente
+                                #RECONNECT_STEP := #RECONNECT_STEP + 1;
+                                #waitingLoadCheck := FALSE;
+                                #tonReconnectStep(IN := FALSE, PT := T#1s);
+                            END_IF;
+                        END_IF;
+                    END_IF;
+                ELSE
+                    // Feeder ya cerrado o estado desconocido: saltar
+                    #RECONNECT_STEP := #RECONNECT_STEP + 1;
+                    #waitingLoadCheck := FALSE;
+                END_IF;
+            ELSE
+                // Feeder esencial (ya cerrado) o no válido: saltar
                 #RECONNECT_STEP := #RECONNECT_STEP + 1;
-                #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer con PT
+                #waitingLoadCheck := FALSE;
             END_IF;
         ELSE
-            // Feeder no válido o deshabilitado: saltar
-            #RECONNECT_STEP := #RECONNECT_STEP + 1;
+            // Carga GD en/sobre límite: PAUSAR acoplamiento (no cancelar)
+            // Se reanuda automáticamente si carga baja
+            #tonReconnectStep(IN := FALSE, PT := T#1s);
+            #waitingLoadCheck := FALSE;
         END_IF;
         
-        // Finalizar si se completaron todos los pasos
+        // Fin: todos los pasos completados
         IF #RECONNECT_STEP > #N_FEEDERS THEN
             #RECONNECT_ACTIVE := FALSE;
             #RECONNECT_STEP := 0;
+            #gdReconnectDone := TRUE;
+            #SHED_MODE := #MODE_IDLE;
         END_IF;
         
-        // Cancelar si vuelve a fallar la red
-        IF NOT #IS_ON_GRID THEN
+        // Cancelar si perdimos GD
+        IF NOT #IS_ON_GD THEN
             #RECONNECT_ACTIVE := FALSE;
             #RECONNECT_STEP := 0;
+            #waitingLoadCheck := FALSE;
         END_IF;
     END_IF;
     
     
     // ========================================================================
-    // NETWORK 5: CONTADOR FEEDERS DESLASTRADOS
+    // NETWORK 7: REENGANCHE AL VOLVER A RED
     // ========================================================================
-    #FEEDERS_SHED := 0;
-    FOR #i := 1 TO #N_FEEDERS DO
-        IF #FEEDER_STATE[#i] = 0 THEN  // Abierto
-            #FEEDERS_SHED := #FEEDERS_SHED + 1;
+    // Reenganche escalonado de no-esenciales que estén abiertas
+    // Verifica carga del transformador para no superar GRID_SHED_ON
+    
+    IF #SHED_MODE = #MODE_GRID_RECONNECT AND #RECONNECT_ACTIVE 
+       AND #RECONNECT_STEP > 0 AND #RECONNECT_STEP <= #N_FEEDERS 
+       AND #IS_ON_GRID THEN
+        
+        #feederId := #RECONNECT_ORDER[#RECONNECT_STEP];
+        
+        IF #feederId >= 1 AND #feederId <= #N_FEEDERS 
+           AND #SHED_ENABLE[#feederId]
+           AND NOT #FEEDER_ESSENTIAL[#feederId] THEN
+            
+            IF #FEEDER_STATE[#feederId] = 0 THEN
+                // Solo reenganchar si carga de RED permite
+                IF #TR_LoadPct < #GRID_SHED_ON THEN
+                    #REQ_SHED_CLOSE[#feederId] := TRUE;
+                END_IF;
+            END_IF;
+            
+            #tonReconnectStep(IN := TRUE, PT := #T_RECONNECT_STEP);
+            
+            IF #tonReconnectStep.Q THEN
+                #RECONNECT_STEP := #RECONNECT_STEP + 1;
+                #tonReconnectStep(IN := FALSE, PT := T#1s);  // Reset timer
+            END_IF;
+        ELSE
+            // Feeder esencial o no válido: saltar
+            #RECONNECT_STEP := #RECONNECT_STEP + 1;
         END_IF;
-    END_FOR;
+        
+        IF #RECONNECT_STEP > #N_FEEDERS THEN
+            #RECONNECT_ACTIVE := FALSE;
+            #RECONNECT_STEP := 0;
+            #SHED_MODE := #MODE_IDLE;
+        END_IF;
+        
+        // Cancelar si RED falla nuevamente
+        IF NOT #IS_ON_GRID THEN
+            #RECONNECT_ACTIVE := FALSE;
+            #RECONNECT_STEP := 0;
+            #SHED_MODE := #MODE_IDLE;
+        END_IF;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 8: MANTENIMIENTO DESACOPLE INICIAL EN GD
+    // ========================================================================
+    // Mientras esperamos GD, seguir enviando requests de apertura
+    // para no-esenciales que aún no se abrieron (refuerza primer pulso)
+    
+    IF #SHED_MODE = #MODE_GD_INITIAL_SHED AND NOT #initialShedDone AND #IS_ON_GD THEN
+        #initialShedDone := TRUE;
+        FOR #i := 1 TO #N_FEEDERS DO
+            IF NOT #FEEDER_ESSENTIAL[#i] AND #SHED_ENABLE[#i] THEN
+                IF #FEEDER_STATE[#i] = 1 THEN
+                    #REQ_SHED_OPEN[#i] := TRUE;
+                    #initialShedDone := FALSE;
+                END_IF;
+            END_IF;
+        END_FOR;
+        
+        // Si todas las no-esenciales abiertas: pasar a acoplamiento
+        IF #initialShedDone THEN
+            #SHED_MODE := #MODE_GD_RECONNECT;
+            #RECONNECT_ACTIVE := TRUE;
+            #RECONNECT_STEP := 1;
+            #tonReconnectStep(IN := FALSE, PT := T#1s);
+            #waitingLoadCheck := FALSE;
+        END_IF;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 9: LIMPIEZA DE MODO
+    // ========================================================================
+    IF NOT #IS_ON_GD AND NOT #IS_ON_GRID AND NOT #IS_IN_TRANSFER AND NOT #TRANSFER_TO_GD THEN
+        IF #SHED_MODE <> #MODE_IDLE THEN
+            #SHED_MODE := #MODE_IDLE;
+            #SHED_ACTIVE := FALSE;
+            #SHED_STEP := 0;
+            #RECONNECT_ACTIVE := FALSE;
+            #RECONNECT_STEP := 0;
+            #waitingLoadCheck := FALSE;
+        END_IF;
+    END_IF;
     
 END_FUNCTION_BLOCK

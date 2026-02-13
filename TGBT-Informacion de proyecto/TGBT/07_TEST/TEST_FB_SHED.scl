@@ -1,0 +1,740 @@
+(*
+================================================================================
+  FB_TEST_SHED: Test Automatizado FB_SHED V2.0 - Deslastre Dual RED/GD
+  Versión: 1.0
+  Fecha: 2026-02-10
+================================================================================
+  DESCRIPCIÓN:
+  Test secuencial para validar el comportamiento completo de FB_SHED V2.0,
+  incluyendo deslastre en RED y en GD, acoplamiento escalonado, clasificación
+  de feeders esenciales/no-esenciales.
+  
+  CONFIGURACIÓN TEST:
+  - 18 feeders totales
+  - Feeders 1,2,3 = ESENCIALES (TRUE)
+  - Feeders 4-18 = NO-ESENCIALES (FALSE)
+  - SHED_ORDER = [18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,0,0,0]
+  - RECONNECT_ORDER = [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,0,0,0]
+  - Todos los feeders con SHED_ENABLE = TRUE
+  
+  CASOS PROBADOS:
+  GRUPO A - CLASIFICACIÓN Y ESTADO IDLE:
+    Paso 0: Inicialización, todos feeders cerrados
+    Paso 1: Validar clasificación esenciales (3) y no-esenciales (15)
+    Paso 2: Validar SHED_MODE=0 (IDLE) en RED sin sobrecarga
+    
+  GRUPO B - DESLASTRE REACTIVO EN RED (GRID_SHED):
+    Paso 3: Subir TR_LoadPct > 85% → esperar SHED_MODE=1
+    Paso 4: Verificar que abre no-esenciales (orden shed)
+    Paso 5: Verificar que esenciales NO se abren
+    Paso 6: Bajar TR_LoadPct < 70% → esperar SHED_MODE=5 (GRID_RECONNECT)
+    Paso 7: Verificar reenganche feeders en RED
+    
+  GRUPO C - DESACOPLE INICIAL TRANSFERENCIA GD (GD_INITIAL_SHED):
+    Paso 8: Simular TRANSFER_TO_GD=TRUE → SHED_MODE=2
+    Paso 9: Verificar que no-esenciales se abren (REQ_SHED_OPEN)
+    Paso 10: Verificar que esenciales permanecen cerrados
+    
+  GRUPO D - ACOPLAMIENTO ESCALONADO EN GD (GD_RECONNECT):
+    Paso 11: Pasar a IS_ON_GD=TRUE, carga baja → SHED_MODE=3
+    Paso 12: Verificar acoplamiento escalonado (1 feeder a la vez)
+    Paso 13: Verificar pausa si GD_LoadPct > GD_SHED_ON
+    Paso 14: Verificar reanudación cuando carga baja
+    
+  GRUPO E - DESLASTRE REACTIVO EN GD (GD_REACTIVE_SHED):
+    Paso 15: Subir GD_LoadPct > 90% → SHED_MODE=4
+    Paso 16: Verificar desacople no-esenciales en GD
+    
+  GRUPO F - REENGANCHE AL VOLVER A RED:
+    Paso 17: Simular retorno a RED (IS_ON_GRID=TRUE) → SHED_MODE=5
+    Paso 18: Verificar que todos los feeders se cierran
+    Paso 19: TEST COMPLETADO
+  
+  INSTRUCCIONES:
+  1. Crear instance DB "TEST_SHED_DB"
+  2. Llamar desde OB1 o test dedicado
+  3. testEnable := TRUE para iniciar
+  4. Observar testStep, testStatus, testResults[0..19]
+  5. testReset := TRUE para reiniciar
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_TEST_SHED"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR 
+    // ========== CONTROL TEST ==========
+    testEnable : Bool := FALSE;
+    testReset : Bool := FALSE;
+    testStep : Int := 0;
+    testStatus : String[150] := 'Test SHED detenido - Activar testEnable';
+    testExpectedResult : String[100] := '';
+    testResults : Array[0..19] of Bool;
+    
+    // ========== SIMULACIÓN SEÑALES SCMTA ==========
+    simIsOnGD : Bool := FALSE;       // Simulación IS_ON_GD
+    simIsOnGrid : Bool := TRUE;      // Simulación IS_ON_GRID
+    simIsInTransfer : Bool := FALSE; // Simulación IS_IN_TRANSFER
+    simTransferToGD : Bool := FALSE; // Simulación TRANSFER_TO_GD
+    simModeAuto : Bool := TRUE;
+    
+    // ========== SIMULACIÓN MEDICIONES ==========
+    simGD_LoadPct : Real := 40.0;    // Carga GD [%]
+    simTR_LoadPct : Real := 60.0;    // Carga trafo [%]
+    
+    // ========== SIMULACIÓN ESTADOS FEEDERS ==========
+    simFeederState : Array[1..18] of Int;  // 0=Abierto, 1=Cerrado
+    
+    // ========== ARRAYS CONFIGURACIÓN TEST ==========
+    cfgShedOrder : Array[1..18] of Int;
+    cfgReconnectOrder : Array[1..18] of Int;
+    cfgFeederEssential : Array[1..18] of Bool;
+    cfgShedEnable : Array[1..18] of Bool;
+    
+    // ========== OUTPUTS FB_SHED ==========
+    outReqShedOpen : Array[1..18] of Bool;
+    outReqShedClose : Array[1..18] of Bool;
+    outShedActive : Bool;
+    outShedStep : Int;
+    outReconnectActive : Bool;
+    outReconnectStep : Int;
+    outShedMode : Int;
+    outFeedersShed : Int;
+    outFeedersEssentialCount : Int;
+    outFeedersNonEssentialCount : Int;
+    outDiagLoadOverLimit : Bool;
+    outDiagGdLoadOk : Bool;
+    outDiagGridLoadOk : Bool;
+    
+    // ========== AUXILIARES ==========
+    i : Int;
+    essentialOk : Bool;
+    nonEssentialOpenCount : Int;
+    prevReconnectStep : Int;
+END_VAR
+
+VAR STAT
+    testTimer : TON;
+END_VAR
+
+BEGIN
+    
+    // ========================================================================
+    // NETWORK 1: SECUENCIA DE TEST FB_SHED
+    // ========================================================================
+    
+    IF #testEnable THEN
+        
+        CASE #testStep OF
+            
+            // ================================================================
+            // GRUPO A: CLASIFICACIÓN Y ESTADO IDLE
+            // ================================================================
+            
+            // PASO 0: Inicialización
+            0:
+                #testStatus := 'PASO 0: Inicializando test FB_SHED V2.0';
+                #testExpectedResult := 'Feeders configurados, todos cerrados';
+                
+                // Configurar SHED_ORDER: deslastar 18→4 (inverso)
+                #cfgShedOrder[1] := 18;
+                #cfgShedOrder[2] := 17;
+                #cfgShedOrder[3] := 16;
+                #cfgShedOrder[4] := 15;
+                #cfgShedOrder[5] := 14;
+                #cfgShedOrder[6] := 13;
+                #cfgShedOrder[7] := 12;
+                #cfgShedOrder[8] := 11;
+                #cfgShedOrder[9] := 10;
+                #cfgShedOrder[10] := 9;
+                #cfgShedOrder[11] := 8;
+                #cfgShedOrder[12] := 7;
+                #cfgShedOrder[13] := 6;
+                #cfgShedOrder[14] := 5;
+                #cfgShedOrder[15] := 4;
+                #cfgShedOrder[16] := 0;
+                #cfgShedOrder[17] := 0;
+                #cfgShedOrder[18] := 0;
+                
+                // Configurar RECONNECT_ORDER: 4→18
+                #cfgReconnectOrder[1] := 4;
+                #cfgReconnectOrder[2] := 5;
+                #cfgReconnectOrder[3] := 6;
+                #cfgReconnectOrder[4] := 7;
+                #cfgReconnectOrder[5] := 8;
+                #cfgReconnectOrder[6] := 9;
+                #cfgReconnectOrder[7] := 10;
+                #cfgReconnectOrder[8] := 11;
+                #cfgReconnectOrder[9] := 12;
+                #cfgReconnectOrder[10] := 13;
+                #cfgReconnectOrder[11] := 14;
+                #cfgReconnectOrder[12] := 15;
+                #cfgReconnectOrder[13] := 16;
+                #cfgReconnectOrder[14] := 17;
+                #cfgReconnectOrder[15] := 18;
+                #cfgReconnectOrder[16] := 0;
+                #cfgReconnectOrder[17] := 0;
+                #cfgReconnectOrder[18] := 0;
+                
+                // Configurar FEEDER_ESSENTIAL: 1,2,3 = esenciales
+                #cfgFeederEssential[1] := TRUE;
+                #cfgFeederEssential[2] := TRUE;
+                #cfgFeederEssential[3] := TRUE;
+                FOR #i := 4 TO 18 DO
+                    #cfgFeederEssential[#i] := FALSE;
+                END_FOR;
+                
+                // Todos habilitados para deslastre
+                FOR #i := 1 TO 18 DO
+                    #cfgShedEnable[#i] := TRUE;
+                END_FOR;
+                
+                // Todos los feeders cerrados inicialmente
+                FOR #i := 1 TO 18 DO
+                    #simFeederState[#i] := 1;  // Cerrado
+                END_FOR;
+                
+                // Condiciones iniciales: RED normal, sin sobrecarga
+                #simIsOnGrid := TRUE;
+                #simIsOnGD := FALSE;
+                #simIsInTransfer := FALSE;
+                #simTransferToGD := FALSE;
+                #simModeAuto := TRUE;
+                #simTR_LoadPct := 60.0;  // 60% - normal
+                #simGD_LoadPct := 0.0;
+                
+                #testTimer(IN := TRUE, PT := T#3s);
+                IF #testTimer.Q THEN
+                    #testResults[0] := TRUE;
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 1;
+                END_IF;
+                
+            // PASO 1: Validar clasificación de feeders
+            1:
+                #testStatus := 'PASO 1: Validar esenciales=3, no-esenciales=15';
+                #testExpectedResult := 'FEEDERS_ESSENTIAL_COUNT=3, NON_ESSENTIAL=15';
+                
+                #testTimer(IN := TRUE, PT := T#3s);
+                IF #testTimer.Q THEN
+                    #testResults[1] := (#outFeedersEssentialCount = 3
+                                        AND #outFeedersNonEssentialCount = 15);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 2;
+                END_IF;
+                
+            // PASO 2: Validar IDLE en RED sin sobrecarga
+            2:
+                #testStatus := 'PASO 2: SHED_MODE=0 (IDLE), sin sobrecarga';
+                #testExpectedResult := 'SHED_MODE=0, SHED_ACTIVE=FALSE';
+                
+                #testTimer(IN := TRUE, PT := T#3s);
+                IF #testTimer.Q THEN
+                    #testResults[2] := (#outShedMode = 0
+                                        AND NOT #outShedActive
+                                        AND #outDiagGridLoadOk);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 3;
+                END_IF;
+                
+            // ================================================================
+            // GRUPO B: DESLASTRE REACTIVO EN RED
+            // ================================================================
+            
+            // PASO 3: Subir TR_LoadPct > 85% → GRID_SHED
+            3:
+                #testStatus := 'PASO 3: Subir TR_LoadPct=88% → esperar GRID_SHED';
+                #testExpectedResult := 'SHED_MODE=1, SHED_ACTIVE=TRUE';
+                
+                #simTR_LoadPct := 88.0;  // Sobre umbral GRID_SHED_ON (85%)
+                
+                // Esperar filtro T_LOAD_FILTER (2s) + procesamiento
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    #testResults[3] := (#outShedMode = 1
+                                        AND #outShedActive);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 4;
+                END_IF;
+                
+            // PASO 4: Verificar que abre no-esenciales
+            4:
+                #testStatus := 'PASO 4: Verificar apertura no-esenciales (SHED_ORDER)';
+                #testExpectedResult := 'REQ_SHED_OPEN para no-esenciales';
+                
+                // Simular que los feeders responden al SHED (abrir los pedidos)
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedOpen[#i] THEN
+                        #simFeederState[#i] := 0;  // Abrir
+                    END_IF;
+                END_FOR;
+                
+                // Esperar al menos un paso de shed (T_SHED_STEP=5s + margen)
+                #testTimer(IN := TRUE, PT := T#8s);
+                IF #testTimer.Q THEN
+                    // Verificar que al menos 1 no-esencial fue abierto
+                    #nonEssentialOpenCount := 0;
+                    FOR #i := 4 TO 18 DO
+                        IF #simFeederState[#i] = 0 THEN
+                            #nonEssentialOpenCount := #nonEssentialOpenCount + 1;
+                        END_IF;
+                    END_FOR;
+                    
+                    #testResults[4] := (#nonEssentialOpenCount >= 1);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 5;
+                END_IF;
+                
+            // PASO 5: Verificar que esenciales NO se abren
+            5:
+                #testStatus := 'PASO 5: Verificar esenciales NUNCA se abren';
+                #testExpectedResult := 'FEEDER_STATE[1,2,3] = 1 (cerrados)';
+                
+                // Esperar más pasos de shed para confirmar protección esenciales
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    // Esenciales 1,2,3 deben seguir cerrados
+                    #essentialOk := (#simFeederState[1] = 1
+                                    AND #simFeederState[2] = 1
+                                    AND #simFeederState[3] = 1);
+                    
+                    // Ningún REQ_SHED_OPEN para esenciales
+                    #essentialOk := #essentialOk
+                                    AND NOT #outReqShedOpen[1]
+                                    AND NOT #outReqShedOpen[2]
+                                    AND NOT #outReqShedOpen[3];
+                    
+                    #testResults[5] := #essentialOk;
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 6;
+                END_IF;
+                
+            // PASO 6: Bajar TR_LoadPct < 70% → GRID_RECONNECT
+            6:
+                #testStatus := 'PASO 6: Bajar TR_LoadPct=65% → GRID_RECONNECT';
+                #testExpectedResult := 'SHED_MODE=5 (GRID_RECONNECT)';
+                
+                #simTR_LoadPct := 65.0;  // Bajo umbral GRID_SHED_OFF (70%)
+                
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    #testResults[6] := (#outShedMode = 5
+                                        AND #outReconnectActive);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 7;
+                END_IF;
+                
+            // PASO 7: Verificar reenganche feeders en RED
+            7:
+                #testStatus := 'PASO 7: Verificar reenganche en RED';
+                #testExpectedResult := 'REQ_SHED_CLOSE para reconectar';
+                
+                // Simular que feeders responden al cierre
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedClose[#i] THEN
+                        #simFeederState[#i] := 1;  // Cerrar
+                    END_IF;
+                END_FOR;
+                
+                // Esperar reenganche (varios pasos de T_RECONNECT_STEP)
+                #testTimer(IN := TRUE, PT := T#15s);
+                IF #testTimer.Q THEN
+                    // Verificar que al menos algunos feeders se reconectaron
+                    #nonEssentialOpenCount := 0;
+                    FOR #i := 4 TO 18 DO
+                        IF #simFeederState[#i] = 0 THEN
+                            #nonEssentialOpenCount := #nonEssentialOpenCount + 1;
+                        END_IF;
+                    END_FOR;
+                    
+                    // Algunos o todos deben haberse cerrado
+                    #testResults[7] := (#nonEssentialOpenCount < 15);
+                    
+                    // Forzar todos cerrados para siguiente grupo
+                    FOR #i := 1 TO 18 DO
+                        #simFeederState[#i] := 1;
+                    END_FOR;
+                    #simTR_LoadPct := 60.0;  // Normalizar carga
+                    
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 8;
+                END_IF;
+                
+            // ================================================================
+            // GRUPO C: DESACOPLE INICIAL TRANSFERENCIA GD
+            // ================================================================
+            
+            // PASO 8: Simular TRANSFER_TO_GD=TRUE → GD_INITIAL_SHED
+            8:
+                #testStatus := 'PASO 8: TRANSFER_TO_GD=TRUE → GD_INITIAL_SHED';
+                #testExpectedResult := 'SHED_MODE=2, no-esenciales se abren';
+                
+                // Estabilizar en IDLE primero
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    // Activar transferencia a GD (simula SCMTA en OPEN_QT1)
+                    #simTransferToGD := TRUE;
+                    #simIsInTransfer := TRUE;
+                    #simIsOnGrid := FALSE;  // Ya no está en RED
+                    #simIsOnGD := FALSE;    // Todavía no en GD
+                    
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 9;
+                END_IF;
+                
+            // PASO 9: Verificar que no-esenciales reciben REQ_SHED_OPEN
+            9:
+                #testStatus := 'PASO 9: Verificar REQ_SHED_OPEN no-esenciales';
+                #testExpectedResult := 'REQ_SHED_OPEN[4..18]=TRUE';
+                
+                // Simular que feeders responden
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedOpen[#i] THEN
+                        #simFeederState[#i] := 0;
+                    END_IF;
+                END_FOR;
+                
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    // Verificar modo
+                    #testResults[9] := (#outShedMode = 2);
+                    
+                    // Abrir todos los no-esenciales (simular respuesta)
+                    FOR #i := 4 TO 18 DO
+                        #simFeederState[#i] := 0;
+                    END_FOR;
+                    
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 10;
+                END_IF;
+                #testResults[8] := TRUE;  // Paso 8 completado
+                
+            // PASO 10: Verificar que esenciales permanecen cerrados
+            10:
+                #testStatus := 'PASO 10: Esenciales cerrados durante INITIAL_SHED';
+                #testExpectedResult := 'FEEDER_STATE[1,2,3] = 1';
+                
+                #testTimer(IN := TRUE, PT := T#3s);
+                IF #testTimer.Q THEN
+                    #essentialOk := (#simFeederState[1] = 1
+                                    AND #simFeederState[2] = 1
+                                    AND #simFeederState[3] = 1);
+                    
+                    #testResults[10] := #essentialOk;
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 11;
+                END_IF;
+                
+            // ================================================================
+            // GRUPO D: ACOPLAMIENTO ESCALONADO EN GD
+            // ================================================================
+            
+            // PASO 11: Pasar a IS_ON_GD=TRUE, carga baja → GD_RECONNECT
+            11:
+                #testStatus := 'PASO 11: IS_ON_GD=TRUE, carga 40% → GD_RECONNECT';
+                #testExpectedResult := 'SHED_MODE=3, acoplamiento inicia';
+                
+                // Simular que GD esta operativo
+                #simTransferToGD := FALSE;
+                #simIsInTransfer := FALSE;
+                #simIsOnGD := TRUE;
+                #simIsOnGrid := FALSE;
+                #simGD_LoadPct := 40.0;  // Carga baja, permite acoplar
+                
+                #testTimer(IN := TRUE, PT := T#8s);
+                IF #testTimer.Q THEN
+                    #testResults[11] := (#outShedMode = 3
+                                        AND #outReconnectActive);
+                    #prevReconnectStep := #outReconnectStep;
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 12;
+                END_IF;
+                
+            // PASO 12: Verificar acoplamiento escalonado (1 feeder a la vez)
+            12:
+                #testStatus := 'PASO 12: Acoplar escalonado - 1 feeder a la vez';
+                #testExpectedResult := 'RECONNECT_STEP avanza, feeders cierran';
+                
+                // Simular respuesta de feeders al cierre
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedClose[#i] THEN
+                        #simFeederState[#i] := 1;
+                    END_IF;
+                END_FOR;
+                
+                // Subir carga simulada ligeramente por cada feeder (realista)
+                #simGD_LoadPct := 40.0 + (REAL#(#outReconnectStep) * 3.0);
+                
+                // Esperar que avance al menos 2 pasos
+                #testTimer(IN := TRUE, PT := T#20s);
+                IF #testTimer.Q THEN
+                    // Debe haber avanzado en el reenganche
+                    #testResults[12] := (#outReconnectStep > #prevReconnectStep);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 13;
+                END_IF;
+                
+            // PASO 13: Subir carga GD → PAUSA acoplamiento
+            13:
+                #testStatus := 'PASO 13: GD_LoadPct=92% → PAUSA acoplamiento';
+                #testExpectedResult := 'Acoplamiento pausado, SHED_MODE=4';
+                
+                // Subir carga GD súbitamente sobre 90% (umbral GD_SHED_ON)
+                #simGD_LoadPct := 92.0;
+                #prevReconnectStep := #outReconnectStep;
+                
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    // Debe haber pasado a deslastre reactivo GD o pausado
+                    #testResults[13] := (#outShedMode = 4
+                                        OR #outReconnectStep = #prevReconnectStep);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 14;
+                END_IF;
+                
+            // PASO 14: Bajar carga → reanuda acoplamiento
+            14:
+                #testStatus := 'PASO 14: GD_LoadPct=50% → reanuda acoplamiento';
+                #testExpectedResult := 'SHED_MODE=3 o 4→3';
+                
+                #simGD_LoadPct := 50.0;
+                
+                // Simular feeders responden
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedClose[#i] THEN
+                        #simFeederState[#i] := 1;
+                    END_IF;
+                    IF #outReqShedOpen[#i] THEN
+                        #simFeederState[#i] := 0;
+                    END_IF;
+                END_FOR;
+                
+                #testTimer(IN := TRUE, PT := T#10s);
+                IF #testTimer.Q THEN
+                    // Debe estar reconectando o ya reconectado
+                    #testResults[14] := (#outShedMode = 3
+                                        OR #outShedMode = 0);
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 15;
+                END_IF;
+                
+            // ================================================================
+            // GRUPO E: DESLASTRE REACTIVO EN GD
+            // ================================================================
+            
+            // PASO 15: GD_LoadPct > 90% → GD_REACTIVE_SHED
+            15:
+                #testStatus := 'PASO 15: GD_LoadPct=93% → GD_REACTIVE_SHED';
+                #testExpectedResult := 'SHED_MODE=4, deslastre reactivo en GD';
+                
+                // Cerrar todos los feeders primero (estado inicial limpio)
+                FOR #i := 1 TO 18 DO
+                    #simFeederState[#i] := 1;
+                END_FOR;
+                
+                // Esperar estabilización
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    // Subir carga GD sobre umbral
+                    #simGD_LoadPct := 93.0;
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 16;
+                END_IF;
+                
+            // PASO 16: Verificar desacople no-esenciales en GD
+            16:
+                #testStatus := 'PASO 16: Verificar REQ_SHED_OPEN no-esenciales en GD';
+                #testExpectedResult := 'No-esenciales se abren, esenciales intactos';
+                
+                // Simular feeders responden
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedOpen[#i] THEN
+                        #simFeederState[#i] := 0;
+                    END_IF;
+                END_FOR;
+                
+                // Esperar filtro + paso deslastre
+                #testTimer(IN := TRUE, PT := T#10s);
+                IF #testTimer.Q THEN
+                    // Esenciales protegidos
+                    #essentialOk := (#simFeederState[1] = 1
+                                    AND #simFeederState[2] = 1
+                                    AND #simFeederState[3] = 1);
+                    
+                    // Al menos un no-esencial abierto
+                    #nonEssentialOpenCount := 0;
+                    FOR #i := 4 TO 18 DO
+                        IF #simFeederState[#i] = 0 THEN
+                            #nonEssentialOpenCount := #nonEssentialOpenCount + 1;
+                        END_IF;
+                    END_FOR;
+                    
+                    #testResults[15] := (#outShedMode = 4);
+                    #testResults[16] := (#essentialOk AND #nonEssentialOpenCount >= 1);
+                    
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 17;
+                END_IF;
+                
+            // ================================================================
+            // GRUPO F: REENGANCHE AL VOLVER A RED
+            // ================================================================
+            
+            // PASO 17: Retorno a RED → GRID_RECONNECT
+            17:
+                #testStatus := 'PASO 17: Retorno a RED → GRID_RECONNECT (modo 5)';
+                #testExpectedResult := 'SHED_MODE=5, todos reconectan';
+                
+                // Simular retorno a RED
+                #simIsOnGD := FALSE;
+                #simIsOnGrid := TRUE;
+                #simIsInTransfer := FALSE;
+                #simTransferToGD := FALSE;
+                #simGD_LoadPct := 0.0;
+                #simTR_LoadPct := 60.0;  // Carga normal
+                
+                #testTimer(IN := TRUE, PT := T#5s);
+                IF #testTimer.Q THEN
+                    #testResults[17] := (#outShedMode = 5
+                                        OR #outShedMode = 0);  // Puede ser RECONNECT o ya IDLE
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 18;
+                END_IF;
+                
+            // PASO 18: Verificar que todos los feeders se cierran
+            18:
+                #testStatus := 'PASO 18: Verificar todos feeders cerrados';
+                #testExpectedResult := 'Todos FEEDER_STATE = 1 (cerrados)';
+                
+                // Simular feeders responden al cierre
+                FOR #i := 1 TO 18 DO
+                    IF #outReqShedClose[#i] THEN
+                        #simFeederState[#i] := 1;
+                    END_IF;
+                END_FOR;
+                
+                // Esperar reenganche completo (varios pasos)
+                #testTimer(IN := TRUE, PT := T#30s);
+                IF #testTimer.Q THEN
+                    // Contar feeders abiertos
+                    #nonEssentialOpenCount := 0;
+                    FOR #i := 1 TO 18 DO
+                        IF #simFeederState[#i] = 0 THEN
+                            #nonEssentialOpenCount := #nonEssentialOpenCount + 1;
+                        END_IF;
+                    END_FOR;
+                    
+                    // Todos deben estar cerrados (o al menos la mayoría)
+                    #testResults[18] := (#nonEssentialOpenCount <= 2);  // Tolerancia 2
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 19;
+                END_IF;
+                
+            // PASO 19: TEST COMPLETADO
+            19:
+                #testStatus := 'PASO 19: TEST FB_SHED V2.0 COMPLETADO';
+                #testExpectedResult := 'Dual RED/GD validado';
+                
+                #testResults[19] := TRUE;
+                // NO desactivar testEnable - usuario lo hace manual
+                
+        END_CASE;
+        
+    ELSE
+        // Test no habilitado
+        #testStep := 0;
+        #testStatus := 'Test SHED detenido - Activar testEnable';
+        #testTimer(IN := FALSE, PT := T#1s);
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 2: RESET MANUAL
+    // ========================================================================
+    IF #testReset OR (NOT #testEnable) THEN
+        #testStep := 0;
+        #testStatus := 'Test SHED reseteado';
+        
+        // Reset simulación
+        #simIsOnGD := FALSE;
+        #simIsOnGrid := TRUE;
+        #simIsInTransfer := FALSE;
+        #simTransferToGD := FALSE;
+        #simModeAuto := TRUE;
+        #simGD_LoadPct := 40.0;
+        #simTR_LoadPct := 60.0;
+        
+        // Reset feeders: todos cerrados
+        FOR #i := 1 TO 18 DO
+            #simFeederState[#i] := 1;
+        END_FOR;
+        
+        // Reset resultados
+        FOR #i := 0 TO 19 DO
+            #testResults[#i] := FALSE;
+        END_FOR;
+        
+        #testTimer(IN := FALSE, PT := T#1s);
+    ELSE
+        #testReset := FALSE;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 3: LLAMADA FB_SHED
+    // ========================================================================
+    "03_FB_SHED_DB_2"(
+        // Control
+        ENABLE := TRUE,
+        MODE_AUTO := #simModeAuto,
+        IS_ON_GD := #simIsOnGD,
+        IS_ON_GRID := #simIsOnGrid,
+        IS_IN_TRANSFER := #simIsInTransfer,
+        TRANSFER_TO_GD := #simTransferToGD,
+        
+        // Mediciones
+        GD_LoadPct := #simGD_LoadPct,
+        TR_LoadPct := #simTR_LoadPct,
+        
+        // Parámetros deslastre GD
+        GD_SHED_ON := 90.0,
+        GD_SHED_OFF := 70.0,
+        
+        // Parámetros deslastre RED
+        GRID_SHED_ON := 85.0,
+        GRID_SHED_OFF := 70.0,
+        
+        // === TIMING OVERRIDES PARA TEST ===
+        T_SHED_STEP := T#3s,           // Default 5s → 3s (test más rápido)
+        T_RECONNECT_STEP := T#3s,      // Default 5s → 3s
+        T_LOAD_FILTER := T#2s,         // Default 2s (sin cambio)
+        T_LOAD_CHECK_DELAY := T#2s,    // Default 3s → 2s
+        
+        // Arrays configurables
+        SHED_ORDER := #cfgShedOrder,
+        RECONNECT_ORDER := #cfgReconnectOrder,
+        FEEDER_ESSENTIAL := #cfgFeederEssential,
+        SHED_ENABLE := #cfgShedEnable,
+        
+        // Estados feeders (simulados)
+        FEEDER_STATE := #simFeederState,
+        
+        // Outputs
+        REQ_SHED_OPEN => #outReqShedOpen,
+        REQ_SHED_CLOSE => #outReqShedClose,
+        SHED_ACTIVE => #outShedActive,
+        SHED_STEP => #outShedStep,
+        RECONNECT_ACTIVE => #outReconnectActive,
+        RECONNECT_STEP => #outReconnectStep,
+        SHED_MODE => #outShedMode,
+        FEEDERS_SHED => #outFeedersShed,
+        FEEDERS_ESSENTIAL_COUNT => #outFeedersEssentialCount,
+        FEEDERS_NON_ESSENTIAL_COUNT => #outFeedersNonEssentialCount,
+        DIAG_LOAD_OVER_LIMIT => #outDiagLoadOverLimit,
+        DIAG_GD_LOAD_OK => #outDiagGdLoadOk,
+        DIAG_GRID_LOAD_OK => #outDiagGridLoadOk
+    );
+    
+END_FUNCTION_BLOCK

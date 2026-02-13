@@ -1,28 +1,40 @@
 (*
 ================================================================================
   FUNCTION BLOCK: FB_SCMTA
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 3.0
+  Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
   Sistema de Control y Monitoreo de Transferencia Automática (SCMTA).
   Implementa la máquina de estados para gestionar la transferencia entre
-  Red Externa y Grupo Diésel con prioridad Red > GD.
+  Red Externa y Grupo Diésel con redundancia N+1 (GD1 primario + GD2 backup).
+  
+  CAMBIO V3.0 (Reunión 2026-02-10):
+  - Soporte completo GD2 (backup/redundante)
+  - Failover automático GD1→GD2 y GD2→GD1
+  - Failover en arranque Y durante operación
+  - 21 estados (0-20), antes 15 estados (0-14)
   
   RESPONSABILIDADES:
   1. Detección de falta de red (tensión + falta de fase)
-  2. Secuencia automática Red→GD con tiempos de seguridad
-  3. Retorno automático GD→Red con confirmación de estabilidad (120s)
-  4. Generación de requests abstractos para FB_CMD_ARBITER
-  5. Gestión de fallas y lockout
-  6. Control de marcha/parada GD (DO_GD_START/STOP)
+  2. Secuencia automática Red→GD1 con tiempos de seguridad
+  3. Failover automático GD1→GD2 si GD1 falla (arranque u operación)
+  4. Failover automático GD2→GD1 si GD2 falla (operación)
+  5. Retorno automático GD→Red con confirmación de estabilidad (120s)
+  6. Generación de requests abstractos para FB_CMD_ARBITER
+  7. Gestión de fallas y lockout
+  8. Control de marcha/parada GD1 y GD2
   
-  ESTADOS (0-14):
-  0=INIT, 1=NORMAL_ON_GRID, 2=GRID_FAIL_DETECTED, 3=OPEN_QT1, 
-  4=START_GD_DELAY, 5=START_GD, 6=WAIT_GD_READY, 7=CLOSE_QG1,
-  8=ON_GD, 9=GRID_RETURN_DETECTED, 10=WAIT_GRID_STABLE, 11=OPEN_QG1,
-  12=CLOSE_QT1, 13=GD_COOLDOWN, 14=FAULT_LOCKOUT
+  ESTADOS (0-20):
+  0=INIT, 1=NORMAL_ON_GRID, 2=GRID_FAIL_DETECTED, 3=OPEN_QT1,
+  4=START_GD1_DELAY, 5=START_GD1, 6=WAIT_GD1_READY, 7=CLOSE_QG1,
+  8=ON_GD1, 9=GRID_RETURN_DETECTED, 10=WAIT_GRID_STABLE,
+  11=OPEN_ACTIVE_GD, 12=CLOSE_QT1, 13=GD_COOLDOWN, 14=FAULT_LOCKOUT,
+  15=START_GD2_DELAY, 16=START_GD2, 17=WAIT_GD2_READY, 18=CLOSE_QG2,
+  19=ON_GD2, 20=OPEN_GD_FOR_SWITCH
+  
+  PRIORIDAD: RED > GD1 > GD2
   
   REGLA ABSOLUTA:
   - Solo un interruptor de fuente (QT1/QG1/QG2) puede estar cerrado simultáneamente
@@ -33,7 +45,7 @@
 
 FUNCTION_BLOCK "FB_SCMTA"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
+VERSION : 0.3
 
 VAR_INPUT 
     // ========== ENTRADAS DE CONTROL ==========
@@ -47,95 +59,116 @@ VAR_INPUT
     QG2_STATE : Int;
     
     // ========== MEDICIONES RED (de PM5350 vía Modbus) ==========
-    GRID_V_L1L2 : Real;              // Tensión L1-L2 [V]
-    GRID_V_L2L3 : Real;              // Tensión L2-L3 [V]
-    GRID_V_L3L1 : Real;              // Tensión L3-L1 [V]
-    GRID_FREQ : Real;                // Frecuencia [Hz]
-    GRID_MEASUREMENT_OK : Bool;      // TRUE = medición Modbus válida
+    GRID_V_L1L2 : Real;
+    GRID_V_L2L3 : Real;
+    GRID_V_L3L1 : Real;
+    GRID_FREQ : Real;
+    GRID_MEASUREMENT_OK : Bool;
     
-    // ========== SEÑALES GRUPO DIÉSEL (de FB_IO_NORMALIZE) ==========
-    GD_READY : Bool;                 // GD listo para transferir
-    GD_RUNNING : Bool;               // GD en marcha
-    GD_ALARM : Bool;                 // GD en alarma/falla
+    // ========== SEÑALES GRUPO DIÉSEL 1 (primario) ==========
+    GD_READY : Bool;                 // GD1 listo para transferir
+    GD_RUNNING : Bool;               // GD1 en marcha
+    GD_ALARM : Bool;                 // GD1 en alarma/falla
+    
+    // ========== SEÑALES GRUPO DIÉSEL 2 (backup/redundante) ==========
+    GD2_READY : Bool;                // GD2 listo para transferir
+    GD2_RUNNING : Bool;              // GD2 en marcha
+    GD2_ALARM : Bool;                // GD2 en alarma/falla
     
     // ========== PARÁMETROS CONFIGURABLES ==========
-    V_NOM : Real := 380.0;           // Tensión nominal L-L [V]
-    V_MIN_PCT : Real := 85.0;        // Umbral mínimo tensión [%] (subtensión)
-    V_MAX_PCT : Real := 110.0;       // Umbral máximo tensión [%] (sobretensión)
-    FREQ_NOM : Real := 50.0;         // Frecuencia nominal [Hz]
-    FREQ_MIN : Real := 49.0;         // Frecuencia mínima [Hz]
-    FREQ_MAX : Real := 51.0;         // Frecuencia máxima [Hz]
+    V_NOM : Real := 380.0;
+    V_MIN_PCT : Real := 85.0;
+    V_MAX_PCT : Real := 110.0;
+    FREQ_NOM : Real := 50.0;
+    FREQ_MIN : Real := 49.0;
+    FREQ_MAX : Real := 51.0;
     
-    T_OPEN_QT1 : Time := T#2s;       // Timeout comando Open QT1
-    T_START_GD_DELAY : Time := T#3s; // Delay antes de arrancar GD
-    T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD_READY
-    T_GD_STABILIZATION : Time := T#5s;  // Estabilización desde GD_READY
-    T_CLOSE_QG1 : Time := T#2s;      // Timeout comando Close QG1
-    T_GRID_STABLE : Time := T#120s;  // Estabilidad red antes de retorno
-    T_OPEN_QG1 : Time := T#2s;       // Timeout comando Open QG1
-    T_CLOSE_QT1 : Time := T#2s;      // Timeout comando Close QT1
-    T_GD_COOLDOWN : Time := T#60s;   // Cooldown antes de parar GD
-    T_GRID_FAIL_FILTER : Time := T#2s; // Filtro falla de red (anti-bouncing)
+    T_OPEN_QT1 : Time := T#2s;
+    T_START_GD_DELAY : Time := T#3s;  // Delay arranque (GD1 y GD2)
+    T_GD_READY_TIMEOUT : Time := T#30s;
+    T_GD_STABILIZATION : Time := T#5s;
+    T_CLOSE_QG1 : Time := T#2s;
+    T_CLOSE_QG2 : Time := T#2s;
+    T_GRID_STABLE : Time := T#120s;
+    T_OPEN_QG1 : Time := T#2s;
+    T_OPEN_QG2 : Time := T#2s;
+    T_CLOSE_QT1 : Time := T#2s;
+    T_GD_COOLDOWN : Time := T#60s;
+    T_GRID_FAIL_FILTER : Time := T#2s;
 END_VAR
 
 VAR_OUTPUT 
     // ========== ESTADO MÁQUINA ==========
-    STATE : Int := 0;                // Estado actual (0-14)
-    STATE_NAME : String[30];         // Nombre estado (para HMI)
+    STATE : Int := 0;                // Estado actual (0-20)
+    STATE_NAME : String[30];
     
     // ========== REQUESTS ABSTRACTOS (para FB_CMD_ARBITER) ==========
-    REQ_SCMTA_OPEN_QT1 : Bool;       // Solicitud abrir QT1
-    REQ_SCMTA_CLOSE_QT1 : Bool;      // Solicitud cerrar QT1
-    REQ_SCMTA_OPEN_QG1 : Bool;       // Solicitud abrir QG1
-    REQ_SCMTA_CLOSE_QG1 : Bool;      // Solicitud cerrar QG1
-    REQ_SCMTA_OPEN_QG2 : Bool;       // Solicitud abrir QG2
-    REQ_SCMTA_CLOSE_QG2 : Bool;      // Solicitud cerrar QG2
+    REQ_SCMTA_OPEN_QT1 : Bool;
+    REQ_SCMTA_CLOSE_QT1 : Bool;
+    REQ_SCMTA_OPEN_QG1 : Bool;
+    REQ_SCMTA_CLOSE_QG1 : Bool;
+    REQ_SCMTA_OPEN_QG2 : Bool;
+    REQ_SCMTA_CLOSE_QG2 : Bool;
     
-    // ========== SALIDAS FÍSICAS (DO para GD) ==========
-    DO_GD_START : Bool;              // Orden marcha GD (contacto NA)
-    DO_GD_STOP : Bool;               // Orden parada GD (contacto NA)
+    // ========== SALIDAS FÍSICAS GD1 ==========
+    DO_GD_START : Bool;              // Orden marcha GD1
+    DO_GD_STOP : Bool;               // Orden parada GD1
+    
+    // ========== SALIDAS FÍSICAS GD2 ==========
+    DO_GD2_START : Bool;             // Orden marcha GD2
+    DO_GD2_STOP : Bool;              // Orden parada GD2
     
     // ========== FLAGS DE ESTADO ==========
     IS_ON_GRID : Bool;               // TRUE = operando con red
-    IS_ON_GD : Bool;                 // TRUE = operando con GD
-    IS_IN_TRANSFER : Bool;           // TRUE = en proceso de transferencia
-    IS_FAULT : Bool;                 // TRUE = en estado FAULT_LOCKOUT
+    IS_ON_GD : Bool;                 // TRUE = operando con cualquier GD (backward compatible)
+    IS_ON_GD1 : Bool;                // TRUE = operando con GD1 específicamente
+    IS_ON_GD2 : Bool;                // TRUE = operando con GD2 específicamente
+    ACTIVE_GD : Int;                 // 0=ninguno, 1=GD1, 2=GD2
+    IS_IN_TRANSFER : Bool;
+    IS_FAULT : Bool;
+    TRANSFER_TO_GD : Bool;           // TRUE = transferencia RED→GD en curso
     
-    GRID_OK : Bool;                  // TRUE = red dentro de parámetros
-    GRID_FAIL : Bool;                // TRUE = falla de red detectada
+    GRID_OK : Bool;
+    GRID_FAIL : Bool;
     
     // ========== DIAGNÓSTICO ==========
-    FAULT_CODE : Int;                // Código de falla (0=sin falla)
-    ELAPSED_TIME : Time;             // Tiempo transcurrido en estado actual
-    DIAG_LAST_TRANSFER_TIME : Time;  // Duración última transferencia Red→GD
+    FAULT_CODE : Int;
+    ELAPSED_TIME : Time;
+    DIAG_LAST_TRANSFER_TIME : Time;
+    GD1_AVAILABLE : Bool;            // TRUE = GD1 disponible para uso/failover
+    GD2_AVAILABLE : Bool;            // TRUE = GD2 disponible para uso/failover
 END_VAR
 
 VAR 
     // ========== TIMERS ==========
-    tonStateTimer : TON;             // Timer genérico estado actual
-    tonGridFailFilter : TON;         // Filtro falla de red
-    tonGridStableFilter : TON;       // Filtro estabilidad red
-    tonGdStabilization : TON;        // Timer estabilización GD
+    tonStateTimer : TON;
+    tonGridFailFilter : TON;
+    tonGridStableFilter : TON;
+    tonGdStabilization : TON;
     
     // ========== MEMORIA INTERNA ==========
-    statePrev : Int := 0;            // Estado anterior (detección cambio)
-    transferStartTime : Time;        // Timestamp inicio transferencia
-    faultCodeLatch : Int := 0;       // Código falla latched
+    statePrev : Int := 0;
+    transferStartTime : Time;
+    faultCodeLatch : Int := 0;
     
     // Flags intermedios
-    gridOkRaw : Bool;                // Cálculo tensión/frecuencia OK
-    gridFailRaw : Bool;              // Cálculo falla sin filtro
-    gdReadyStable : Bool;            // GD_READY estabilizado
+    gridOkRaw : Bool;
+    gridFailRaw : Bool;
+    gdReadyStable : Bool;
     
-    // Confirmaciones de comando ejecutado (feedback de ARBITER)
+    // Tracking GD activo
+    activeGDInternal : Int := 0;     // 1=GD1, 2=GD2 (cuál está activo)
+    
+    // Confirmaciones de comando
     cmdQT1OpenDone : Bool;
     cmdQG1CloseDone : Bool;
     cmdQG1OpenDone : Bool;
+    cmdQG2CloseDone : Bool;
+    cmdQG2OpenDone : Bool;
     cmdQT1CloseDone : Bool;
     
     // Control de timeout
     timeoutDetected : Bool;
-    
 END_VAR
 
 VAR_TEMP 
@@ -150,27 +183,41 @@ VAR CONSTANT
     ST_NORMAL_ON_GRID : Int := 1;
     ST_GRID_FAIL_DETECTED : Int := 2;
     ST_OPEN_QT1 : Int := 3;
-    ST_START_GD_DELAY : Int := 4;
-    ST_START_GD : Int := 5;
-    ST_WAIT_GD_READY : Int := 6;
+    ST_START_GD1_DELAY : Int := 4;
+    ST_START_GD1 : Int := 5;
+    ST_WAIT_GD1_READY : Int := 6;
     ST_CLOSE_QG1 : Int := 7;
-    ST_ON_GD : Int := 8;
+    ST_ON_GD1 : Int := 8;
     ST_GRID_RETURN_DETECTED : Int := 9;
     ST_WAIT_GRID_STABLE : Int := 10;
-    ST_OPEN_QG1 : Int := 11;
+    ST_OPEN_ACTIVE_GD : Int := 11;
     ST_CLOSE_QT1 : Int := 12;
     ST_GD_COOLDOWN : Int := 13;
     ST_FAULT_LOCKOUT : Int := 14;
+    ST_START_GD2_DELAY : Int := 15;
+    ST_START_GD2 : Int := 16;
+    ST_WAIT_GD2_READY : Int := 17;
+    ST_CLOSE_QG2 : Int := 18;
+    ST_ON_GD2 : Int := 19;
+    ST_OPEN_GD_FOR_SWITCH : Int := 20;
     
-    // Códigos de falla
+    // Códigos de falla - GD1
     FAULT_TIMEOUT_OPEN_QT1 : Int := 101;
-    FAULT_GD_NOT_READY : Int := 102;
+    FAULT_GD1_NOT_READY : Int := 102;
     FAULT_TIMEOUT_CLOSE_QG1 : Int := 103;
     FAULT_TIMEOUT_OPEN_QG1 : Int := 104;
     FAULT_TIMEOUT_CLOSE_QT1 : Int := 105;
-    FAULT_GD_ALARM : Int := 106;
+    FAULT_GD1_ALARM : Int := 106;
     FAULT_INTERLOCK_VIOLATION : Int := 107;
     FAULT_UNKNOWN_STATE : Int := 108;
+    
+    // Códigos de falla - GD2
+    FAULT_GD2_NOT_READY : Int := 202;
+    FAULT_TIMEOUT_CLOSE_QG2 : Int := 203;
+    FAULT_TIMEOUT_OPEN_QG2 : Int := 204;
+    FAULT_GD2_ALARM : Int := 206;
+    FAULT_BOTH_GD_UNAVAILABLE : Int := 209;
+    FAULT_TIMEOUT_OPEN_SWITCH : Int := 210;
 END_VAR
 
 BEGIN
@@ -178,38 +225,38 @@ BEGIN
     // NETWORK 1: CÁLCULO CONDICIONES RED (GRID_OK / GRID_FAIL)
     // ========================================================================
     
-    // Umbrales tensión
     #vMin := #V_NOM * (#V_MIN_PCT / 100.0);
     #vMax := #V_NOM * (#V_MAX_PCT / 100.0);
     
-    // Verificación tensión por fase (debe estar dentro rango)
     #phaseOk := (#GRID_V_L1L2 >= #vMin AND #GRID_V_L1L2 <= #vMax) AND
                 (#GRID_V_L2L3 >= #vMin AND #GRID_V_L2L3 <= #vMax) AND
                 (#GRID_V_L3L1 >= #vMin AND #GRID_V_L3L1 <= #vMax);
     
-    // Verificación frecuencia
     #gridOkRaw := #phaseOk AND 
                   (#GRID_FREQ >= #FREQ_MIN AND #GRID_FREQ <= #FREQ_MAX) AND
                   #GRID_MEASUREMENT_OK;
     
-    // Falla de red (RAW sin filtro)
     #gridFailRaw := NOT #gridOkRaw;
     
-    // Filtro de falla (2s) para evitar transitorios
     #tonGridFailFilter(IN := #gridFailRaw,
                        PT := #T_GRID_FAIL_FILTER,
                        Q => #GRID_FAIL);
     
-    // Filtro de retorno (inverso: red OK por 2s)
     #tonGridStableFilter(IN := #gridOkRaw,
                          PT := #T_GRID_FAIL_FILTER,
                          Q => #GRID_OK);
     
     
     // ========================================================================
-    // NETWORK 2: RESET DE REQUESTS (1 scan pulse)
+    // NETWORK 2: CÁLCULO DISPONIBILIDAD GD (GD1_AVAILABLE / GD2_AVAILABLE)
     // ========================================================================
-    // Los requests se activan en cada estado y se resetean al inicio del ciclo
+    #GD1_AVAILABLE := NOT #GD_ALARM AND NOT #GD_RUNNING;
+    #GD2_AVAILABLE := NOT #GD2_ALARM AND NOT #GD2_RUNNING;
+    
+    
+    // ========================================================================
+    // NETWORK 3: RESET DE REQUESTS (1 scan pulse)
+    // ========================================================================
     #REQ_SCMTA_OPEN_QT1 := FALSE;
     #REQ_SCMTA_CLOSE_QT1 := FALSE;
     #REQ_SCMTA_OPEN_QG1 := FALSE;
@@ -219,327 +266,375 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 3: TIMER ESTADO ACTUAL (reinicia al cambiar estado)
+    // NETWORK 4: TIMER ESTADO ACTUAL (reinicia al cambiar estado)
     // ========================================================================
     IF #STATE <> #statePrev THEN
         #statePrev := #STATE;
-        #tonStateTimer(IN := FALSE, PT := T#10m);  // Reset timer con PT largo
+        #tonStateTimer(IN := FALSE, PT := T#10m);
         #timeoutDetected := FALSE;
         #cmdQT1OpenDone := FALSE;
         #cmdQG1CloseDone := FALSE;
         #cmdQG1OpenDone := FALSE;
+        #cmdQG2CloseDone := FALSE;
+        #cmdQG2OpenDone := FALSE;
         #cmdQT1CloseDone := FALSE;
     END_IF;
     
-    #tonStateTimer(IN := TRUE, PT := T#10m);  // 10 minutos para medir todos los estados
+    #tonStateTimer(IN := TRUE, PT := T#10m);
     #ELAPSED_TIME := #tonStateTimer.ET;
     
     
     // ========================================================================
-    // NETWORK 4: RESET FORZADO - Funciona desde TODOS los estados
+    // NETWORK 5: RESET FORZADO - Funciona desde TODOS los estados
     // ========================================================================
-    // Cuando RESET_FAULT está activo, resetea la máquina completa
-    // independientemente del estado actual (0-14)
     IF #RESET_FAULT THEN
-        // Limpiar todas las salidas de comando
         #DO_GD_START := FALSE;
         #DO_GD_STOP := FALSE;
+        #DO_GD2_START := FALSE;
+        #DO_GD2_STOP := FALSE;
         #REQ_SCMTA_OPEN_QT1 := FALSE;
         #REQ_SCMTA_CLOSE_QT1 := FALSE;
         #REQ_SCMTA_OPEN_QG1 := FALSE;
         #REQ_SCMTA_CLOSE_QG1 := FALSE;
+        #REQ_SCMTA_OPEN_QG2 := FALSE;
+        #REQ_SCMTA_CLOSE_QG2 := FALSE;
         
-        // Limpiar banderas de estado
         #IS_IN_TRANSFER := FALSE;
         #IS_FAULT := FALSE;
         #FAULT_CODE := 0;
         #faultCodeLatch := 0;
+        #TRANSFER_TO_GD := FALSE;
+        #activeGDInternal := 0;
         
-        // Determinar estado seguro según condiciones actuales
         IF #GRID_OK THEN
-            #STATE := #ST_NORMAL_ON_GRID;  // Volver a RED si está OK
+            #STATE := #ST_NORMAL_ON_GRID;
             #IS_ON_GRID := TRUE;
             #IS_ON_GD := FALSE;
+            #IS_ON_GD1 := FALSE;
+            #IS_ON_GD2 := FALSE;
         ELSE
-            #STATE := #ST_INIT;  // Ir a INIT si RED no está OK
+            #STATE := #ST_INIT;
             #IS_ON_GRID := FALSE;
             #IS_ON_GD := FALSE;
+            #IS_ON_GD1 := FALSE;
+            #IS_ON_GD2 := FALSE;
         END_IF;
         
-        // Forzar detección de cambio de estado en próximo ciclo
-        // Esto hace que NETWORK 3 resetee el timer aunque vayamos al mismo estado
-        #statePrev := -1;  // Valor inválido para forzar reset de timer
-        
-        // Resetear timer de estado inmediatamente
+        #statePrev := -1;
         #tonStateTimer(IN := FALSE, PT := T#10m);
         #ELAPSED_TIME := T#0ms;
     END_IF;
     
     
     // ========================================================================
-    // NETWORK 5: MÁQUINA DE ESTADOS SCMTA
+    // NETWORK 6: MÁQUINA DE ESTADOS SCMTA V3.0
     // ========================================================================
     
     CASE #STATE OF
         
         // ====================================================================
-        // ESTADO 0: INIT (Inicialización)
+        // ESTADO 0: INIT
         // ====================================================================
         #ST_INIT:
             #STATE_NAME := 'INIT';
             #IS_ON_GRID := FALSE;
             #IS_ON_GD := FALSE;
+            #IS_ON_GD1 := FALSE;
+            #IS_ON_GD2 := FALSE;
             #IS_IN_TRANSFER := FALSE;
             #IS_FAULT := FALSE;
+            #TRANSFER_TO_GD := FALSE;
             #DO_GD_START := FALSE;
             #DO_GD_STOP := FALSE;
+            #DO_GD2_START := FALSE;
+            #DO_GD2_STOP := FALSE;
+            #activeGDInternal := 0;
             
-            // Transición: verificar estado de QT1
-            IF #QT1_STATE = 1 THEN  // QT1 cerrado
+            IF #QT1_STATE = 1 THEN
                 #STATE := #ST_NORMAL_ON_GRID;
-            ELSIF #QG1_STATE = 1 THEN  // QG1 cerrado
-                #STATE := #ST_ON_GD;
+            ELSIF #QG1_STATE = 1 THEN
+                #activeGDInternal := 1;
+                #STATE := #ST_ON_GD1;
+            ELSIF #QG2_STATE = 1 THEN
+                #activeGDInternal := 2;
+                #STATE := #ST_ON_GD2;
             ELSE
-                // Estado indeterminado: asumir necesidad de cerrar QT1
                 IF #GRID_OK THEN
                     #STATE := #ST_CLOSE_QT1;
                 ELSE
-                    #STATE := #ST_START_GD;
+                    #STATE := #ST_START_GD1;
                 END_IF;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 1: NORMAL_ON_GRID (Operación normal con red)
+        // ESTADO 1: NORMAL_ON_GRID
         // ====================================================================
         #ST_NORMAL_ON_GRID:
             #STATE_NAME := 'NORMAL_ON_GRID';
             #IS_ON_GRID := TRUE;
             #IS_ON_GD := FALSE;
+            #IS_ON_GD1 := FALSE;
+            #IS_ON_GD2 := FALSE;
             #IS_IN_TRANSFER := FALSE;
+            #TRANSFER_TO_GD := FALSE;
             #DO_GD_START := FALSE;
             #DO_GD_STOP := FALSE;
+            #DO_GD2_START := FALSE;
+            #DO_GD2_STOP := FALSE;
+            #activeGDInternal := 0;
             
-            // Transición: falla de red detectada
             IF #GRID_FAIL AND #MODE_AUTO AND #ENABLE THEN
                 #STATE := #ST_GRID_FAIL_DETECTED;
-                #transferStartTime := #ELAPSED_TIME; // Timestamp inicio transferencia
+                #transferStartTime := #ELAPSED_TIME;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 2: GRID_FAIL_DETECTED (Falla de red confirmada)
+        // ESTADO 2: GRID_FAIL_DETECTED
         // ====================================================================
         #ST_GRID_FAIL_DETECTED:
             #STATE_NAME := 'GRID_FAIL_DETECTED';
             #IS_IN_TRANSFER := TRUE;
             
-            // Transición inmediata: ordenar apertura QT1
             IF #MODE_AUTO AND #ENABLE THEN
                 #STATE := #ST_OPEN_QT1;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 3: OPEN_QT1 (Abriendo interruptor de red)
+        // ESTADO 3: OPEN_QT1
         // ====================================================================
         #ST_OPEN_QT1:
             #STATE_NAME := 'OPEN_QT1';
             #IS_IN_TRANSFER := TRUE;
-            #REQ_SCMTA_OPEN_QT1 := TRUE;  // Request a ARBITER
+            #TRANSFER_TO_GD := TRUE;
+            #REQ_SCMTA_OPEN_QT1 := TRUE;
             
-            // Feedback: confirmar QT1 abierto
-            IF #QT1_STATE = 0 THEN  // Abierto
+            IF #QT1_STATE = 0 THEN
                 #cmdQT1OpenDone := TRUE;
-                #STATE := #ST_START_GD_DELAY;
-            ELSIF #ELAPSED_TIME >= #T_OPEN_QT1 THEN  // Timeout
+                #STATE := #ST_START_GD1_DELAY;
+            ELSIF #ELAPSED_TIME >= #T_OPEN_QT1 THEN
                 #FAULT_CODE := #FAULT_TIMEOUT_OPEN_QT1;
                 #STATE := #ST_FAULT_LOCKOUT;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 4: START_GD_DELAY (Retardo 3s antes de arrancar GD)
+        // ESTADO 4: START_GD1_DELAY (retardo 3s antes arranque GD1)
         // ====================================================================
-        #ST_START_GD_DELAY:
-            #STATE_NAME := 'START_GD_DELAY';
+        #ST_START_GD1_DELAY:
+            #STATE_NAME := 'START_GD1_DELAY';
             #IS_IN_TRANSFER := TRUE;
+            #activeGDInternal := 1;
             
-            // Transición: tiempo cumplido
             IF #ELAPSED_TIME >= #T_START_GD_DELAY THEN
-                #STATE := #ST_START_GD;
+                #STATE := #ST_START_GD1;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 5: START_GD (Dando orden de marcha a GD)
+        // ESTADO 5: START_GD1 (orden marcha GD1)
         // ====================================================================
-        #ST_START_GD:
-            #STATE_NAME := 'START_GD';
+        #ST_START_GD1:
+            #STATE_NAME := 'START_GD1';
             #IS_IN_TRANSFER := TRUE;
-            #DO_GD_START := TRUE;  // Activar salida física
+            #DO_GD_START := TRUE;
+            #activeGDInternal := 1;
             
-            // Transición: GD arrancó (detectar GD_RUNNING)
             IF #GD_RUNNING THEN
                 #DO_GD_START := FALSE;
-                #STATE := #ST_WAIT_GD_READY;
+                #STATE := #ST_WAIT_GD1_READY;
             END_IF;
             
-            // Falla: alarma GD
+            // GD1 alarma → failover a GD2 si disponible
             IF #GD_ALARM THEN
                 #DO_GD_START := FALSE;
-                #FAULT_CODE := #FAULT_GD_ALARM;
-                #STATE := #ST_FAULT_LOCKOUT;
+                IF NOT #GD2_ALARM THEN
+                    #STATE := #ST_START_GD2_DELAY;
+                ELSE
+                    #FAULT_CODE := #FAULT_BOTH_GD_UNAVAILABLE;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 6: WAIT_GD_READY (Esperando GD listo + estabilización 5s)
+        // ESTADO 6: WAIT_GD1_READY (espera GD1 listo + estabilización)
         // ====================================================================
-        #ST_WAIT_GD_READY:
-            #STATE_NAME := 'WAIT_GD_READY';
+        #ST_WAIT_GD1_READY:
+            #STATE_NAME := 'WAIT_GD1_READY';
             #IS_IN_TRANSFER := TRUE;
+            #activeGDInternal := 1;
             
-            // Timer estabilización desde que GD_READY = TRUE
             #tonGdStabilization(IN := #GD_READY,
                                 PT := #T_GD_STABILIZATION,
                                 Q => #gdReadyStable);
             
-            // Transición: GD listo y estabilizado
             IF #gdReadyStable THEN
                 #STATE := #ST_CLOSE_QG1;
-            ELSIF #ELAPSED_TIME >= #T_GD_READY_TIMEOUT THEN  // Timeout
-                #FAULT_CODE := #FAULT_GD_NOT_READY;
-                #STATE := #ST_FAULT_LOCKOUT;
+            ELSIF #ELAPSED_TIME >= #T_GD_READY_TIMEOUT THEN
+                IF NOT #GD2_ALARM THEN
+                    #STATE := #ST_START_GD2_DELAY;
+                ELSE
+                    #FAULT_CODE := #FAULT_GD1_NOT_READY;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
             
-            // Falla: alarma GD
             IF #GD_ALARM THEN
-                #FAULT_CODE := #FAULT_GD_ALARM;
-                #STATE := #ST_FAULT_LOCKOUT;
+                IF NOT #GD2_ALARM THEN
+                    #STATE := #ST_START_GD2_DELAY;
+                ELSE
+                    #FAULT_CODE := #FAULT_GD1_ALARM;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 7: CLOSE_QG1 (Cerrando interruptor GD)
+        // ESTADO 7: CLOSE_QG1 (cerrando interruptor GD1)
         // ====================================================================
         #ST_CLOSE_QG1:
             #STATE_NAME := 'CLOSE_QG1';
             #IS_IN_TRANSFER := TRUE;
-            #REQ_SCMTA_CLOSE_QG1 := TRUE;  // Request a ARBITER
+            #REQ_SCMTA_CLOSE_QG1 := TRUE;
+            #activeGDInternal := 1;
             
-            // Feedback: confirmar QG1 cerrado
-            IF #QG1_STATE = 1 THEN  // Cerrado
+            IF #QG1_STATE = 1 THEN
                 #cmdQG1CloseDone := TRUE;
-                #STATE := #ST_ON_GD;
+                #STATE := #ST_ON_GD1;
                 #DIAG_LAST_TRANSFER_TIME := #ELAPSED_TIME - #transferStartTime;
-            ELSIF #ELAPSED_TIME >= #T_CLOSE_QG1 THEN  // Timeout
+            ELSIF #ELAPSED_TIME >= #T_CLOSE_QG1 THEN
                 #FAULT_CODE := #FAULT_TIMEOUT_CLOSE_QG1;
                 #STATE := #ST_FAULT_LOCKOUT;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 8: ON_GD (Operación normal con GD)
+        // ESTADO 8: ON_GD1 (operación con GD1 primario)
         // ====================================================================
-        #ST_ON_GD:
-            #STATE_NAME := 'ON_GD';
+        #ST_ON_GD1:
+            #STATE_NAME := 'ON_GD1';
             #IS_ON_GRID := FALSE;
             #IS_ON_GD := TRUE;
+            #IS_ON_GD1 := TRUE;
+            #IS_ON_GD2 := FALSE;
             #IS_IN_TRANSFER := FALSE;
+            #TRANSFER_TO_GD := FALSE;
+            #activeGDInternal := 1;
             
-            // Transición: retorno de red detectado
+            // Retorno de red
             IF #GRID_OK AND #MODE_AUTO AND #ENABLE THEN
                 #STATE := #ST_GRID_RETURN_DETECTED;
             END_IF;
             
-            // Falla: alarma GD
+            // GD1 falla durante operación → failover a GD2
             IF #GD_ALARM THEN
-                #FAULT_CODE := #FAULT_GD_ALARM;
-                #STATE := #ST_FAULT_LOCKOUT;
+                IF NOT #GD2_ALARM THEN
+                    #STATE := #ST_OPEN_GD_FOR_SWITCH;
+                ELSE
+                    #FAULT_CODE := #FAULT_BOTH_GD_UNAVAILABLE;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 9: GRID_RETURN_DETECTED (Retorno de red confirmado)
+        // ESTADO 9: GRID_RETURN_DETECTED
         // ====================================================================
         #ST_GRID_RETURN_DETECTED:
             #STATE_NAME := 'GRID_RETURN_DETECTED';
             #IS_IN_TRANSFER := TRUE;
             
-            // Transición inmediata: esperar estabilidad 120s
             IF #MODE_AUTO AND #ENABLE THEN
                 #STATE := #ST_WAIT_GRID_STABLE;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 10: WAIT_GRID_STABLE (Esperando red estable 120s)
+        // ESTADO 10: WAIT_GRID_STABLE (espera red estable 120s)
         // ====================================================================
         #ST_WAIT_GRID_STABLE:
             #STATE_NAME := 'WAIT_GRID_STABLE';
             #IS_IN_TRANSFER := TRUE;
             
-            // Si red falla durante espera → volver a ON_GD
             IF #GRID_FAIL THEN
-                #STATE := #ST_ON_GD;
-            ELSIF #ELAPSED_TIME >= #T_GRID_STABLE THEN  // 120s cumplidos
-                #STATE := #ST_OPEN_QG1;
+                IF #activeGDInternal = 2 THEN
+                    #STATE := #ST_ON_GD2;
+                ELSE
+                    #STATE := #ST_ON_GD1;
+                END_IF;
+            ELSIF #ELAPSED_TIME >= #T_GRID_STABLE THEN
+                #STATE := #ST_OPEN_ACTIVE_GD;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 11: OPEN_QG1 (Abriendo interruptor GD)
+        // ESTADO 11: OPEN_ACTIVE_GD (abrir QG del GD activo para retorno a RED)
         // ====================================================================
-        #ST_OPEN_QG1:
-            #STATE_NAME := 'OPEN_QG1';
+        #ST_OPEN_ACTIVE_GD:
+            #STATE_NAME := 'OPEN_ACTIVE_GD';
             #IS_IN_TRANSFER := TRUE;
-            #REQ_SCMTA_OPEN_QG1 := TRUE;  // Request a ARBITER
             
-            // Feedback: confirmar QG1 abierto
-            IF #QG1_STATE = 0 THEN  // Abierto
-                #cmdQG1OpenDone := TRUE;
-                #STATE := #ST_CLOSE_QT1;
-            ELSIF #ELAPSED_TIME >= #T_OPEN_QG1 THEN  // Timeout
-                #FAULT_CODE := #FAULT_TIMEOUT_OPEN_QG1;
-                #STATE := #ST_FAULT_LOCKOUT;
+            IF #activeGDInternal = 2 THEN
+                #REQ_SCMTA_OPEN_QG2 := TRUE;
+                IF #QG2_STATE = 0 THEN
+                    #cmdQG2OpenDone := TRUE;
+                    #STATE := #ST_CLOSE_QT1;
+                ELSIF #ELAPSED_TIME >= #T_OPEN_QG2 THEN
+                    #FAULT_CODE := #FAULT_TIMEOUT_OPEN_QG2;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
+            ELSE
+                #REQ_SCMTA_OPEN_QG1 := TRUE;
+                IF #QG1_STATE = 0 THEN
+                    #cmdQG1OpenDone := TRUE;
+                    #STATE := #ST_CLOSE_QT1;
+                ELSIF #ELAPSED_TIME >= #T_OPEN_QG1 THEN
+                    #FAULT_CODE := #FAULT_TIMEOUT_OPEN_QG1;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 12: CLOSE_QT1 (Cerrando interruptor red)
+        // ESTADO 12: CLOSE_QT1
         // ====================================================================
         #ST_CLOSE_QT1:
             #STATE_NAME := 'CLOSE_QT1';
             #IS_IN_TRANSFER := TRUE;
-            #REQ_SCMTA_CLOSE_QT1 := TRUE;  // Request a ARBITER
+            #REQ_SCMTA_CLOSE_QT1 := TRUE;
             
-            // Feedback: confirmar QT1 cerrado
-            IF #QT1_STATE = 1 THEN  // Cerrado
+            IF #QT1_STATE = 1 THEN
                 #cmdQT1CloseDone := TRUE;
                 #STATE := #ST_GD_COOLDOWN;
-            ELSIF #ELAPSED_TIME >= #T_CLOSE_QT1 THEN  // Timeout
+            ELSIF #ELAPSED_TIME >= #T_CLOSE_QT1 THEN
                 #FAULT_CODE := #FAULT_TIMEOUT_CLOSE_QT1;
                 #STATE := #ST_FAULT_LOCKOUT;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 13: GD_COOLDOWN (Cooldown 60s y parada GD)
+        // ESTADO 13: GD_COOLDOWN (cooldown 60s y parada GD activo)
         // ====================================================================
         #ST_GD_COOLDOWN:
             #STATE_NAME := 'GD_COOLDOWN';
             #IS_IN_TRANSFER := TRUE;
             
-            // Transición: tiempo cumplido → parar GD
             IF #ELAPSED_TIME >= #T_GD_COOLDOWN THEN
-                #DO_GD_STOP := TRUE;  // Pulso parada (mantener 2s por ejemplo)
+                IF #activeGDInternal = 2 THEN
+                    #DO_GD2_STOP := TRUE;
+                ELSE
+                    #DO_GD_STOP := TRUE;
+                END_IF;
+                #activeGDInternal := 0;
                 #STATE := #ST_NORMAL_ON_GRID;
             END_IF;
         
         
         // ====================================================================
-        // ESTADO 14: FAULT_LOCKOUT (Falla - requiere reset manual)
+        // ESTADO 14: FAULT_LOCKOUT
         // ====================================================================
         #ST_FAULT_LOCKOUT:
             #STATE_NAME := 'FAULT_LOCKOUT';
@@ -547,14 +642,158 @@ BEGIN
             #IS_IN_TRANSFER := FALSE;
             #DO_GD_START := FALSE;
             #DO_GD_STOP := FALSE;
+            #DO_GD2_START := FALSE;
+            #DO_GD2_STOP := FALSE;
             #faultCodeLatch := #FAULT_CODE;
-            
-            // NOTA: El reset se procesa en NETWORK 4 (antes del CASE)
-            // No necesita lógica de reset aquí
         
         
         // ====================================================================
-        // DEFAULT: Estado desconocido (falla)
+        // ESTADO 15: START_GD2_DELAY (retardo 3s antes arranque GD2)
+        // ====================================================================
+        #ST_START_GD2_DELAY:
+            #STATE_NAME := 'START_GD2_DELAY';
+            #IS_IN_TRANSFER := TRUE;
+            #activeGDInternal := 2;
+            #DO_GD_START := FALSE;
+            
+            IF #ELAPSED_TIME >= #T_START_GD_DELAY THEN
+                #STATE := #ST_START_GD2;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 16: START_GD2 (orden marcha GD2)
+        // ====================================================================
+        #ST_START_GD2:
+            #STATE_NAME := 'START_GD2';
+            #IS_IN_TRANSFER := TRUE;
+            #DO_GD2_START := TRUE;
+            #activeGDInternal := 2;
+            
+            IF #GD2_RUNNING THEN
+                #DO_GD2_START := FALSE;
+                #STATE := #ST_WAIT_GD2_READY;
+            END_IF;
+            
+            // GD2 también falla → FAULT (ambos fallaron)
+            IF #GD2_ALARM THEN
+                #DO_GD2_START := FALSE;
+                #FAULT_CODE := #FAULT_BOTH_GD_UNAVAILABLE;
+                #STATE := #ST_FAULT_LOCKOUT;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 17: WAIT_GD2_READY (espera GD2 listo + estabilización)
+        // ====================================================================
+        #ST_WAIT_GD2_READY:
+            #STATE_NAME := 'WAIT_GD2_READY';
+            #IS_IN_TRANSFER := TRUE;
+            #activeGDInternal := 2;
+            
+            #tonGdStabilization(IN := #GD2_READY,
+                                PT := #T_GD_STABILIZATION,
+                                Q => #gdReadyStable);
+            
+            IF #gdReadyStable THEN
+                #STATE := #ST_CLOSE_QG2;
+            ELSIF #ELAPSED_TIME >= #T_GD_READY_TIMEOUT THEN
+                #FAULT_CODE := #FAULT_GD2_NOT_READY;
+                #STATE := #ST_FAULT_LOCKOUT;
+            END_IF;
+            
+            IF #GD2_ALARM THEN
+                #FAULT_CODE := #FAULT_GD2_ALARM;
+                #STATE := #ST_FAULT_LOCKOUT;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 18: CLOSE_QG2 (cerrando interruptor GD2)
+        // ====================================================================
+        #ST_CLOSE_QG2:
+            #STATE_NAME := 'CLOSE_QG2';
+            #IS_IN_TRANSFER := TRUE;
+            #REQ_SCMTA_CLOSE_QG2 := TRUE;
+            #activeGDInternal := 2;
+            
+            IF #QG2_STATE = 1 THEN
+                #cmdQG2CloseDone := TRUE;
+                #STATE := #ST_ON_GD2;
+                #DIAG_LAST_TRANSFER_TIME := #ELAPSED_TIME - #transferStartTime;
+            ELSIF #ELAPSED_TIME >= #T_CLOSE_QG2 THEN
+                #FAULT_CODE := #FAULT_TIMEOUT_CLOSE_QG2;
+                #STATE := #ST_FAULT_LOCKOUT;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 19: ON_GD2 (operación con GD2 backup)
+        // ====================================================================
+        #ST_ON_GD2:
+            #STATE_NAME := 'ON_GD2';
+            #IS_ON_GRID := FALSE;
+            #IS_ON_GD := TRUE;
+            #IS_ON_GD1 := FALSE;
+            #IS_ON_GD2 := TRUE;
+            #IS_IN_TRANSFER := FALSE;
+            #TRANSFER_TO_GD := FALSE;
+            #activeGDInternal := 2;
+            
+            // Retorno de red
+            IF #GRID_OK AND #MODE_AUTO AND #ENABLE THEN
+                #STATE := #ST_GRID_RETURN_DETECTED;
+            END_IF;
+            
+            // GD2 falla durante operación → failover a GD1 si disponible
+            IF #GD2_ALARM THEN
+                IF NOT #GD_ALARM THEN
+                    #STATE := #ST_OPEN_GD_FOR_SWITCH;
+                ELSE
+                    #FAULT_CODE := #FAULT_BOTH_GD_UNAVAILABLE;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
+            END_IF;
+        
+        
+        // ====================================================================
+        // ESTADO 20: OPEN_GD_FOR_SWITCH (abrir GD activo para cambiar al otro)
+        // ====================================================================
+        #ST_OPEN_GD_FOR_SWITCH:
+            #STATE_NAME := 'OPEN_GD_SWITCH';
+            #IS_IN_TRANSFER := TRUE;
+            #IS_ON_GD := FALSE;
+            #IS_ON_GD1 := FALSE;
+            #IS_ON_GD2 := FALSE;
+            
+            IF #activeGDInternal = 1 THEN
+                // GD1 falló → abrir QG1, luego arrancar GD2
+                #REQ_SCMTA_OPEN_QG1 := TRUE;
+                IF #QG1_STATE = 0 THEN
+                    #STATE := #ST_START_GD2_DELAY;
+                ELSIF #ELAPSED_TIME >= #T_OPEN_QG1 THEN
+                    #FAULT_CODE := #FAULT_TIMEOUT_OPEN_SWITCH;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
+                
+            ELSIF #activeGDInternal = 2 THEN
+                // GD2 falló → abrir QG2, luego arrancar GD1
+                #REQ_SCMTA_OPEN_QG2 := TRUE;
+                IF #QG2_STATE = 0 THEN
+                    #STATE := #ST_START_GD1_DELAY;
+                ELSIF #ELAPSED_TIME >= #T_OPEN_QG2 THEN
+                    #FAULT_CODE := #FAULT_TIMEOUT_OPEN_SWITCH;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
+                
+            ELSE
+                #FAULT_CODE := #FAULT_UNKNOWN_STATE;
+                #STATE := #ST_FAULT_LOCKOUT;
+            END_IF;
+        
+        
+        // ====================================================================
+        // DEFAULT: Estado desconocido
         // ====================================================================
         ELSE
             #FAULT_CODE := #FAULT_UNKNOWN_STATE;
@@ -563,11 +802,18 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 6: RESET PULSO GD_STOP (después de 2s)
+    // NETWORK 7: ACTUALIZAR ACTIVE_GD OUTPUT
     // ========================================================================
-    IF #DO_GD_STOP AND #STATE = #ST_NORMAL_ON_GRID THEN
+    #ACTIVE_GD := #activeGDInternal;
+    
+    
+    // ========================================================================
+    // NETWORK 8: RESET PULSO GD_STOP (después de 2s en NORMAL_ON_GRID)
+    // ========================================================================
+    IF #STATE = #ST_NORMAL_ON_GRID THEN
         IF #ELAPSED_TIME > T#2s THEN
             #DO_GD_STOP := FALSE;
+            #DO_GD2_STOP := FALSE;
         END_IF;
     END_IF;
     

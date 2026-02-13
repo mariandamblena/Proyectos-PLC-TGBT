@@ -1,8 +1,8 @@
 (*
 ================================================================================
   DATA BLOCK: DB_PARAMS
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 3.0
+  Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
@@ -36,10 +36,11 @@ STRUCT
     // SECCIÓN 2: TIEMPOS TRANSFERENCIA RED→GD
     // ========================================================================
     T_OPEN_QT1 : Time := T#2s;       // Timeout comando Open QT1
-    T_START_GD_DELAY : Time := T#3s; // Delay antes de arrancar GD
-    T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD_READY
+    T_START_GD_DELAY : Time := T#3s; // Delay antes de arrancar GD (GD1 o GD2)
+    T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD_READY (GD1 o GD2)
     T_GD_STABILIZATION : Time := T#5s;  // Estabilización desde GD_READY
     T_CLOSE_QG1 : Time := T#2s;      // Timeout comando Close QG1
+    T_CLOSE_QG2 : Time := T#2s;      // Timeout comando Close QG2
     T_GRID_FAIL_FILTER : Time := T#2s; // Filtro falla de red (anti-bouncing)
     
     // ========================================================================
@@ -47,18 +48,26 @@ STRUCT
     // ========================================================================
     T_GRID_STABLE : Time := T#120s;  // Estabilidad red antes de retorno
     T_OPEN_QG1 : Time := T#2s;       // Timeout comando Open QG1
+    T_OPEN_QG2 : Time := T#2s;       // Timeout comando Open QG2
     T_CLOSE_QT1 : Time := T#2s;      // Timeout comando Close QT1
-    T_GD_COOLDOWN : Time := T#60s;   // Cooldown antes de parar GD
+    T_GD_COOLDOWN : Time := T#60s;   // Cooldown antes de parar GD (GD1 o GD2)
     
     // ========================================================================
     // SECCIÓN 4: PARÁMETROS DESLASTRE
     // ========================================================================
-    SHED_ON : Real := 90.0;          // Umbral deslastre GD [%]
-    TR_SHED_ON : Real := 95.0;       // Umbral deslastre por trafo [%] (contingencia)
-    SHED_OFF : Real := 70.0;         // Umbral fin deslastre (histéresis) [%]
+    // Deslastre GD
+    GD_SHED_ON : Real := 90.0;       // Umbral deslastre GD [%]
+    GD_SHED_OFF : Real := 70.0;      // Umbral fin deslastre GD (histéresis) [%]
+    
+    // Deslastre RED
+    GRID_SHED_ON : Real := 85.0;     // Umbral deslastre RED [%] (carga trafo)
+    GRID_SHED_OFF : Real := 70.0;    // Umbral fin deslastre RED (histéresis) [%]
+    
+    // Tiempos
     T_SHED_STEP : Time := T#5s;      // Tiempo entre pasos deslastre
-    T_RECONNECT_STEP : Time := T#5s; // Tiempo entre pasos reenganche
+    T_RECONNECT_STEP : Time := T#5s; // Tiempo entre pasos reenganche/acoplamiento
     T_LOAD_FILTER : Time := T#2s;    // Filtro carga para evitar bouncing
+    T_LOAD_CHECK_DELAY : Time := T#3s; // Delay verificación carga post-acoplamiento en GD
     
     // ========================================================================
     // SECCIÓN 5: ARRAYS DESLASTRE (SHED_ORDER / RECONNECT_ORDER / ENABLE)
@@ -76,12 +85,21 @@ STRUCT
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
     ];  // Default: misma secuencia (modificar si se requiere orden distinto)
     
+    // FEEDER_ESSENTIAL[1..18]: clasificación esencial/no-esencial
+    // TRUE = esencial (nunca se deslasta, siempre activa en transferencia)
+    // FALSE = no-esencial (se desacopla al pasar a GD, se puede deslastar en RED)
+    FEEDER_ESSENTIAL : Array[1..18] of Bool := [
+        FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
+        FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE
+    ];  // Default: todos no-esenciales (CONFIGURAR según relevamiento de planta)
+    
     // SHED_ENABLE[1..18]: habilita/deshabilita deslastre por feeder
-    // TRUE = permite deslastre, FALSE = excluir (carga esencial)
+    // TRUE = permite deslastre, FALSE = excluir del control automático
+    // NOTA: FEEDER_ESSENTIAL tiene prioridad sobre SHED_ENABLE
     SHED_ENABLE : Array[1..18] of Bool := [
         TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE,
         TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE
-    ];  // Default: todos habilitados (modificar según relevamiento)
+    ];  // Default: todos habilitados
     
     // ========================================================================
     // SECCIÓN 6: CONFIGURACIÓN MODBUS

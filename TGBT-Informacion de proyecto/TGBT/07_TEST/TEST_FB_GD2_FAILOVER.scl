@@ -1,0 +1,725 @@
+(*
+================================================================================
+  FB_TEST_GD2_FAILOVER: Test Failover GD1↔GD2
+  Versión: 1.0
+  Fecha: 2026-02-10
+================================================================================
+  DESCRIPCIÓN:
+  Test secuencial para validar el failover automático entre GD1 y GD2.
+  Cubre todos los escenarios de redundancia N+1 del FB_SCMTA V3.0.
+  
+  GRUPOS DE TEST:
+  Grupo A (Pasos 0-4): Failover GD1→GD2 durante arranque (GD1_ALARM en START_GD1)
+  Grupo B (Pasos 5-9): Failover GD1→GD2 durante operación (GD1_ALARM en ON_GD1)
+  Grupo C (Pasos 10-14): Failover GD2→GD1 durante operación (GD2_ALARM en ON_GD2)
+  Grupo D (Pasos 15-17): Ambos GD fallan → FAULT_LOCKOUT (código 209)
+  Grupo E (Pasos 18-23): Retorno a RED desde GD2 (OPEN_ACTIVE_GD abre QG2)
+  Grupo F (Paso 24): Test finalizado
+  
+  INSTRUCCIONES:
+  1. Llamar desde Main (crear instance DB)
+  2. Activar testEnable = TRUE en el instance DB
+  3. Observar testStep y testStatus en watch table
+  4. testReset = TRUE para reiniciar
+  
+  NOTA: Los estados y fault codes corresponden a FB_SCMTA V3.0:
+  - Estados 15-20: camino GD2
+  - Fault 209: FAULT_BOTH_GD_UNAVAILABLE
+  - Fault 210: FAULT_TIMEOUT_OPEN_SWITCH
+  
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_TEST_GD2_FAILOVER"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR 
+    // ========== CONTROL TEST ==========
+    testEnable : Bool := FALSE;
+    testReset : Bool := FALSE;
+    testStep : Int := 0;
+    testStatus : String[100] := 'Test detenido - Activar testEnable';
+    testResults : Array[0..24] of Bool;
+    
+    // ========== SIMULACIÓN ENTRADAS ==========
+    simDI_SYS_AUTO : Bool := TRUE;
+    simDI_QT1_REMOTE_SEL : Bool := TRUE;
+    simDI_QG1_REMOTE_SEL : Bool := TRUE;
+    simDI_QG2_REMOTE_SEL : Bool := TRUE;
+    
+    // GD1 signals
+    simDI_GD_READY : Bool := FALSE;
+    simDI_GD_RUNNING : Bool := FALSE;
+    simDI_GD_ALARM : Bool := FALSE;
+    
+    // GD2 signals
+    simDI_GD2_READY : Bool := FALSE;
+    simDI_GD2_RUNNING : Bool := FALSE;
+    simDI_GD2_ALARM : Bool := FALSE;
+    
+    // Breaker states
+    simQT1_STATE : Int := 1;     // Cerrado (RED)
+    simQG1_STATE : Int := 0;     // Abierto
+    simQG2_STATE : Int := 0;     // Abierto
+    
+    // Grid measurements
+    simGridV_L1L2 : Real := 380.0;
+    simGridV_L2L3 : Real := 380.0;
+    simGridV_L3L1 : Real := 380.0;
+    simGridFreq : Real := 50.0;
+    simGridMeasOK : Bool := TRUE;
+    
+    // ========== INSTANCIAS FB ==========
+    instIO : "FB_IO_NORMALIZE";
+    instSCMTA : "FB_SCMTA";
+    
+    // ========== OUTPUTS MONITOREADOS ==========
+    outState : Int;
+    outStateName : String[30];
+    outFaultCode : Int;
+    outISOnGrid : Bool;
+    outISOnGD : Bool;
+    outISOnGD1 : Bool;
+    outISOnGD2 : Bool;
+    outActiveGD : Int;
+    outISInTransfer : Bool;
+    outISFault : Bool;
+    outGD1Available : Bool;
+    outGD2Available : Bool;
+    outDO_GD_START : Bool;
+    outDO_GD_STOP : Bool;
+    outDO_GD2_START : Bool;
+    outDO_GD2_STOP : Bool;
+    outTransferToGD : Bool;
+    
+    // Outputs IO
+    outModeAuto : Bool;
+    outGD_Ready : Bool;
+    outGD_Running : Bool;
+    outGD_Alarm : Bool;
+    outGD2_Ready : Bool;
+    outGD2_Running : Bool;
+    outGD2_Alarm : Bool;
+    
+    // ========== TIMER ==========
+    tonStepDelay : TON;
+    stepDelayDone : Bool;
+    currentDelay : Time := T#5s;
+END_VAR
+
+BEGIN
+    // ========================================================================
+    // RESET TEST
+    // ========================================================================
+    IF #testReset THEN
+        #testStep := 0;
+        #testStatus := 'Test reseteado';
+        #testReset := FALSE;
+        #testEnable := FALSE;
+        
+        // Reset condiciones iniciales
+        #simQT1_STATE := 1;
+        #simQG1_STATE := 0;
+        #simQG2_STATE := 0;
+        #simGridV_L1L2 := 380.0;
+        #simGridV_L2L3 := 380.0;
+        #simGridV_L3L1 := 380.0;
+        #simGridFreq := 50.0;
+        #simGridMeasOK := TRUE;
+        #simDI_GD_READY := FALSE;
+        #simDI_GD_RUNNING := FALSE;
+        #simDI_GD_ALARM := FALSE;
+        #simDI_GD2_READY := FALSE;
+        #simDI_GD2_RUNNING := FALSE;
+        #simDI_GD2_ALARM := FALSE;
+        
+        #instSCMTA.RESET_FAULT := TRUE;
+    END_IF;
+    
+    IF NOT #testEnable THEN
+        RETURN;
+    END_IF;
+    
+    // ========================================================================
+    // EJECUTAR FBs
+    // ========================================================================
+    #instIO(
+        DI_SYS_AUTO := #simDI_SYS_AUTO,
+        DI_QT1_REMOTE_SEL := #simDI_QT1_REMOTE_SEL,
+        DI_QT1_PB_OPEN := FALSE,
+        DI_QT1_PB_CLOSE := FALSE,
+        DI_QG1_REMOTE_SEL := #simDI_QG1_REMOTE_SEL,
+        DI_QG1_PB_OPEN := FALSE,
+        DI_QG1_PB_CLOSE := FALSE,
+        DI_QG2_REMOTE_SEL := #simDI_QG2_REMOTE_SEL,
+        DI_QG2_PB_OPEN := FALSE,
+        DI_QG2_PB_CLOSE := FALSE,
+        DI_GD_READY := #simDI_GD_READY,
+        DI_GD_RUNNING := #simDI_GD_RUNNING,
+        DI_GD_ALARM := #simDI_GD_ALARM,
+        DI_GD2_READY := #simDI_GD2_READY,
+        DI_GD2_RUNNING := #simDI_GD2_RUNNING,
+        DI_GD2_ALARM := #simDI_GD2_ALARM,
+        
+        MODE_AUTO => #outModeAuto,
+        GD_READY => #outGD_Ready,
+        GD_RUNNING => #outGD_Running,
+        GD_ALARM => #outGD_Alarm,
+        GD2_READY => #outGD2_Ready,
+        GD2_RUNNING => #outGD2_Running,
+        GD2_ALARM => #outGD2_Alarm
+    );
+    
+    #instSCMTA(
+        ENABLE := TRUE,
+        MODE_AUTO := #outModeAuto,
+        RESET_FAULT := FALSE,
+        QT1_STATE := #simQT1_STATE,
+        QG1_STATE := #simQG1_STATE,
+        QG2_STATE := #simQG2_STATE,
+        GRID_V_L1L2 := #simGridV_L1L2,
+        GRID_V_L2L3 := #simGridV_L2L3,
+        GRID_V_L3L1 := #simGridV_L3L1,
+        GRID_FREQ := #simGridFreq,
+        GRID_MEASUREMENT_OK := #simGridMeasOK,
+        GD_READY := #outGD_Ready,
+        GD_RUNNING := #outGD_Running,
+        GD_ALARM := #outGD_Alarm,
+        GD2_READY := #outGD2_Ready,
+        GD2_RUNNING := #outGD2_Running,
+        GD2_ALARM := #outGD2_Alarm,
+        T_GRID_FAIL_FILTER := T#2s,
+        T_OPEN_QT1 := T#2s,
+        T_START_GD_DELAY := T#3s,
+        T_GD_READY_TIMEOUT := T#30s,
+        T_GD_STABILIZATION := T#5s,
+        T_CLOSE_QG1 := T#2s,
+        T_CLOSE_QG2 := T#2s,
+        T_GRID_STABLE := T#2s,       // Reducido para test (normalmente 120s)
+        T_OPEN_QG1 := T#2s,
+        T_OPEN_QG2 := T#2s,
+        T_CLOSE_QT1 := T#2s,
+        T_GD_COOLDOWN := T#2s,       // Reducido para test (normalmente 60s)
+        
+        STATE => #outState,
+        STATE_NAME => #outStateName,
+        DO_GD_START => #outDO_GD_START,
+        DO_GD_STOP => #outDO_GD_STOP,
+        DO_GD2_START => #outDO_GD2_START,
+        DO_GD2_STOP => #outDO_GD2_STOP,
+        IS_ON_GRID => #outISOnGrid,
+        IS_ON_GD => #outISOnGD,
+        IS_ON_GD1 => #outISOnGD1,
+        IS_ON_GD2 => #outISOnGD2,
+        ACTIVE_GD => #outActiveGD,
+        IS_IN_TRANSFER => #outISInTransfer,
+        IS_FAULT => #outISFault,
+        TRANSFER_TO_GD => #outTransferToGD,
+        FAULT_CODE => #outFaultCode,
+        GD1_AVAILABLE => #outGD1Available,
+        GD2_AVAILABLE => #outGD2Available
+    );
+    
+    // ========================================================================
+    // TIMER DE PASO
+    // ========================================================================
+    #tonStepDelay(IN := TRUE, PT := #currentDelay, Q => #stepDelayDone);
+    
+    // ========================================================================
+    // SIMULACIÓN FEEDBACK INTERRUPTORES
+    // ========================================================================
+    // Simular QT1 abre cuando SCMTA lo pide
+    IF #instSCMTA.REQ_SCMTA_OPEN_QT1 THEN
+        #simQT1_STATE := 0;
+    END_IF;
+    IF #instSCMTA.REQ_SCMTA_CLOSE_QT1 THEN
+        #simQT1_STATE := 1;
+    END_IF;
+    IF #instSCMTA.REQ_SCMTA_OPEN_QG1 THEN
+        #simQG1_STATE := 0;
+    END_IF;
+    IF #instSCMTA.REQ_SCMTA_CLOSE_QG1 THEN
+        #simQG1_STATE := 1;
+    END_IF;
+    IF #instSCMTA.REQ_SCMTA_OPEN_QG2 THEN
+        #simQG2_STATE := 0;
+    END_IF;
+    IF #instSCMTA.REQ_SCMTA_CLOSE_QG2 THEN
+        #simQG2_STATE := 1;
+    END_IF;
+    
+    
+    // ========================================================================
+    // SECUENCIA DE PASOS
+    // ========================================================================
+    
+    CASE #testStep OF
+        
+        // ================================================================
+        // GRUPO A: FAILOVER GD1→GD2 DURANTE ARRANQUE
+        // Escenario: Falla RED, intenta GD1, GD1_ALARM, failover a GD2
+        // ================================================================
+        
+        // PASO 0: Inicialización - NORMAL_ON_GRID
+        0:
+            #testStatus := 'PASO 0: Init - NORMAL_ON_GRID';
+            #currentDelay := T#5s;
+            
+            #simQT1_STATE := 1;
+            #simQG1_STATE := 0;
+            #simQG2_STATE := 0;
+            #simDI_GD_ALARM := FALSE;
+            #simDI_GD2_ALARM := FALSE;
+            
+            IF #stepDelayDone THEN
+                #testResults[0] := (#outState = 1) AND #outISOnGrid;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 1;
+            END_IF;
+        
+        // PASO 1: Simular falla RED → esperar estado START_GD1 (estado 5)
+        1:
+            #testStatus := 'PASO 1: Falla RED → arrancando GD1';
+            #currentDelay := T#10s;
+            
+            // Cortar red
+            #simGridV_L1L2 := 0.0;
+            #simGridV_L2L3 := 0.0;
+            #simGridV_L3L1 := 0.0;
+            
+            IF #stepDelayDone THEN
+                // Debería estar en START_GD1 (5) con DO_GD_START
+                #testResults[1] := (#outState = 5) AND #outDO_GD_START;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 2;
+            END_IF;
+        
+        // PASO 2: GD1 entra en ALARMA → failover a GD2
+        2:
+            #testStatus := 'PASO 2: GD1_ALARM → failover GD2';
+            #currentDelay := T#8s;
+            
+            // GD1 falla
+            #simDI_GD_ALARM := TRUE;
+            #simDI_GD_RUNNING := FALSE;
+            
+            IF #stepDelayDone THEN
+                // Debería estar en START_GD2 (16) con DO_GD2_START
+                #testResults[2] := (#outState = 16) AND #outDO_GD2_START AND (#outActiveGD = 2);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 3;
+            END_IF;
+        
+        // PASO 3: GD2 arranca OK → WAIT_GD2_READY → CLOSE_QG2 → ON_GD2
+        3:
+            #testStatus := 'PASO 3: GD2 arranca → ON_GD2';
+            #currentDelay := T#12s;
+            
+            // GD2 arranca y queda listo
+            #simDI_GD2_RUNNING := TRUE;
+            #simDI_GD2_READY := TRUE;
+            
+            IF #stepDelayDone THEN
+                // Debería estar en ON_GD2 (19)
+                #testResults[3] := (#outState = 19) AND #outISOnGD2 AND #outISOnGD
+                                   AND NOT #outISOnGD1 AND (#outActiveGD = 2);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 4;
+            END_IF;
+        
+        // PASO 4: Reset para siguiente grupo
+        4:
+            #testStatus := 'PASO 4: Reset para Grupo B';
+            #currentDelay := T#3s;
+            
+            // Reset
+            #instSCMTA.RESET_FAULT := TRUE;
+            #simGridV_L1L2 := 380.0;
+            #simGridV_L2L3 := 380.0;
+            #simGridV_L3L1 := 380.0;
+            #simQT1_STATE := 1;
+            #simQG1_STATE := 0;
+            #simQG2_STATE := 0;
+            #simDI_GD_ALARM := FALSE;
+            #simDI_GD_RUNNING := FALSE;
+            #simDI_GD_READY := FALSE;
+            #simDI_GD2_ALARM := FALSE;
+            #simDI_GD2_RUNNING := FALSE;
+            #simDI_GD2_READY := FALSE;
+            
+            IF #stepDelayDone THEN
+                #instSCMTA.RESET_FAULT := FALSE;
+                #testResults[4] := (#outState = 1) AND #outISOnGrid;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 5;
+            END_IF;
+        
+        
+        // ================================================================
+        // GRUPO B: FAILOVER GD1→GD2 DURANTE OPERACIÓN (LIVE SWITCH)
+        // Escenario: Operando en GD1, GD1_ALARM → OPEN_GD_FOR_SWITCH → GD2
+        // ================================================================
+        
+        // PASO 5: Llevar a ON_GD1 (transferencia normal)
+        5:
+            #testStatus := 'PASO 5: Transferir a GD1 (normal)';
+            #currentDelay := T#15s;
+            
+            // Falla RED
+            #simGridV_L1L2 := 0.0;
+            #simGridV_L2L3 := 0.0;
+            #simGridV_L3L1 := 0.0;
+            
+            // GD1 arranca bien
+            #simDI_GD_RUNNING := TRUE;
+            #simDI_GD_READY := TRUE;
+            
+            IF #stepDelayDone THEN
+                #testResults[5] := (#outState = 8) AND #outISOnGD1 AND (#outActiveGD = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 6;
+            END_IF;
+        
+        // PASO 6: GD1 ALARM durante operación → OPEN_GD_FOR_SWITCH (estado 20)
+        6:
+            #testStatus := 'PASO 6: GD1_ALARM en ON_GD1 → OPEN_GD_SWITCH';
+            #currentDelay := T#3s;
+            
+            // GD1 falla durante operación
+            #simDI_GD_ALARM := TRUE;
+            
+            IF #stepDelayDone THEN
+                // Debería estar en OPEN_GD_FOR_SWITCH (20) o ya en START_GD2_DELAY (15)
+                // (QG1 se simula abierto inmediatamente)
+                #testResults[6] := (#outState = 15 OR #outState = 16) AND (#outActiveGD = 2);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 7;
+            END_IF;
+        
+        // PASO 7: GD2 arranca y llega a ON_GD2
+        7:
+            #testStatus := 'PASO 7: GD2 arranca → ON_GD2';
+            #currentDelay := T#12s;
+            
+            // GD2 arranca OK
+            #simDI_GD2_RUNNING := TRUE;
+            #simDI_GD2_READY := TRUE;
+            
+            IF #stepDelayDone THEN
+                #testResults[7] := (#outState = 19) AND #outISOnGD2 AND NOT #outISOnGD1
+                                   AND (#outActiveGD = 2);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 8;
+            END_IF;
+        
+        // PASO 8: Validar QG1 abierto, QG2 cerrado
+        8:
+            #testStatus := 'PASO 8: Validar QG1=abierto, QG2=cerrado';
+            #currentDelay := T#2s;
+            
+            IF #stepDelayDone THEN
+                #testResults[8] := (#simQG1_STATE = 0) AND (#simQG2_STATE = 1)
+                                   AND (#simQT1_STATE = 0);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 9;
+            END_IF;
+        
+        // PASO 9: Reset para siguiente grupo
+        9:
+            #testStatus := 'PASO 9: Reset para Grupo C';
+            #currentDelay := T#3s;
+            
+            #instSCMTA.RESET_FAULT := TRUE;
+            #simGridV_L1L2 := 380.0;
+            #simGridV_L2L3 := 380.0;
+            #simGridV_L3L1 := 380.0;
+            #simQT1_STATE := 1;
+            #simQG1_STATE := 0;
+            #simQG2_STATE := 0;
+            #simDI_GD_ALARM := FALSE;
+            #simDI_GD_RUNNING := FALSE;
+            #simDI_GD_READY := FALSE;
+            #simDI_GD2_ALARM := FALSE;
+            #simDI_GD2_RUNNING := FALSE;
+            #simDI_GD2_READY := FALSE;
+            
+            IF #stepDelayDone THEN
+                #instSCMTA.RESET_FAULT := FALSE;
+                #testResults[9] := (#outState = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 10;
+            END_IF;
+        
+        
+        // ================================================================
+        // GRUPO C: FAILOVER GD2→GD1 DURANTE OPERACIÓN
+        // Escenario: Operando en GD2, GD2_ALARM → OPEN_GD_FOR_SWITCH → GD1
+        // ================================================================
+        
+        // PASO 10: Forzar ON_GD2 (falla RED, GD1 alarm, failover a GD2)
+        10:
+            #testStatus := 'PASO 10: Forzar ON_GD2 via failover';
+            #currentDelay := T#18s;
+            
+            // Falla RED
+            #simGridV_L1L2 := 0.0;
+            #simGridV_L2L3 := 0.0;
+            #simGridV_L3L1 := 0.0;
+            
+            // GD1 arranca pero falla
+            #simDI_GD_RUNNING := TRUE;
+            #simDI_GD_ALARM := TRUE;
+            
+            // GD2 OK
+            #simDI_GD2_RUNNING := TRUE;
+            #simDI_GD2_READY := TRUE;
+            
+            IF #stepDelayDone THEN
+                #testResults[10] := (#outState = 19) AND #outISOnGD2;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 11;
+            END_IF;
+        
+        // PASO 11: Limpiar GD1 alarm (GD1 ahora disponible de nuevo)
+        11:
+            #testStatus := 'PASO 11: GD1 se recupera, GD2 falla';
+            #currentDelay := T#3s;
+            
+            // GD1 se recuperó
+            #simDI_GD_ALARM := FALSE;
+            #simDI_GD_RUNNING := FALSE;
+            
+            // GD2 falla ahora
+            #simDI_GD2_ALARM := TRUE;
+            
+            IF #stepDelayDone THEN
+                // Debería ir a OPEN_GD_FOR_SWITCH(20) → START_GD1_DELAY(4)
+                #testResults[11] := (#outState = 4 OR #outState = 5) AND (#outActiveGD = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 12;
+            END_IF;
+        
+        // PASO 12: GD1 arranca → ON_GD1
+        12:
+            #testStatus := 'PASO 12: GD1 arranca → ON_GD1';
+            #currentDelay := T#12s;
+            
+            // GD1 OK
+            #simDI_GD_RUNNING := TRUE;
+            #simDI_GD_READY := TRUE;
+            
+            IF #stepDelayDone THEN
+                #testResults[12] := (#outState = 8) AND #outISOnGD1 AND NOT #outISOnGD2
+                                    AND (#outActiveGD = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 13;
+            END_IF;
+        
+        // PASO 13: Validar QG2 abierto, QG1 cerrado
+        13:
+            #testStatus := 'PASO 13: Validar QG2=abierto, QG1=cerrado';
+            #currentDelay := T#2s;
+            
+            IF #stepDelayDone THEN
+                #testResults[13] := (#simQG2_STATE = 0) AND (#simQG1_STATE = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 14;
+            END_IF;
+        
+        // PASO 14: Reset para siguiente grupo
+        14:
+            #testStatus := 'PASO 14: Reset para Grupo D';
+            #currentDelay := T#3s;
+            
+            #instSCMTA.RESET_FAULT := TRUE;
+            #simGridV_L1L2 := 380.0;
+            #simGridV_L2L3 := 380.0;
+            #simGridV_L3L1 := 380.0;
+            #simQT1_STATE := 1;
+            #simQG1_STATE := 0;
+            #simQG2_STATE := 0;
+            #simDI_GD_ALARM := FALSE;
+            #simDI_GD_RUNNING := FALSE;
+            #simDI_GD_READY := FALSE;
+            #simDI_GD2_ALARM := FALSE;
+            #simDI_GD2_RUNNING := FALSE;
+            #simDI_GD2_READY := FALSE;
+            
+            IF #stepDelayDone THEN
+                #instSCMTA.RESET_FAULT := FALSE;
+                #testResults[14] := (#outState = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 15;
+            END_IF;
+        
+        
+        // ================================================================
+        // GRUPO D: AMBOS GD FALLAN → FAULT_LOCKOUT (código 209)
+        // ================================================================
+        
+        // PASO 15: Falla RED, ambos GD en alarma
+        15:
+            #testStatus := 'PASO 15: Falla RED, ambos GD alarm previa';
+            #currentDelay := T#12s;
+            
+            // Falla RED
+            #simGridV_L1L2 := 0.0;
+            #simGridV_L2L3 := 0.0;
+            #simGridV_L3L1 := 0.0;
+            
+            // Ambos GD en falla
+            #simDI_GD_ALARM := TRUE;
+            #simDI_GD2_ALARM := TRUE;
+            
+            IF #stepDelayDone THEN
+                // Debería estar en FAULT_LOCKOUT (14)
+                #testResults[15] := (#outState = 14) AND #outISFault;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 16;
+            END_IF;
+        
+        // PASO 16: Validar fault code = 209 (BOTH_GD_UNAVAILABLE)
+        16:
+            #testStatus := 'PASO 16: Validar FAULT_CODE=209';
+            #currentDelay := T#2s;
+            
+            IF #stepDelayDone THEN
+                #testResults[16] := (#outFaultCode = 209);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 17;
+            END_IF;
+        
+        // PASO 17: Reset para siguiente grupo
+        17:
+            #testStatus := 'PASO 17: Reset para Grupo E';
+            #currentDelay := T#3s;
+            
+            #instSCMTA.RESET_FAULT := TRUE;
+            #simGridV_L1L2 := 380.0;
+            #simGridV_L2L3 := 380.0;
+            #simGridV_L3L1 := 380.0;
+            #simQT1_STATE := 1;
+            #simQG1_STATE := 0;
+            #simQG2_STATE := 0;
+            #simDI_GD_ALARM := FALSE;
+            #simDI_GD_RUNNING := FALSE;
+            #simDI_GD_READY := FALSE;
+            #simDI_GD2_ALARM := FALSE;
+            #simDI_GD2_RUNNING := FALSE;
+            #simDI_GD2_READY := FALSE;
+            
+            IF #stepDelayDone THEN
+                #instSCMTA.RESET_FAULT := FALSE;
+                #testResults[17] := (#outState = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 18;
+            END_IF;
+        
+        
+        // ================================================================
+        // GRUPO E: RETORNO A RED DESDE GD2 (OPEN_ACTIVE_GD abre QG2)
+        // ================================================================
+        
+        // PASO 18: Forzar ON_GD2 (GD1 alarm, failover GD2)
+        18:
+            #testStatus := 'PASO 18: Forzar ON_GD2';
+            #currentDelay := T#18s;
+            
+            // Falla RED
+            #simGridV_L1L2 := 0.0;
+            #simGridV_L2L3 := 0.0;
+            #simGridV_L3L1 := 0.0;
+            
+            // GD1 falla desde inicio
+            #simDI_GD_ALARM := TRUE;
+            
+            // GD2 OK
+            #simDI_GD2_RUNNING := TRUE;
+            #simDI_GD2_READY := TRUE;
+            
+            IF #stepDelayDone THEN
+                #testResults[18] := (#outState = 19) AND #outISOnGD2 AND (#outActiveGD = 2);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 19;
+            END_IF;
+        
+        // PASO 19: RED retorna → WAIT_GRID_STABLE
+        19:
+            #testStatus := 'PASO 19: RED retorna, espera estable';
+            #currentDelay := T#5s;
+            
+            // Restaurar RED
+            #simGridV_L1L2 := 380.0;
+            #simGridV_L2L3 := 380.0;
+            #simGridV_L3L1 := 380.0;
+            
+            IF #stepDelayDone THEN
+                // Debería pasar a WAIT_GRID_STABLE (10) o OPEN_ACTIVE_GD (11)
+                #testResults[19] := (#outState = 10 OR #outState = 11);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 20;
+            END_IF;
+        
+        // PASO 20: OPEN_ACTIVE_GD abre QG2 → CLOSE_QT1
+        20:
+            #testStatus := 'PASO 20: OPEN_ACTIVE_GD abre QG2';
+            #currentDelay := T#5s;
+            
+            IF #stepDelayDone THEN
+                // QG2 debería estar abierto, QT1 cerrándose o cerrado
+                #testResults[20] := (#simQG2_STATE = 0) AND 
+                                    (#outState = 12 OR #outState = 13 OR #outState = 1);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 21;
+            END_IF;
+        
+        // PASO 21: GD_COOLDOWN → NORMAL_ON_GRID + DO_GD2_STOP
+        21:
+            #testStatus := 'PASO 21: Cooldown → NORMAL_ON_GRID';
+            #currentDelay := T#8s;
+            
+            IF #stepDelayDone THEN
+                #testResults[21] := (#outState = 1) AND #outISOnGrid AND NOT #outISOnGD2;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 22;
+            END_IF;
+        
+        // PASO 22: Validar flags finales
+        22:
+            #testStatus := 'PASO 22: Validar flags retorno a RED';
+            #currentDelay := T#3s;
+            
+            IF #stepDelayDone THEN
+                #testResults[22] := #outISOnGrid AND NOT #outISOnGD AND NOT #outISOnGD1
+                                    AND NOT #outISOnGD2 AND (#outActiveGD = 0)
+                                    AND NOT #outISFault;
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 23;
+            END_IF;
+        
+        // PASO 23: Validar QT1 cerrado, QG1/QG2 abiertos
+        23:
+            #testStatus := 'PASO 23: Validar breakers finales';
+            #currentDelay := T#2s;
+            
+            IF #stepDelayDone THEN
+                #testResults[23] := (#simQT1_STATE = 1) AND (#simQG1_STATE = 0) 
+                                    AND (#simQG2_STATE = 0);
+                #tonStepDelay(IN := FALSE, PT := #currentDelay);
+                #testStep := 24;
+            END_IF;
+        
+        
+        // ================================================================
+        // PASO 24: TEST FINALIZADO
+        // ================================================================
+        24:
+            #testStatus := 'TEST GD2 FAILOVER COMPLETADO';
+            #currentDelay := T#1s;
+            #testResults[24] := TRUE;
+            // No avanzar más - test terminado
+        
+    END_CASE;
+    
+END_FUNCTION_BLOCK

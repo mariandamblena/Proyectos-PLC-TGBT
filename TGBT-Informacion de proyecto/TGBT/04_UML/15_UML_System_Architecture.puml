@@ -1,0 +1,189 @@
+@startuml System_Architecture
+
+title Sistema TGBT - Arquitectura Completa
+
+skinparam componentStyle rectangle
+
+package "PLC Siemens S7-1500" {
+    
+    package "OB1 Main Cycle" as OB1 {
+        component [OB1_MAIN] as OB1_MAIN
+    }
+    
+    package "Bloques Funcionales Implementados ✅" as Implemented {
+        component [FB_IO_NORMALIZE] #lightgreen
+        component [FB_SCMTA] #lightgreen
+    }
+    
+    package "Bloques Funcionales Pendientes 🔶" as Pending {
+        component [FB_SHED] #yellow
+        component [FB_CMD_ARBITER] #yellow
+        component [FB_OUTPUTS] #yellow
+        component [FB_MODBUS_MANAGER] #yellow
+        component [FB_MTZ_DRIVER] #yellow
+    }
+    
+    package "Data Blocks" as DB {
+        database "DB_GLOBAL_STATUS" as DB_STATUS
+        database "DB_PARAMS" as DB_PARAMS
+    }
+}
+
+package "I/O Físicas" {
+    component [Entradas Digitales\nDI_*] as DI
+    component [Salidas Digitales\nDO_*] as DO
+    component [Entradas Analógicas\nAI_*] as AI
+}
+
+package "Red Eléctrica" {
+    component [QT1\nInterruptor RED] as QT1 #lightblue
+    component [Medición RED\nV, F, ϕ] as GRID_MEAS
+}
+
+package "Grupo Diésel 1" {
+    component [QG1\nInterruptor GD1] as QG1 #orange
+    component [Motor GD1\nStart/Stop] as GD1
+}
+
+package "Grupo Diésel 2 (Futuro)" {
+    component [QG2\nInterruptor GD2] as QG2 #lightgray
+    component [Motor GD2\nStart/Stop] as GD2
+}
+
+package "Comunicaciones Modbus RTU" {
+    component [MTZ/NSX\nInterruptores\nInteligentes] as MTZ
+    node "RS485" as RS485
+}
+
+package "Feeders (18 salidas)" {
+    component [Feeder 1..18\nNSX Modbus] as FEEDERS
+}
+
+package "HMI/SCADA (Futuro)" {
+    component [Panel Operador\nSiemens HMI] as HMI
+    component [SCADA\nRemoto] as SCADA
+}
+
+' ======== CONEXIONES ========
+
+' OB1 orquesta todo
+OB1_MAIN --> FB_IO_NORMALIZE : "1. Normalizar I/O"
+OB1_MAIN --> FB_SCMTA : "2. Lógica SCMTA"
+OB1_MAIN --> FB_SHED : "3. Deslastre"
+OB1_MAIN --> FB_CMD_ARBITER : "4. Arbitraje"
+OB1_MAIN --> FB_OUTPUTS : "5. Outputs"
+OB1_MAIN --> FB_MODBUS_MANAGER : "6. Comunicaciones"
+
+' I/O físicas
+DI --> FB_IO_NORMALIZE : "Entradas\nSYS_AUTO\nREMOTE_SEL\nPB_OPEN/CLOSE\nGD_READY\nGD_RUNNING\nGD_ALARM"
+FB_OUTPUTS --> DO : "Salidas\nPilotos\nSirenas\nAlarmas"
+
+' SCMTA lee mediciones
+GRID_MEAS --> AI
+AI --> FB_SCMTA : "V_L1L2, V_L2L3\nV_L3L1, FREQ"
+
+' SCMTA comanda actuadores
+FB_SCMTA --> FB_CMD_ARBITER : "REQ_SCMTA_OPEN_QT1\nREQ_SCMTA_CLOSE_QT1\nREQ_SCMTA_OPEN_QG1\nREQ_SCMTA_CLOSE_QG1\nREQ_SCMTA_OPEN_QG2\nREQ_SCMTA_CLOSE_QG2"
+
+' SHED solicita deslastre
+FB_SCMTA --> FB_SHED : "IS_ON_GD, IS_ON_GRID\nTRANSFER_TO_GD\nIS_IN_TRANSFER"
+FB_SHED --> FB_CMD_ARBITER : "REQ_SHED_OPEN[1..18]\nREQ_SHED_CLOSE[1..18]"
+
+' ARBITER decide
+FB_CMD_ARBITER --> FB_MTZ_DRIVER : "CMD_OPEN\nCMD_CLOSE\nDEVICE_ID"
+FB_CMD_ARBITER --> FB_OUTPUTS : "BLOCK_LOCAL\nBLOCK_INTERLOCK\nALM_INTERLOCK"
+
+' Modbus Manager pooling
+FB_MODBUS_MANAGER --> FB_MTZ_DRIVER : "Conexión RTU\nTimeout recovery"
+FB_MTZ_DRIVER --> RS485
+RS485 --> MTZ : "Modbus RTU\n9600 8N1"
+RS485 --> FEEDERS : "Modbus RTU\nMulti-drop"
+
+' Red eléctrica
+QT1 --> GRID_MEAS
+MTZ --> QT1 : "Comando\nModbus"
+MTZ --> QG1 : "Comando\nModbus"
+MTZ --> QG2 : "Comando\nModbus"
+MTZ --> FEEDERS : "Comando\nModbus"
+
+' Grupo diésel
+GD1 --> DI : "GD1_READY\nGD1_RUNNING\nGD1_ALARM"
+FB_SCMTA --> GD1 : "DO_GD1_START\nDO_GD1_STOP"
+GD2 --> DI : "GD2_READY\nGD2_RUNNING\nGD2_ALARM"
+FB_SCMTA --> GD2 : "DO_GD2_START\nDO_GD2_STOP"
+
+' Data blocks
+FB_SCMTA --> DB_STATUS : "Write estado"
+FB_SHED --> DB_STATUS : "Write alarmas"
+FB_CMD_ARBITER --> DB_STATUS : "Write bloqueos"
+DB_PARAMS --> FB_SCMTA : "Read timing"
+DB_PARAMS --> FB_SHED : "Read umbrales"
+
+' HMI/SCADA (futuro)
+HMI --> OB1_MAIN : "Comandos\noperador"
+DB_STATUS --> HMI : "Lectura\nestado"
+DB_STATUS --> SCADA : "Lectura\nremota"
+
+note right of FB_SCMTA
+    **Estado:** ✅ Implementado
+    **Test:** ✅ Happy path OK
+    **Fallas:** 🔶 Test pendiente
+    **GD2:** 🔶 Preparado (sin lógica)
+end note
+
+note right of FB_IO_NORMALIZE
+    **Estado:** ✅ Implementado
+    **Test:** ✅ OK
+    **Función:** Normalización I/O
+    Filtros anti-rebote
+end note
+
+note right of FB_SHED
+    **Estado:** 📄 Código listo V2.0
+    **Test:** ❌ Pendiente actualizar
+    **18 feeders** configurables
+    **ESENCIAL / NO-ESENCIAL**
+    Deslastre en RED + GD
+    Acoplamiento escalonado en GD
+    6 modos operación (SHED_MODE)
+end note
+
+note right of FB_CMD_ARBITER
+    **Estado:** 📄 Código listo
+    **Test:** ❌ Pendiente
+    Prioridad: SCMTA>SHED>MANUAL
+    Enclavamiento triple
+end note
+
+note bottom of MTZ
+    Protocolo:
+    **Command Interface**
+    Registros 8000-8019 (write)
+    Registros 8020-8021 (poll)
+    Registros 32000-32001 (status)
+    Password: "3333"
+end note
+
+note bottom of FEEDERS
+    18 salidas Modbus
+    Clasificación:
+    FEEDER_ESSENTIAL[1..18]
+    Prioridad deslastre:
+    SHED_ORDER[1..18]
+    RECONNECT_ORDER[1..18]
+    
+    Esenciales: siempre activos
+    No-esenciales: controlados
+    por FB_SHED según modo
+end note
+
+legend right
+    |= Color |= Significado |
+    | <#lightgreen> | Implementado + Testeado |
+    | <#yellow> | Código listo - Pendiente implementar |
+    | <#lightgray> | Futuro (GD2 redundancia) |
+    | <#lightblue> | Red eléctrica |
+    | <#orange> | Grupo diésel |
+endlegend
+
+@enduml

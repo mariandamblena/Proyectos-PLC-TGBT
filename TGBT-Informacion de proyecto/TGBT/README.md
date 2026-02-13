@@ -34,12 +34,17 @@ tgbt_ladder/
 │   ├── INDEX.md                     → Índice archivos proyecto
 │   ├── VALIDACION_SCL_TIA_V18.md    → Validación código SCL (100% compatible)
 │   ├── GUIA_COMPLETA_SCL_LADDER.md  → Comparación SCL vs LADDER + decisiones
-│   └── CAMBIOS_REQ_2_SEGUNDOS.md    → Modificación REQ Modbus 2 segundos
+│   ├── CAMBIOS_REQ_2_SEGUNDOS.md    → Modificación REQ Modbus 2 segundos
+│   ├── INTRODUCCION_TECNICA_INGENIERO.md → Introducción técnica completa
+│   └── PRESENTACION_REUNION_2026-02-10.md → Presentación 4 diapositivas ⭐NEW
 │
 ├── 04_UML/                          ← Diagramas PlantUML
 │   ├── 11_UML_SCMTA_StateMachine.puml    → Diagrama estados SCMTA (15 estados)
 │   ├── 12_UML_MTZ_Driver_StateMachine.puml → Diagrama estados Driver Modbus
-│   └── 13_UML_SHED_Activity.puml         → Diagrama actividad deslastre
+│   ├── 13_UML_SHED_Activity.puml         → Diagrama actividad deslastre
+│   ├── 14_UML_SCMTA_GD2_StateMachine.puml → Diagrama estados con GD2 (N+1)
+│   ├── 15_UML_System_Architecture.puml   → Arquitectura completa sistema
+│   └── README_UML.md                      → Documentación diagramas
 │
 ├── 05_MANUALES/                     ← Manuales técnicos equipos
 │   ├── 81318674_Programming_guideline_DOC_v16_en.pdf → Guía programación
@@ -49,10 +54,16 @@ tgbt_ladder/
 │   ├── masterpact mtz1 y mtz2.pdf   → Especificaciones MTZ
 │   ├── MTZ MANUAL.pdf               → Manual Masterpact MTZ
 │   └── NSX MANUAL.pdf               → Manual Compact NSX
+│   ├── ET MONTAJE-TGBT.pdf          → Esquema montaje tablero
+│   ├── TGBT_Config - listado de entradas y salidas.pdf → Mapeo I/O
+│   ├── TGBT_Config - listado de equipos.pdf → Lista equipos
+│   └── TGBT_Config - pm5330.pdf     → Configuración PM5350
 │
-└── 06_CONFIG/                       ← Configuración TGBT
-    ├── ET MONTAJE-TGBT.pdf          → Esquema montaje tablero
-    ├── TGBT_Config - listado de entradas y salidas.pdf → Mapeo I/O
+└── 07_TEST/                         ← Tests Automatizados ⭐NEW
+    ├── TEST_FB_IO_NORMALIZE_SCMTA.scl → Test happy path (15 pasos - 100% OK)
+    ├── TEST_FB_FALLAS_SCMTA.scl       → Test fallas (37 pasos - pendiente)
+    ├── README_TEST.md                 → Documentación test happy path
+    └── README_TEST_FALLAS.md          → Documentación test fallasapeo I/O
     ├── TGBT_Config - listado de equipos.pdf → Lista equipos
     └── TGBT_Config - pm5330.pdf     → Configuración PM5350
 ```
@@ -175,10 +186,17 @@ tgbt_ladder/
 1. [VALIDACION_SCL_TIA_V18.md](03_DOCS/VALIDACION_SCL_TIA_V18.md) - Validación código
 2. [GUIA_COMPLETA_SCL_LADDER.md](03_DOCS/GUIA_COMPLETA_SCL_LADDER.md) - SCL vs LADDER
 3. [README_SCMTA.md](03_DOCS/README_SCMTA.md) - Arquitectura completa
+4. [07_TEST/README_TEST.md](07_TEST/README_TEST.md) - Test happy path (15 pasos)
+5. [07_TEST/README_TEST_FALLAS.md](07_TEST/README_TEST_FALLAS.md) - Test fallas (37 pasos)
 
 ### **Para Diseño**
-1. Diagramas UML en carpeta `04_UML/`
-2. [README_SCMTA.md](03_DOCS/README_SCMTA.md) - Sección "Arquitectura"
+1. [04_UML/README_UML.md](04_UML/README_UML.md) - Catálogo completo diagramas
+2. [04_UML/15_UML_System_Architecture.puml](04_UML/15_UML_System_Architecture.puml) - Arquitectura visual
+3. [04_UML/14_UML_SCMTA_GD2_StateMachine.puml](04_UML/14_UML_SCMTA_GD2_StateMachine.puml) - Estados con GD2
+4. [README_SCMTA.md](03_DOCS/README_SCMTA.md) - Sección "Arquitectura"
+
+### **Para Reuniones/Presentaciones** ⭐
+1. [03_DOCS/PRESENTACION_REUNION_2026-02-10.md](03_DOCS/PRESENTACION_REUNION_2026-02-10.md) - **4 diapositivas ejecutivas**
 
 ### **Para Instalación**
 1. `06_CONFIG/ET MONTAJE-TGBT.pdf` - Esquema montaje
@@ -230,38 +248,54 @@ DO_PILOT_ON_GRID => %Q1.0,      // LED verde "EN RED"
 
 **Proyecto**: Sistema SCMTA TGBT  
 **Fecha**: 4 de febrero de 2026  
-**Versión**: 1.0  
-**TIA Portal**: V18  
-**PLC**: Siemens S7-1200
+**Versión**: 1.0   (Actualizado 10/02/2026)
+
+| Etapa | Estado | Fecha | Detalle |
+|-------|--------|-------|---------|
+| Análisis y diseño | ✅ Completado | 04/02/2026 | Arquitectura definida |
+| Desarrollo código SCL | ✅ Completado | 04/02/2026 | 10/10 bloques desarrollados |
+| Validación TIA Portal V18 | ✅ Completado | 04/02/2026 | SCL 100% compatible |
+| Conversión LADDER (ref.) | ✅ Completado | 04/02/2026 | Opciones implementación |
+| Documentación | ✅ Completado | 04/02/2026 | Completa + diagramas UML |
+| **Implementación TIA Portal** | ✅ **Parcial** | **09/02/2026** | **2/10 bloques implementados** |
+| **Test Happy Path** | ✅ **Completado** | **09/02/2026** | **15/15 pasos OK** |
+| **Test Fallas** | 🔶 **Desarrollado** | **10/02/2026** | **37 pasos - pendiente ejecutar** |
+| Mapeo I/O físico | ⏳ Pendiente | - | Según listado CONFIG |
+| Testing en banco | 🔶 Iniciado | 09/02/2026 | Tests automatizados creados |
+| Comisionamiento | ⏳ Pendiente | - | Post testing completo |
+
+### 🎯 Métricas de Avance
+```
+📊 Código SCL:          10/10 bloques (100%)
+✅ Implementados:        2/10 bloques (20%)  → FB_IO_NORMALIZE, FB_SCMTA
+✅ Testeados:            2/10 bloques (20%)  → Happy path 100% OK
+🧪 Test happy path:     15/15 pasos (100%)
+🔥 Test fallas:          0/37 pasos (0%)   → Pendiente ejecutar
+📈 Cobertura funcional: ~35% implementada y validada
+```
 
 ---
 
-## 📝 Estado del Proyecto
+## ✅ Próximos Pasos (Roadmap)
 
-| Etapa | Estado | Fecha |
-|-------|--------|-------|
-| Análisis y diseño | ✅ Completado | 04/02/2026 |
-| Desarrollo código SCL | ✅ Completado | 04/02/2026 |
-| Validación TIA Portal V18 | ✅ Completado | 04/02/2026 |
-| Conversión LADDER (ref.) | ✅ Completado | 04/02/2026 |
-| Documentación | ✅ Completado | 04/02/2026 |
-| Importación TIA Portal | ⏳ Pendiente | - |
-| Mapeo I/O físico | ⏳ Pendiente | - |
-| Testing en banco | ⏳ Pendiente | - |
-| Comisionamiento | ⏳ Pendiente | - |
+### 🔥 Alta Prioridad (Esta Semana)
+1. ✅ **Ejecutar TEST_FB_FALLAS_SCMTA** → Validar robustez ante fallas (37 pasos)
+2. 🔧 **Corregir issues** detectados por test de fallas
+3. 📦 **Implementar FB_OUTPUTS** → Pilotos y alarmas físicas
+4. 📦 **Implementar FB_CMD_ARBITER** → Enclavamiento + prioridad comandos
 
----
+### 🔶 Media Prioridad (Próximas 2 Semanas)
+5. 📦 **Implementar FB_SHED** → Deslastre escalonado 18 feeders
+6. 🧪 **Test deslastre** automatizado
+7. 📦 **Implementar FB_MODBUS_MANAGER** + **FB_MTZ_DRIVER**
+8. 🔌 **Prueba Modbus RTU** con hardware real
 
-## ✅ Próximos Pasos
-
-1. ✅ **Decidir estrategia**: SCL puro (recomendado) o Híbrida
-2. ✅ **Importar archivos** `01_SCL/` a TIA Portal V18
-3. ✅ **Mapear direcciones** físicas %I/%Q según `06_CONFIG/`
-4. ✅ **Compilar** proyecto sin errores
-5. ✅ **Crear DB instances** para cada FB
-6. ✅ **Configurar Modbus** RTU (19200 baud, parity=2)
-7. ✅ **Testear** en banco antes de campo
-8. ✅ **Ajustar parámetros** según pruebas
+### 📋 Baja Prioridad (Mes 2)
+9. 🔋 **Implementar redundancia GD2** (N+1) → Ver UML 14
+10. 🧪 **Test transferencia GD1↔GD2**
+11. 🖥️ **Integración HMI/SCADA**
+12. 📊 **DB_GLOBAL_STATUS** + **DB_PARAMS** implementación
+13. 🏭 **FAT (Factory Acceptance Test)** con cliente
 
 ---
 

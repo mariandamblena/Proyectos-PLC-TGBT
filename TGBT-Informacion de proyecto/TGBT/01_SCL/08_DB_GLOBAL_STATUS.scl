@@ -1,8 +1,8 @@
 (*
 ================================================================================
   DATA BLOCK: DB_GLOBAL_STATUS
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 3.0
+  Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
@@ -47,9 +47,15 @@ STRUCT
     // ========================================================================
     // SECCIÓN 4: SEÑALES GRUPO DIÉSEL (de FB_IO_NORMALIZE)
     // ========================================================================
-    GD_READY : Bool;                 // GD listo para transferir
-    GD_RUNNING : Bool;               // GD en marcha
-    GD_ALARM : Bool;                 // GD en alarma/falla
+    // GD1 (primario)
+    GD_READY : Bool;                 // GD1 listo para transferir
+    GD_RUNNING : Bool;               // GD1 en marcha
+    GD_ALARM : Bool;                 // GD1 en alarma/falla
+    
+    // GD2 (backup/redundante)
+    GD2_READY : Bool;                // GD2 listo para transferir
+    GD2_RUNNING : Bool;              // GD2 en marcha
+    GD2_ALARM : Bool;                // GD2 en alarma/falla
     
     // ========================================================================
     // SECCIÓN 5: ESTADOS INTERRUPTORES (de drivers Modbus)
@@ -111,10 +117,13 @@ STRUCT
     // ========================================================================
     // SECCIÓN 7: ESTADO SCMTA (de FB_SCMTA)
     // ========================================================================
-    SCMTA_STATE : Int;               // Estado máquina (0-14)
+    SCMTA_STATE : Int;               // Estado máquina (0-20)
     SCMTA_STATE_NAME : String[30];
     IS_ON_GRID : Bool;
-    IS_ON_GD : Bool;
+    IS_ON_GD : Bool;                 // TRUE = en cualquier GD (GD1 o GD2)
+    IS_ON_GD1 : Bool;               // TRUE = operando con GD1 específicamente
+    IS_ON_GD2 : Bool;               // TRUE = operando con GD2 específicamente
+    ACTIVE_GD : Int;                 // 0=ninguno, 1=GD1, 2=GD2
     IS_IN_TRANSFER : Bool;
     IS_FAULT : Bool;
     GRID_OK : Bool;
@@ -122,6 +131,9 @@ STRUCT
     FAULT_CODE : Int;
     ELAPSED_TIME : Time;
     DIAG_LAST_TRANSFER_TIME : Time;
+    TRANSFER_TO_GD : Bool;           // TRUE = transferencia RED→GD en curso
+    GD1_AVAILABLE : Bool;            // TRUE = GD1 disponible para uso/failover
+    GD2_AVAILABLE : Bool;            // TRUE = GD2 disponible para uso/failover
     
     // ========================================================================
     // SECCIÓN 8: ESTADO DESLASTRE (de FB_SHED)

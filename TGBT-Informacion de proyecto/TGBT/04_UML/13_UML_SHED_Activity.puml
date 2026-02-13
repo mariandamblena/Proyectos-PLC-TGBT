@@ -1,132 +1,189 @@
 @startuml SHED_Activity
 
-title FB_SHED - Diagrama de Actividad Deslastre y Reenganche
+title FB_SHED V2.0 - Diagrama de Actividad\nDeslastre (RED+GD) / Desacople / Acoplamiento
 
 |Sistema SCMTA|
 start
 
-:Operando en modo ON_GD;
-
-|FB_SHED|
-:Monitorear carga GD y Trafo;
-
-if (GD_LoadPct > SHED_ON\nOR\nTR_LoadPct > TR_SHED_ON) then (YES)
+fork
+    :Operando con RED\n(NORMAL_ON_GRID);
     
-    :Filtrar señal 2s\n(evitar bouncing);
+    |FB_SHED - Modo RED|
+    :Monitorear TR_LoadPct;
     
-    if (Carga sostenida > umbral) then (YES)
+    if (TR_LoadPct > GRID_SHED_ON\n(85%)) then (SÍ)
+        :Filtrar señal 2s;
         
-        |Deslastre Escalonado|
-        :SHED_ACTIVE = TRUE;
-        :SHED_STEP = 1;
-        
-        repeat
-            :Obtener feederID = SHED_ORDER[SHED_STEP];
+        if (Carga sostenida > umbral) then (SÍ)
+            :SHED_MODE = GRID_SHED (1);
+            :SHED_ACTIVE = TRUE;
             
-            if (SHED_ENABLE[feederID] = TRUE) then (YES)
-                if (FEEDER_STATE[feederID] = CERRADO) then (YES)
-                    :REQ_SHED_OPEN[feederID] = TRUE;
-                    :Enviar a ARBITER;
-                    
-                    |FB_CMD_ARBITER|
-                    :Verificar LOCAL/REMOTO;
-                    :CMD_OPEN_FEEDER[feederID] = TRUE;
-                    
-                    |Driver NSX|
-                    :Ejecutar comando Modbus\nOpen feeder;
-                    
-                    |FB_SHED|
-                    :Esperar T_SHED_STEP (3-5s);
+            repeat
+                :feederID = SHED_ORDER[SHED_STEP];
+                
+                if (FEEDER_ESSENTIAL[feederID] = FALSE\nAND SHED_ENABLE[feederID] = TRUE) then (NO-ESENCIAL)
+                    if (FEEDER_STATE = CERRADO) then (SÍ)
+                        :REQ_SHED_OPEN[feederID] = TRUE;
+                        
+                        |FB_CMD_ARBITER|
+                        :CMD_OPEN_FEEDER[feederID];
+                        
+                        |FB_SHED - Modo RED|
+                        :Esperar T_SHED_STEP (5s);
+                    endif
+                else (ESENCIAL)
+                    :Saltar (nunca se deslasta);
                 endif
-            endif
-            
-            :SHED_STEP = SHED_STEP + 1;
-            
-            if (GD_LoadPct < SHED_OFF\nAND\nTR_LoadPct < SHED_OFF) then (YES)
-                :Cancelar deslastre\n(histéresis);
-                stop
-            endif
-            
-        repeat while (SHED_STEP <= 18) is (NO) not (YES)
-        
-        :SHED_ACTIVE = FALSE;
-        :Deslastre completado;
-        
+                
+                :SHED_STEP++;
+                
+                if (TR_LoadPct < GRID_SHED_OFF\n(70%)) then (SÍ)
+                    :Cancelar (histéresis);
+                    :SHED_MODE = GRID_RECONNECT (5);
+                    :Reenganchar no-esenciales;
+                    break
+                endif
+                
+            repeat while (SHED_STEP <= 18)
+        endif
     endif
     
-endif
-
-:Continuar operando en GD;
-
-|Sistema SCMTA|
-if (RED retorna estable 120s) then (YES)
+fork again
+    |Sistema SCMTA|
+    :Falla de RED detectada;
+    :OPEN_QT1;
+    :TRANSFER_TO_GD = TRUE;
     
-    :Transferir a RED;
-    :IS_ON_GRID = TRUE;
+    |FB_SHED - Desacople Inicial|
+    :Flanco TRANSFER_TO_GD;
+    :SHED_MODE = GD_INITIAL_SHED (2);
+    #orange:Abrir TODAS las no-esenciales\n(inmediato, no escalonado);
+    note right
+        Las ESENCIALES
+        permanecen cerradas
+        (nunca se tocan)
+    end note
     
-    |FB_SHED - Reenganche|
+    |Sistema SCMTA|
+    :Arrancar GD;
+    :GD con poca carga\n(solo esenciales);
+    :CLOSE_QG1 → ON_GD;
+    :IS_ON_GD = TRUE;
+    
+    |FB_SHED - Acoplamiento GD|
+    :Flanco IS_ON_GD;
+    :SHED_MODE = GD_RECONNECT (3);
     :RECONNECT_ACTIVE = TRUE;
-    :RECONNECT_STEP = 1;
     
     repeat
-        :Obtener feederID = RECONNECT_ORDER[RECONNECT_STEP];
+        :feederID = RECONNECT_ORDER[RECONNECT_STEP];
         
-        if (SHED_ENABLE[feederID] = TRUE) then (YES)
-            if (FEEDER_STATE[feederID] = ABIERTO) then (YES)
+        if (GD_LoadPct < GD_SHED_ON\n(90%)) then (CARGA OK)
+            if (FEEDER_ESSENTIAL[feederID] = FALSE\nAND FEEDER_STATE = ABIERTO) then (ACOPLAR)
+                #LightGreen:REQ_SHED_CLOSE[feederID] = TRUE;
+                
+                |FB_CMD_ARBITER|
+                :CMD_CLOSE_FEEDER[feederID];
+                
+                |Driver NSX|
+                :Modbus Close feeder;
+                
+                |FB_SHED - Acoplamiento GD|
+                :Esperar T_LOAD_CHECK_DELAY (3s);
+                :Verificar GD_LoadPct;
+                
+                if (GD_LoadPct >= GD_SHED_ON) then (SOBRECARGA)
+                    #red:PARAR acoplamiento;
+                    :gdReconnectDone = TRUE;
+                    break
+                endif
+            endif
+        else (CARGA ALTA)
+            :PAUSAR acoplamiento\n(reanudar cuando baje);
+        endif
+        
+        :RECONNECT_STEP++;
+        
+        if (GD_LoadPct > GD_SHED_ON\npor 2s) then (REACTIVO)
+            :SHED_MODE = GD_REACTIVE_SHED (4);
+            :Deslastar no-esenciales\n(mismo que GRID_SHED);
+            break
+        endif
+        
+    repeat while (RECONNECT_STEP <= 18)
+    
+    :Acoplamiento completado\no pausado;
+    
+end fork
+
+|Sistema SCMTA|
+if (RED retorna estable 120s) then (SÍ)
+    :Transferir a RED;
+    :OPEN_QG1 → CLOSE_QT1;
+    :IS_ON_GRID = TRUE;
+    
+    |FB_SHED - Reenganche RED|
+    :Flanco IS_ON_GRID;
+    :SHED_MODE = GRID_RECONNECT (5);
+    
+    repeat
+        :feederID = RECONNECT_ORDER[RECONNECT_STEP];
+        
+        if (NOT FEEDER_ESSENTIAL[feederID]\nAND FEEDER_STATE = ABIERTO) then (REENGANCHAR)
+            if (TR_LoadPct < GRID_SHED_ON) then (OK)
                 :REQ_SHED_CLOSE[feederID] = TRUE;
                 
                 |FB_CMD_ARBITER|
-                :CMD_CLOSE_FEEDER[feederID] = TRUE;
+                :CMD_CLOSE_FEEDER[feederID];
                 
-                |Driver NSX|
-                :Ejecutar comando Modbus\nClose feeder;
-                
-                |FB_SHED|
-                :Esperar T_RECONNECT_STEP (3-5s);
+                |FB_SHED - Reenganche RED|
+                :Esperar T_RECONNECT_STEP (5s);
             endif
         endif
         
-        :RECONNECT_STEP = RECONNECT_STEP + 1;
+        :RECONNECT_STEP++;
         
-        if (RED falla nuevamente) then (YES)
+        if (RED falla) then (SÍ)
             :Cancelar reenganche;
-            stop
+            break
         endif
         
-    repeat while (RECONNECT_STEP <= 18) is (NO) not (YES)
+    repeat while (RECONNECT_STEP <= 18)
     
-    :RECONNECT_ACTIVE = FALSE;
-    :Reenganche completado;
-    
+    :SHED_MODE = IDLE (0);
+    :Todos los feeders cerrados;
 endif
 
 stop
 
-note right of "Filtrar señal 2s"
-    Evita deslastre por picos
-    transitorios de carga
+note right
+    **CLASIFICACIÓN FEEDERS V2.0**
+    
+    FEEDER_ESSENTIAL[i] = TRUE
+    → **ESENCIAL**: nunca se desacopla
+       Ej: iluminación emergencia,
+       bombas CI, servidores
+    
+    FEEDER_ESSENTIAL[i] = FALSE
+    → **NO-ESENCIAL**: se desacopla
+       al pasar a GD, deslastable
+       en RED si carga alta
+       Ej: A/C, ascensores, ilum. gral
+    
+    Parametrizable desde HMI
 end note
 
-note right of "SHED_ORDER[SHED_STEP]"
-    Array configurable desde HMI
-    Define prioridad de corte
+note left
+    **UMBRALES V2.0**
     
-    Ejemplo:
-    [5, 12, 3, 8, ...] = 
-    Paso 1: cortar feeder 5
-    Paso 2: cortar feeder 12
-    Paso 3: cortar feeder 3
-    etc.
+    RED: GRID_SHED_ON = 85%
+         GRID_SHED_OFF = 70%
     
-    Típicamente mayor amperaje primero:
-    400A → 320A → 250A → etc.
-end note
-
-note right of "RECONNECT_ORDER"
-    Puede ser igual a SHED_ORDER
-    (misma secuencia)
-    o diferente si se requiere
-    orden distinto al reenganche
+    GD:  GD_SHED_ON = 90%
+         GD_SHED_OFF = 70%
+    
+    Todos configurables desde
+    DB_PARAMS (RETAIN)
 end note
 
 @enduml

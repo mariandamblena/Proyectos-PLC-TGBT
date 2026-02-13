@@ -1,8 +1,8 @@
 (*
 ================================================================================
   ORGANIZATION BLOCK: OB1 (Main Cyclic Execution)
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 3.0
+  Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
@@ -50,6 +50,9 @@ BEGIN
         DI_GD_READY := %I1.3,
         DI_GD_RUNNING := %I1.4,
         DI_GD_ALARM := %I1.5,
+        DI_GD2_READY := %I1.6,
+        DI_GD2_RUNNING := %I1.7,
+        DI_GD2_ALARM := %I2.1,
         
         // Outputs → DB_GLOBAL_STATUS
         MODE_AUTO => "DB_GLOBAL_STATUS".MODE_AUTO,
@@ -66,6 +69,9 @@ BEGIN
         GD_READY => "DB_GLOBAL_STATUS".GD_READY,
         GD_RUNNING => "DB_GLOBAL_STATUS".GD_RUNNING,
         GD_ALARM => "DB_GLOBAL_STATUS".GD_ALARM,
+        GD2_READY => "DB_GLOBAL_STATUS".GD2_READY,
+        GD2_RUNNING => "DB_GLOBAL_STATUS".GD2_RUNNING,
+        GD2_ALARM => "DB_GLOBAL_STATUS".GD2_ALARM,
         DIAG_MODE_VALID => "DB_GLOBAL_STATUS".DIAG_MODE_VALID
     );
     
@@ -94,10 +100,15 @@ BEGIN
         GRID_FREQ := "DB_GLOBAL_STATUS".GRID_FREQ,
         GRID_MEASUREMENT_OK := "DB_GLOBAL_STATUS".GRID_MEASUREMENT_OK,
         
-        // Señales GD
+        // Señales GD1 (primario)
         GD_READY := "DB_GLOBAL_STATUS".GD_READY,
         GD_RUNNING := "DB_GLOBAL_STATUS".GD_RUNNING,
         GD_ALARM := "DB_GLOBAL_STATUS".GD_ALARM,
+        
+        // Señales GD2 (backup/redundante)
+        GD2_READY := "DB_GLOBAL_STATUS".GD2_READY,
+        GD2_RUNNING := "DB_GLOBAL_STATUS".GD2_RUNNING,
+        GD2_ALARM := "DB_GLOBAL_STATUS".GD2_ALARM,
         
         // Parámetros configurables (de DB_PARAMS)
         V_NOM := "DB_PARAMS".V_NOM,
@@ -111,8 +122,10 @@ BEGIN
         T_GD_READY_TIMEOUT := "DB_PARAMS".T_GD_READY_TIMEOUT,
         T_GD_STABILIZATION := "DB_PARAMS".T_GD_STABILIZATION,
         T_CLOSE_QG1 := "DB_PARAMS".T_CLOSE_QG1,
+        T_CLOSE_QG2 := "DB_PARAMS".T_CLOSE_QG2,
         T_GRID_STABLE := "DB_PARAMS".T_GRID_STABLE,
         T_OPEN_QG1 := "DB_PARAMS".T_OPEN_QG1,
+        T_OPEN_QG2 := "DB_PARAMS".T_OPEN_QG2,
         T_CLOSE_QT1 := "DB_PARAMS".T_CLOSE_QT1,
         T_GD_COOLDOWN := "DB_PARAMS".T_GD_COOLDOWN,
         T_GRID_FAIL_FILTER := "DB_PARAMS".T_GRID_FAIL_FILTER,
@@ -126,17 +139,25 @@ BEGIN
         REQ_SCMTA_CLOSE_QG1 => "DB_SCMTA".REQ_SCMTA_CLOSE_QG1,
         REQ_SCMTA_OPEN_QG2 => "DB_SCMTA".REQ_SCMTA_OPEN_QG2,
         REQ_SCMTA_CLOSE_QG2 => "DB_SCMTA".REQ_SCMTA_CLOSE_QG2,
-        DO_GD_START => %Q0.0,  // TODO: mapear salida física GD
+        DO_GD_START => %Q0.0,
         DO_GD_STOP => %Q0.1,
+        DO_GD2_START => %Q0.2,
+        DO_GD2_STOP => %Q0.3,
         IS_ON_GRID => "DB_GLOBAL_STATUS".IS_ON_GRID,
         IS_ON_GD => "DB_GLOBAL_STATUS".IS_ON_GD,
+        IS_ON_GD1 => "DB_GLOBAL_STATUS".IS_ON_GD1,
+        IS_ON_GD2 => "DB_GLOBAL_STATUS".IS_ON_GD2,
+        ACTIVE_GD => "DB_GLOBAL_STATUS".ACTIVE_GD,
         IS_IN_TRANSFER => "DB_GLOBAL_STATUS".IS_IN_TRANSFER,
         IS_FAULT => "DB_GLOBAL_STATUS".IS_FAULT,
+        TRANSFER_TO_GD => "DB_GLOBAL_STATUS".TRANSFER_TO_GD,
         GRID_OK => "DB_GLOBAL_STATUS".GRID_OK,
         GRID_FAIL => "DB_GLOBAL_STATUS".GRID_FAIL,
         FAULT_CODE => "DB_GLOBAL_STATUS".FAULT_CODE,
         ELAPSED_TIME => "DB_GLOBAL_STATUS".ELAPSED_TIME,
-        DIAG_LAST_TRANSFER_TIME => "DB_GLOBAL_STATUS".DIAG_LAST_TRANSFER_TIME
+        DIAG_LAST_TRANSFER_TIME => "DB_GLOBAL_STATUS".DIAG_LAST_TRANSFER_TIME,
+        GD1_AVAILABLE => "DB_GLOBAL_STATUS".GD1_AVAILABLE,
+        GD2_AVAILABLE => "DB_GLOBAL_STATUS".GD2_AVAILABLE
     );
     
     
@@ -152,34 +173,50 @@ BEGIN
         MODE_AUTO := "DB_GLOBAL_STATUS".MODE_AUTO,
         IS_ON_GD := "DB_GLOBAL_STATUS".IS_ON_GD,
         IS_ON_GRID := "DB_GLOBAL_STATUS".IS_ON_GRID,
+        IS_IN_TRANSFER := "DB_GLOBAL_STATUS".IS_IN_TRANSFER,
+        TRANSFER_TO_GD := "DB_GLOBAL_STATUS".TRANSFER_TO_GD,
         
         // Mediciones
         GD_LoadPct := "DB_GLOBAL_STATUS".GD_LoadPct,
         TR_LoadPct := "DB_GLOBAL_STATUS".TR_LoadPct,
         
-        // Parámetros (de DB_PARAMS)
-        SHED_ON := "DB_PARAMS".SHED_ON,
-        TR_SHED_ON := "DB_PARAMS".TR_SHED_ON,
-        SHED_OFF := "DB_PARAMS".SHED_OFF,
+        // Parámetros deslastre GD (de DB_PARAMS)
+        GD_SHED_ON := "DB_PARAMS".GD_SHED_ON,
+        GD_SHED_OFF := "DB_PARAMS".GD_SHED_OFF,
+        
+        // Parámetros deslastre RED (de DB_PARAMS)
+        GRID_SHED_ON := "DB_PARAMS".GRID_SHED_ON,
+        GRID_SHED_OFF := "DB_PARAMS".GRID_SHED_OFF,
+        
+        // Parámetros tiempos (de DB_PARAMS)
         T_SHED_STEP := "DB_PARAMS".T_SHED_STEP,
         T_RECONNECT_STEP := "DB_PARAMS".T_RECONNECT_STEP,
         T_LOAD_FILTER := "DB_PARAMS".T_LOAD_FILTER,
+        T_LOAD_CHECK_DELAY := "DB_PARAMS".T_LOAD_CHECK_DELAY,
+        
+        // Arrays configurables
         SHED_ORDER := "DB_PARAMS".SHED_ORDER,
         RECONNECT_ORDER := "DB_PARAMS".RECONNECT_ORDER,
+        FEEDER_ESSENTIAL := "DB_PARAMS".FEEDER_ESSENTIAL,
         SHED_ENABLE := "DB_PARAMS".SHED_ENABLE,
         
         // Estados feeders
         FEEDER_STATE := "DB_GLOBAL_STATUS".FEEDER_STATE,
         
-        // Outputs → DB_SHED
+        // Outputs → DB_SHED / DB_GLOBAL_STATUS
         REQ_SHED_OPEN => "DB_SHED".REQ_SHED_OPEN,
         REQ_SHED_CLOSE => "DB_SHED".REQ_SHED_CLOSE,
         SHED_ACTIVE => "DB_GLOBAL_STATUS".SHED_ACTIVE,
         SHED_STEP => "DB_GLOBAL_STATUS".SHED_STEP,
         RECONNECT_ACTIVE => "DB_GLOBAL_STATUS".RECONNECT_ACTIVE,
         RECONNECT_STEP => "DB_GLOBAL_STATUS".RECONNECT_STEP,
+        SHED_MODE => "DB_GLOBAL_STATUS".SHED_MODE,
         FEEDERS_SHED => "DB_GLOBAL_STATUS".FEEDERS_SHED,
-        DIAG_LOAD_OVER_LIMIT => "DB_GLOBAL_STATUS".DIAG_LOAD_OVER_LIMIT
+        FEEDERS_ESSENTIAL_COUNT => "DB_GLOBAL_STATUS".FEEDERS_ESSENTIAL_COUNT,
+        FEEDERS_NON_ESSENTIAL_COUNT => "DB_GLOBAL_STATUS".FEEDERS_NON_ESSENTIAL_COUNT,
+        DIAG_LOAD_OVER_LIMIT => "DB_GLOBAL_STATUS".DIAG_LOAD_OVER_LIMIT,
+        DIAG_GD_LOAD_OK => "DB_GLOBAL_STATUS".DIAG_GD_LOAD_OK,
+        DIAG_GRID_LOAD_OK => "DB_GLOBAL_STATUS".DIAG_GRID_LOAD_OK
     );
     
     
@@ -323,7 +360,7 @@ BEGIN
         CB_READY => "DB_GLOBAL_STATUS".QG1_READY
     );
     
-    // Driver QG2 (Interruptor GD02 - futuro)
+    // Driver QG2 (Interruptor GD02)
     "DB_QG2_DRV"(
         ENABLE := TRUE,
         CMD_OPEN := "DB_ARBITER".CMD_OPEN_QG2,

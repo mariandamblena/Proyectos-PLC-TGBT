@@ -1,8 +1,8 @@
 (*
 ================================================================================
   FUNCTION BLOCK: FB_IO_NORMALIZE
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 2.0
+  Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
@@ -46,10 +46,15 @@ VAR_INPUT
     DI_QG2_PB_OPEN : Bool;
     DI_QG2_PB_CLOSE : Bool;
     
-    // Grupo Diésel - señales estado
-    DI_GD_READY : Bool;             // GD listo para transferir (contacto auxiliar)
-    DI_GD_RUNNING : Bool;           // GD en marcha
-    DI_GD_ALARM : Bool;             // GD en alarma/falla
+    // Grupo Diésel 1 - señales estado
+    DI_GD_READY : Bool;             // GD1 listo para transferir (contacto auxiliar)
+    DI_GD_RUNNING : Bool;           // GD1 en marcha
+    DI_GD_ALARM : Bool;             // GD1 en alarma/falla
+    
+    // Grupo Diésel 2 - señales estado (redundancia N+1)
+    DI_GD2_READY : Bool;            // GD2 listo para transferir
+    DI_GD2_RUNNING : Bool;          // GD2 en marcha
+    DI_GD2_ALARM : Bool;            // GD2 en alarma/falla
 END_VAR
 
 VAR_OUTPUT 
@@ -72,9 +77,14 @@ VAR_OUTPUT
     REQ_MAN_QG2_CLOSE : Bool;
     
     // Estados GD normalizados (passthrough)
-    GD_READY : Bool;
-    GD_RUNNING : Bool;
-    GD_ALARM : Bool;
+    GD_READY : Bool;                // GD1 listo
+    GD_RUNNING : Bool;              // GD1 en marcha
+    GD_ALARM : Bool;                // GD1 alarma
+    
+    // Estados GD2 normalizados (passthrough)
+    GD2_READY : Bool;               // GD2 listo
+    GD2_RUNNING : Bool;             // GD2 en marcha
+    GD2_ALARM : Bool;               // GD2 alarma
     
     // Diagnóstico
     DIAG_MODE_VALID : Bool;         // TRUE = modo válido detectado
@@ -217,8 +227,14 @@ BEGIN
     // ========================================================================
     // NETWORK 5: NORMALIZACIÓN SEÑALES GD (PASSTHROUGH)
     // ========================================================================
+    // GD1 (primario)
     #GD_READY := #DI_GD_READY;
     #GD_RUNNING := #DI_GD_RUNNING;
     #GD_ALARM := #DI_GD_ALARM;
+    
+    // GD2 (backup/redundante)
+    #GD2_READY := #DI_GD2_READY;
+    #GD2_RUNNING := #DI_GD2_RUNNING;
+    #GD2_ALARM := #DI_GD2_ALARM;
     
 END_FUNCTION_BLOCK

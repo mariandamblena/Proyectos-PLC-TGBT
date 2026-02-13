@@ -1,14 +1,15 @@
 (*
 ================================================================================
   FB_TEST_SCMTA: Test Automatizado FB_IO_NORMALIZE + FB_SCMTA
-  Versión: 2.0
-  Fecha: 2026-02-09
+  Versión: 2.2
+  Fecha: 2026-02-10
 ================================================================================
   DESCRIPCIÓN:
   Test secuencial con delays para validar paso a paso el comportamiento
   completo de FB_IO_NORMALIZE y FB_SCMTA, incluyendo:
-  - Transferencia RED → GD (falla)
-  - Retransferencia GD → RED (retorno)
+  - Transferencia RED → GD1 (falla)
+  - Retransferencia GD1 → RED (retorno)
+  - Compatible V3.0: GD2 cableado pero no ejercitado (ver TEST_FB_GD2_FAILOVER)
   
   PASOS DEL TEST:
   0. Inicialización (10s delay)
@@ -68,6 +69,9 @@ VAR
     simDI_GD_READY : Bool := FALSE;
     simDI_GD_RUNNING : Bool := FALSE;
     simDI_GD_ALARM : Bool := FALSE;
+    simDI_GD2_READY : Bool := FALSE;
+    simDI_GD2_RUNNING : Bool := FALSE;
+    simDI_GD2_ALARM : Bool := FALSE;
     
     // ========== SIMULACIÓN ESTADOS INTERRUPTORES ==========
     simQT1_STATE : Int := 1;  // 0=Abierto, 1=Cerrado (operando con RED)
@@ -90,6 +94,8 @@ VAR
     outReqManQT1_Close : Bool;
     outGD_Ready : Bool;
     outGD_Running : Bool;
+    outGD2_Ready : Bool;
+    outGD2_Running : Bool;
     
     // ========== OUTPUTS FB_SCMTA ==========
     outState : Int;
@@ -100,12 +106,20 @@ VAR
     outReqScmtaCloseQG1 : Bool;
     outDoGD_Start : Bool;
     outDoGD_Stop : Bool;
+    outDoGD2_Start : Bool;
+    outDoGD2_Stop : Bool;
     outIsOnGrid : Bool;
     outIsOnGD : Bool;
+    outIsOnGD1 : Bool;
+    outIsOnGD2 : Bool;
+    outActiveGD : Int;
     outIsInTransfer : Bool;
+    outTransferToGD : Bool;        // V2.1: señal TRANSFER_TO_GD
     outGridOk : Bool;
     outGridFail : Bool;
     outElapsedTime : Time;
+    outGD1_Available : Bool;
+    outGD2_Available : Bool;
     
 END_VAR
 
@@ -191,12 +205,13 @@ BEGIN
             3:
                 #testStatus := 'PASO 3: SCMTA solicita apertura QT1 - Simulando';
                 #testExpectedState := 3;
-                #testExpectedResult := 'Detectar estado >=3, abrir QT1';
+                #testExpectedResult := 'Detectar estado >=3, abrir QT1, TRANSFER_TO_GD=TRUE';
                 
                 // REACTIVO INMEDIATO: Simular apertura QT1 sin delay
                 // T_OPEN_QT1 timeout es corto - responder de inmediato
+                // V2.1: Validar que TRANSFER_TO_GD se activa en OPEN_QT1
                 IF #outState >= 3 AND #outState < 14 THEN
-                    #testResults[3] := TRUE;
+                    #testResults[3] := #outTransferToGD;  // V2.1: debe ser TRUE
                     #simQT1_STATE := 0;  // Simular apertura INMEDIATA
                     #testTimer(IN := FALSE,
                                PT := T#1s);
@@ -205,7 +220,7 @@ BEGIN
                 
             // PASO 4: Delay arranque GD y simular arranque
             4:
-                #testStatus := 'PASO 4: QT1 abierto - Detectando START_GD';
+                #testStatus := 'PASO 4: QT1 abierto - Detectando START_GD1';
                 #testExpectedState := 5;
                 #testExpectedResult := 'Detectar estado >=5, simular GD arranca';
                 
@@ -256,15 +271,16 @@ BEGIN
                 
             // PASO 7: Operando con GD
             7:
-                #testStatus := 'PASO 7: Operando con GD - Esperando 5s';
+                #testStatus := 'PASO 7: Operando con GD1 - Esperando 5s';
                 #testExpectedState := 8;
-                #testExpectedResult := 'outIsOnGD=TRUE, outState=8';
+                #testExpectedResult := 'IS_ON_GD1=TRUE, outState=8, TRANSFER_TO_GD=FALSE';
                 
                 #testTimer(IN := TRUE,
                            PT := T#10s);
                IF #testTimer.Q THEN
                     // Validar estado esperado
-                    #testResults[7] := (#outState = 8 AND #outIsOnGD);
+                    // V2.2: IS_ON_GD1 y IS_ON_GD (backward compatible) deben ser TRUE en ON_GD1 (estado 8)
+                    #testResults[7] := (#outState = 8 AND #outIsOnGD AND #outIsOnGD1 AND NOT #outTransferToGD);
                     #testTimer(IN := FALSE,
                               PT := T#1s);
                     #testStep := 8;
@@ -294,9 +310,9 @@ BEGIN
                 
             // PASO 9: Esperar SCMTA solicite apertura QG1 (estado 11 = OPEN_QG1)
             9:
-                #testStatus := 'PASO 9: RED OK - Detectando OPEN_QG1';
+                #testStatus := 'PASO 9: RED OK - Detectando OPEN_ACTIVE_GD';
                 #testExpectedState := 11;
-                #testExpectedResult := 'Detectar estado >=11, abrir QG1';
+                #testExpectedResult := 'Detectar estado >=11, abrir GD activo (QG1)';
                 
                 // REACTIVO INMEDIATO: Simular apertura QG1 cuando SCMTA lo pide
                 // Estado 10=WAIT_GRID_STABLE (espera T_GRID_STABLE)
@@ -391,7 +407,7 @@ BEGIN
             // PASO 14: Finalizado
             14:
                 #testStatus := 'PASO 14: TEST COMPLETADO - Ciclo completo validado';
-                #testExpectedResult := 'RED->FALLA->GD->RETORNO->RED OK';
+                #testExpectedResult := 'RED->FALLA->GD1->RETORNO->RED OK';
                 // Marcar paso final como OK
                 #testResults[14] := TRUE;
                 // NO desactivar testEnable automáticamente - el usuario lo hace manual
@@ -427,6 +443,9 @@ BEGIN
         #simDI_GD_READY := FALSE;
         #simDI_GD_RUNNING := FALSE;
         #simDI_GD_ALARM := FALSE;
+        #simDI_GD2_READY := FALSE;
+        #simDI_GD2_RUNNING := FALSE;
+        #simDI_GD2_ALARM := FALSE;
         
         #simQT1_STATE := 1;  // Cerrado (operando RED)
         #simQG1_STATE := 0;  // Abierto (GD desconectado)
@@ -483,12 +502,17 @@ BEGIN
                    DI_GD_READY := #simDI_GD_READY,
                    DI_GD_RUNNING := #simDI_GD_RUNNING,
                    DI_GD_ALARM := #simDI_GD_ALARM,
+                   DI_GD2_READY := #simDI_GD2_READY,
+                   DI_GD2_RUNNING := #simDI_GD2_RUNNING,
+                   DI_GD2_ALARM := #simDI_GD2_ALARM,
                    
                    MODE_AUTO => #outModeAuto,
                    REQ_MAN_QT1_OPEN => #outReqManQT1_Open,
                    REQ_MAN_QT1_CLOSE => #outReqManQT1_Close,
                    GD_READY => #outGD_Ready,
-                   GD_RUNNING => #outGD_Running);
+                   GD_RUNNING => #outGD_Running,
+                   GD2_READY => #outGD2_Ready,
+                   GD2_RUNNING => #outGD2_Running);
     
     
     // ========================================================================
@@ -512,6 +536,10 @@ BEGIN
              GD_RUNNING := #outGD_Running,
              GD_ALARM := #simDI_GD_ALARM,
              
+             GD2_READY := #outGD2_Ready,
+             GD2_RUNNING := #outGD2_Running,
+             GD2_ALARM := #simDI_GD2_ALARM,
+             
              V_NOM := 380.0,
              V_MIN_PCT := 85.0,
              V_MAX_PCT := 110.0,
@@ -523,7 +551,9 @@ BEGIN
              // Timeouts de actuadores: más largos (dar tiempo al test de reaccionar)
              T_OPEN_QT1 := T#10s,        // Default 2s → 10s
              T_CLOSE_QG1 := T#10s,        // Default 2s → 10s
+             T_CLOSE_QG2 := T#10s,        // Default 2s → 10s
              T_OPEN_QG1 := T#10s,         // Default 2s → 10s
+             T_OPEN_QG2 := T#10s,         // Default 2s → 10s
              T_CLOSE_QT1 := T#10s,        // Default 2s → 10s
              // Delays de proceso: más cortos (test más rápido)
              T_START_GD_DELAY := T#2s,    // Default 3s → 2s
@@ -540,11 +570,19 @@ BEGIN
              REQ_SCMTA_CLOSE_QG1 => #outReqScmtaCloseQG1,
              DO_GD_START => #outDoGD_Start,
              DO_GD_STOP => #outDoGD_Stop,
+             DO_GD2_START => #outDoGD2_Start,
+             DO_GD2_STOP => #outDoGD2_Stop,
              IS_ON_GRID => #outIsOnGrid,
              IS_ON_GD => #outIsOnGD,
+             IS_ON_GD1 => #outIsOnGD1,
+             IS_ON_GD2 => #outIsOnGD2,
+             ACTIVE_GD => #outActiveGD,
              IS_IN_TRANSFER => #outIsInTransfer,
+             TRANSFER_TO_GD => #outTransferToGD,
              GRID_OK => #outGridOk,
              GRID_FAIL => #outGridFail,
-             ELAPSED_TIME => #outElapsedTime);
+             ELAPSED_TIME => #outElapsedTime,
+             GD1_AVAILABLE => #outGD1_Available,
+             GD2_AVAILABLE => #outGD2_Available);
     
 END_FUNCTION_BLOCK

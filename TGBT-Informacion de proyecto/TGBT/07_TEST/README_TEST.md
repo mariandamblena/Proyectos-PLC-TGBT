@@ -295,4 +295,97 @@ simDI_GD_RUNNING
 ---
 
 **Autor**: Sistema SCMTA TGBT  
-**Fecha**: 5 de febrero de 2026
+**Fecha**: 5 de febrero de 2026  
+**Última actualización**: 10 de febrero de 2026
+
+---
+
+## Archivos de Test V3.0
+
+| Archivo | Descripción | Pasos | Versión |
+|---------|-------------|-------|---------|
+| `TEST_FB_IO_NORMALIZE_SCMTA.scl` | Happy path: ciclo completo RED→GD1→RED | 15 (0-14) | 2.2 |
+| `TEST_FB_FALLAS_SCMTA.scl` | Fallas: timeouts, GD_ALARM, bouncing, LOCAL | 37 (0-36) | 1.2 |
+| `TEST_FB_SHED.scl` | Deslastre dual RED/GD V2.0 | 20 (0-19) | 1.0 |
+| `TEST_FB_GD2_FAILOVER.scl` | **NUEVO** - Failover GD1↔GD2 completo | 25 (0-24) | 1.0 |
+
+### TEST_FB_SHED.scl (Nuevo V2.0)
+
+Test dedicado para validar FB_SHED V2.0 con la nueva arquitectura de deslastre dual.
+
+**Configuración:**
+- 18 feeders: 3 esenciales (1,2,3) + 15 no-esenciales (4-18)
+- SHED_ORDER: 18→4 (deslastar desde los menos prioritarios)
+- RECONNECT_ORDER: 4→18 (reconectar desde los más prioritarios)
+- Timings reducidos para test rápido (T_SHED_STEP=3s, T_RECONNECT_STEP=3s)
+
+**Grupos de test:**
+
+| Grupo | Pasos | Escenario |
+|-------|-------|-----------|
+| A | 0-2 | Clasificación feeders y estado IDLE |
+| B | 3-7 | Deslastre reactivo en RED (TR_LoadPct > 85%) |
+| C | 8-10 | Desacople inicial al transferir a GD (TRANSFER_TO_GD) |
+| D | 11-14 | Acoplamiento escalonado en GD + pausa/reanudación |
+| E | 15-16 | Deslastre reactivo en GD (GD_LoadPct > 90%) |
+| F | 17-19 | Reenganche al volver a RED |
+
+**Uso:**
+```scl
+// Crear instance DB "TEST_SHED_DB" → DB "03_FB_SHED_DB_2"
+"TEST_SHED_DB"();  // Llamar desde OB1
+
+// Activar: TEST_SHED_DB.testEnable := TRUE
+// Resetear: TEST_SHED_DB.testReset := TRUE
+```
+
+### TEST_FB_GD2_FAILOVER.scl (Nuevo V3.0)
+
+Test dedicado para validar el failover automático entre GD1 y GD2 implementado en FB_SCMTA V3.0.
+
+**Escenarios cubiertos:**
+- Failover GD1→GD2 durante arranque (GD1_ALARM en START_GD1)
+- Failover GD1→GD2 durante operación (live switch via OPEN_GD_FOR_SWITCH)
+- Failover inverso GD2→GD1 durante operación
+- Ambos GDs fallan → FAULT_LOCKOUT (código 209)
+- Retorno a RED desde GD2 (OPEN_ACTIVE_GD abre QG2)
+
+**Configuración:**
+- T_GRID_STABLE := T#2s, T_GD_COOLDOWN := T#2s (reducidos para test rápido)
+- GD2 usa señales independientes: simDI_GD2_READY, simDI_GD2_RUNNING, simDI_GD2_ALARM
+
+**Grupos de test:**
+
+| Grupo | Pasos | Escenario |
+|-------|-------|-----------|
+| A | 0-4 | Failover GD1→GD2 durante arranque |
+| B | 5-9 | Failover GD1→GD2 durante operación (live switch) |
+| C | 10-14 | Failover GD2→GD1 durante operación |
+| D | 15-17 | Ambos GDs fallan → FAULT_LOCKOUT (209) |
+| E | 18-23 | Retorno a RED desde GD2 |
+| - | 24 | Test completado |
+
+**Uso:**
+```scl
+// Crear instance DB "TEST_GD2_FAILOVER_DB" → DB "02_FB_SCMTA_DB_2"
+"TEST_GD2_FAILOVER_DB"();  // Llamar desde OB1
+
+// Activar: TEST_GD2_FAILOVER_DB.testEnable := TRUE
+// Resetear: TEST_GD2_FAILOVER_DB.testReset := TRUE
+```
+
+### Cambios V3.0 en Tests Existentes
+
+**TEST_FB_IO_NORMALIZE_SCMTA.scl (V2.1 → V2.2):**
+- Agregadas variables GD2: simDI_GD2_READY/RUNNING/ALARM, outGD2_Ready/Running
+- Agregadas salidas V3.0: IS_ON_GD1, IS_ON_GD2, ACTIVE_GD, GD1_AVAILABLE, GD2_AVAILABLE
+- Actualizada llamada FB_IO_NORMALIZE con GD2 I/O
+- Actualizada llamada FB_SCMTA con T_CLOSE_QG2, T_OPEN_QG2, DO_GD2_START/STOP
+- PASO 7: Validación incluye IS_ON_GD1 (además de IS_ON_GD backward compatible)
+- Comentarios actualizados: ON_GD → ON_GD1, OPEN_QG1 → OPEN_ACTIVE_GD
+
+**TEST_FB_FALLAS_SCMTA.scl (V1.1 → V1.2):**
+- Agregadas variables GD2: simDI_GD2_READY/RUNNING/ALARM, outGD2_Ready/Running
+- Agregadas salidas V3.0: IS_ON_GD1, IS_ON_GD2, ACTIVE_GD, GD1_AVAILABLE, GD2_AVAILABLE
+- Actualizada llamada FB_IO_NORMALIZE/FB_SCMTA con interfaz GD2 completa
+- Comentarios actualizados con nombres de estado V3.0
