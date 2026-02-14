@@ -1,9 +1,9 @@
 # SISTEMA SCMTA - DOCUMENTACIÓN TÉCNICA COMPLETA
 **Sistema de Control y Monitoreo de Transferencia Automática para TGBT**
 
-**Versión:** 1.0  
-**Fecha:** 04 de febrero de 2026  
-**Plataforma:** Siemens TIA Portal (S7-1200/1500) - Ladder/SCL  
+**Versión:** 3.0  
+**Fecha:** 10 de febrero de 2026  
+**Plataforma:** Siemens TIA Portal V18 (S7-1200/1500) - SCL  
 **Autor:** Ingeniero Senior Automatización Industrial
 
 ---
@@ -28,12 +28,15 @@
 ## 1. RESUMEN EJECUTIVO
 
 ### Objetivo del Sistema
-El sistema SCMTA gestiona la **transferencia automática entre Red Externa y Grupo Diésel (GD01)** en un Tablero General de Baja Tensión (TGBT) real, con control de deslastre de cargas no esenciales y enclavamiento absoluto de fuentes.
+El sistema SCMTA gestiona la **transferencia automática entre Red Externa y Grupo Diésel (GD01/GD02)** en un Tablero General de Baja Tensión (TGBT) real, con control de deslastre de cargas (en modos RED y GD), failover bidireccional GD1↔GD2 y enclavamiento absoluto de fuentes.
 
 ### Características Principales
-- ✅ **Transferencia automática Red→GD** con secuencia temporizada y segura
+- ✅ **Transferencia automática Red→GD1** con secuencia temporizada y segura
+- ✅ **Failover GD1→GD2** cuando GD1 falla (alarma/no arranca)
+- ✅ **Failover bidireccional GD1↔GD2** con conmutación automática
 - ✅ **Retorno automático GD→Red** con estabilidad de 120s
-- ✅ **Deslastre escalonado** de hasta 18 feeders (configurable)
+- ✅ **Deslastre V2** con 6 modos (GRID_SHED, GD_INITIAL_SHED, GD_REACTIVE_SHED, etc.)
+- ✅ **Clasificación FEEDER_ESSENTIAL** (esenciales protegidos del deslastre)
 - ✅ **Enclavamiento fuente única** fail-safe (QT1/QG1/QG2)
 - ✅ **Control Modbus RTU** de interruptores MTZ/NSX con Micrologic
 - ✅ **Monitoreo eléctrico** con medidores PM5350
@@ -193,24 +196,30 @@ FB_SHED (deslastre)    →    Requests SHED
 5. Control marcha/parada GD (`DO_GD_START`/`DO_GD_STOP`)
 6. Gestión fallas y lockout
 
-**Estados (0-14):**
+**Estados (0-20):**
 | Estado | Nombre | Descripción |
 |--------|--------|-------------|
 | 0 | INIT | Inicialización sistema |
 | 1 | NORMAL_ON_GRID | Operación normal con RED (QT1 cerrado) |
 | 2 | GRID_FAIL_DETECTED | Falla de red detectada (filtrada 2s) |
 | 3 | OPEN_QT1 | Abriendo QT1 (timeout 2s) |
-| 4 | START_GD_DELAY | Delay 3s antes de arrancar GD |
-| 5 | START_GD | Dando orden marcha GD (`DO_GD_START=1`) |
-| 6 | WAIT_GD_READY | Esperando GD_READY + estabilización 5s (timeout 30s) |
+| 4 | START_GD_DELAY | Delay 3s antes de arrancar GD1 |
+| 5 | START_GD | Dando orden marcha GD1 (`DO_GD_START=1`) |
+| 6 | WAIT_GD_READY | Esperando GD1_READY + estabilización 5s (timeout 30s) |
 | 7 | CLOSE_QG1 | Cerrando QG1 con enclavamiento (timeout 2s) |
-| 8 | ON_GD | Operación normal con GD (QG1 cerrado) |
+| 8 | ON_GD | Operación normal con GD1 (QG1 cerrado) |
 | 9 | GRID_RETURN_DETECTED | Retorno de red detectado |
 | 10 | WAIT_GRID_STABLE | Esperando estabilidad red 120s (si rebota vuelve a ON_GD) |
 | 11 | OPEN_QG1 | Abriendo QG1 para retorno (timeout 2s) |
 | 12 | CLOSE_QT1 | Cerrando QT1 con enclavamiento (timeout 2s) |
 | 13 | GD_COOLDOWN | Cooldown 60s y parada GD (`DO_GD_STOP=1`) |
 | 14 | FAULT_LOCKOUT | Falla - requiere `RESET_FAULT` manual |
+| 15 | START_GD2_DELAY | Delay antes de arrancar GD2 (failover desde GD1) |
+| 16 | START_GD2 | Dando orden marcha GD2 (`DO_GD2_START=1`) |
+| 17 | WAIT_GD2_READY | Esperando GD2_READY + estabilización (timeout 30s) |
+| 18 | CLOSE_QG2 | Cerrando QG2 con enclavamiento (timeout 2s) |
+| 19 | ON_GD2 | Operación normal con GD2 (QG2 cerrado) |
+| 20 | OPEN_GD_FOR_SWITCH | Abriendo GD actual para conmutar a otro GD |
 
 **Condiciones de Falta de Red:**
 ```
@@ -235,29 +244,64 @@ GRID_FAIL = TRUE si:
 | 106 | Alarma GD (falla grupo diésel) |
 | 107 | Violación enclavamiento fuente única |
 | 108 | Estado máquina desconocido |
+| 202 | Timeout Open QG1 en failover GD1→GD2 |
+| 203 | GD2 no alcanzó READY (timeout) |
+| 204 | Timeout Close QG2 |
+| 205 | Alarma GD2 |
+| 206 | Timeout Open QG2 en failover GD2→GD1 |
+| 207 | GD1 no alcanzó READY en failover (timeout) |
+| 208 | Timeout Close QG1 en failover GD2→GD1 |
+| 209 | Timeout Open GD para conmutación |
+| 210 | Failover GD1↔GD2 fallido (ambos GD no disponibles) |
+
+**Transiciones GD2 (Failover):**
+- Estado 8 (ON_GD1) → Si GD1_ALARM o GD1 falla → Estado 15 (START_GD2_DELAY)
+- Estado 19 (ON_GD2) → Si GD2_ALARM o GD2 falla → Estado 20 (OPEN_GD_FOR_SWITCH) → GD1
+- Estado 19 (ON_GD2) → Si GRID_OK retorna → misma secuencia retorno (estados 9-13)
 
 ---
 
-### 3.3 FB_SHED (Deslastre y Reenganche)
+### 3.3 FB_SHED (Deslastre y Reenganche V2.0)
 
 **Archivo:** `03_FB_SHED.scl`
 
 **Responsabilidades:**
-1. Deslastre escalonado cuando `GD_LoadPct > SHED_ON (90%)` o `TR_LoadPct > TR_SHED_ON (95%)`
-2. Reenganche escalonado al retornar a red
-3. Gestión prioridades mediante arrays `SHED_ORDER[1..18]` y `RECONNECT_ORDER[1..18]`
-4. Enable/disable por feeder mediante `SHED_ENABLE[1..18]`
+1. Deslastre escalonado en modo GD (sobrecarga GD) **y** en modo RED (sobrecarga trafo)
+2. Reenganche escalonado al reducir carga o retornar a red
+3. Clasificación **FEEDER_ESSENTIAL** (feeders esenciales protegidos del deslastre)
+4. Gestión prioridades mediante arrays `SHED_ORDER[1..18]` y `RECONNECT_ORDER[1..18]`
+5. Enable/disable por feeder mediante `SHED_ENABLE[1..18]`
+6. Máquina de 6 modos de operación (SHED_MODE)
 
-**Lógica Deslastre:**
+**Modos de Operación (SHED_MODE):**
+| Modo | Nombre | Descripción |
+|------|--------|-------------|
+| 0 | IDLE | Sin deslastre activo |
+| 1 | GRID_SHED | Deslastre por sobrecarga de trafo en RED (TR_LoadPct > TR_SHED_ON) |
+| 2 | GD_INITIAL_SHED | Deslastre inicial al entrar a GD (cortar no-esenciales) |
+| 3 | GD_RECONNECT | Reenganche parcial en GD (reconectar si carga permite) |
+| 4 | GD_REACTIVE_SHED | Deslastre reactivo en GD (GD_LoadPct > SHED_ON) |
+| 5 | GRID_RECONNECT | Reenganche al retornar a RED (reconectar todos) |
+
+**Clasificación FEEDER_ESSENTIAL:**
 ```
-IF (GD_LoadPct > 90% OR TR_LoadPct > 95%) AND IS_ON_GD AND MODE_AUTO THEN
+FEEDER_ESSENTIAL[1..18] : ARRAY OF BOOL
+  - TRUE = Feeder esencial (NO se deslasta en GD_INITIAL_SHED)
+  - FALSE = Feeder no-esencial (se deslasta al entrar a GD)
+```
+
+**Lógica Deslastre GD (reactivo):**
+```
+IF (GD_LoadPct > SHED_ON_PCT) AND IS_ON_GD AND MODE_AUTO THEN
+    SHED_MODE := 4  // GD_REACTIVE_SHED
     Filtrar 2s (evitar bouncing)
     
     FOR SHED_STEP = 1 TO 18 DO
         feederID = SHED_ORDER[SHED_STEP]
         
-        IF SHED_ENABLE[feederID] = TRUE AND FEEDER_STATE[feederID] = CERRADO THEN
-            REQ_SHED_OPEN[feederID] = TRUE  // Solicitud abrir
+        IF SHED_ENABLE[feederID] AND NOT FEEDER_ESSENTIAL[feederID]
+           AND FEEDER_STATE[feederID] = CERRADO THEN
+            REQ_SHED_OPEN[feederID] = TRUE
             Esperar T_SHED_STEP (3-5s)
         END_IF
         
@@ -269,21 +313,24 @@ IF (GD_LoadPct > 90% OR TR_LoadPct > 95%) AND IS_ON_GD AND MODE_AUTO THEN
 END_IF
 ```
 
+**Lógica Deslastre RED (trafo):**
+```
+IF (TR_LoadPct > TR_SHED_ON_PCT) AND IS_ON_GRID AND MODE_AUTO THEN
+    SHED_MODE := 1  // GRID_SHED
+    Misma lógica escalonada pero con umbrales de trafo
+END_IF
+```
+
 **Lógica Reenganche:**
 ```
-IF IS_ON_GRID AND MODE_AUTO THEN
-    
+IF IS_ON_GRID AND FEEDERS_SHED > 0 AND MODE_AUTO THEN
+    SHED_MODE := 5  // GRID_RECONNECT
     FOR RECONNECT_STEP = 1 TO 18 DO
         feederID = RECONNECT_ORDER[RECONNECT_STEP]
         
-        IF SHED_ENABLE[feederID] = TRUE AND FEEDER_STATE[feederID] = ABIERTO THEN
-            REQ_SHED_CLOSE[feederID] = TRUE  // Solicitud cerrar
+        IF SHED_ENABLE[feederID] AND FEEDER_STATE[feederID] = ABIERTO THEN
+            REQ_SHED_CLOSE[feederID] = TRUE
             Esperar T_RECONNECT_STEP (3-5s)
-        END_IF
-        
-        IF RED falla nuevamente THEN
-            CANCELAR reenganche
-            EXIT
         END_IF
     END_FOR
 END_IF
@@ -706,11 +753,21 @@ Ver archivo `TGBT_Config - pm5330.pdf` para mapeo completo.
 
 ### 7.1 Criterios de Deslastre
 
-El deslastre se activa cuando:
-1. Sistema operando con GD (`IS_ON_GD = TRUE`)
-2. Modo automático (`MODE_AUTO = TRUE`)
-3. Carga GD > 90% **O** carga transformador > 95%
-4. Condición sostenida por 2 segundos (filtro anti-bouncing)
+El deslastre opera en **6 modos** según la situación:
+
+| Modo | Condición de Activación |
+|------|------------------------|
+| IDLE (0) | Sin condición de deslastre |
+| GRID_SHED (1) | `IS_ON_GRID` AND `TR_LoadPct > TR_SHED_ON` (sobrecarga trafo) |
+| GD_INITIAL_SHED (2) | Al entrar a GD, cortar feeders no-esenciales (`FEEDER_ESSENTIAL = FALSE`) |
+| GD_RECONNECT (3) | En GD, carga permite reconectar feeders (`GD_LoadPct < RECONNECT_PCT`) |
+| GD_REACTIVE_SHED (4) | En GD, `GD_LoadPct > SHED_ON_PCT` (sobrecarga reactiva) |
+| GRID_RECONNECT (5) | Al retornar a RED, reconectar todos los feeders deslastrados |
+
+**Requisitos comunes:**
+1. Modo automático (`MODE_AUTO = TRUE`)
+2. Condición sostenida por 2 segundos (filtro anti-bouncing)
+3. Feeders esenciales (`FEEDER_ESSENTIAL = TRUE`) protegidos en modos iniciales
 
 ### 7.2 Configuración Prioridades
 
@@ -903,10 +960,26 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
 
 **Test 7: Deslastre (Simulado)**
 1. Sistema en ON_GD, forzar GD_LoadPct = 95%
-2. Verificar activación deslastre después de filtro 2s
+2. Verificar activación deslastre después de filtro 2s (SHED_MODE = 4 GD_REACTIVE_SHED)
 3. Verificar corte escalonado según SHED_ORDER (5s entre pasos)
-4. Verificar solo se cortan feeders con SHED_ENABLE = TRUE
+4. Verificar solo se cortan feeders con SHED_ENABLE = TRUE y FEEDER_ESSENTIAL = FALSE
 5. Reducir carga a 65%, verificar cancelación deslastre (histéresis)
+
+**Test 7b: Deslastre RED (Simulado)**
+1. Sistema en NORMAL_ON_GRID, forzar TR_LoadPct = 96%
+2. Verificar SHED_MODE = 1 (GRID_SHED)
+3. Verificar corte escalonado de feeders no-esenciales
+
+**Test 7c: Failover GD1→GD2 (Simulado)**
+1. Sistema en ON_GD (estado 8), forzar GD1_ALARM = TRUE
+2. Verificar secuencia: 8→15→16→17→18→19 (START_GD2_DELAY→ON_GD2)
+3. Verificar QG1 abre, QG2 cierra (enclavamiento)
+4. Verificar GD2 arranca correctamente
+
+**Test 7d: Failover GD2→GD1 (Simulado)**
+1. Sistema en ON_GD2 (estado 19), forzar GD2_ALARM = TRUE
+2. Verificar secuencia: 19→20→4→5→6→7→8 (vuelve a GD1)
+3. Verificar QG2 abre, QG1 cierra
 
 **Test 8: Reenganche**
 1. Con feeders deslastrados (abiertos), retornar a red
@@ -985,11 +1058,12 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
   2. ¿MODE_AUTO = TRUE? (debe estar en automático)
   3. ¿GD_LoadPct > SHED_ON? (verificar cálculo LoadPct)
   4. ¿Filtro 2s transcurrido? (ver DIAG_LOAD_OVER_LIMIT)
-  5. ¿Algún feeder con SHED_ENABLE = TRUE? (si todos FALSE, no hay que cortar)
+  5. ¿Algún feeder con SHED_ENABLE = TRUE y FEEDER_ESSENTIAL = FALSE?
+  6. ¿SHED_MODE correcto? (verificar valor actual 0-5)
 - **Solución:**
   - Verificar medición GD_P_TOTAL (Modbus PM5350 GD)
   - Verificar GD_POWER_NOMINAL correcto en DB_PARAMS
-  - Habilitar al menos un feeder en SHED_ENABLE
+  - Habilitar al menos un feeder en SHED_ENABLE con FEEDER_ESSENTIAL = FALSE
 
 **Problema: Red no retorna después de 120s (stuck en WAIT_GRID_STABLE)**
 - **Causa:** Red rebota durante ventana de 120s
@@ -1114,9 +1188,11 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
 
 | Archivo | Descripción |
 |---------|-------------|
-| `11_UML_SCMTA_StateMachine.puml` | Diagrama estados SCMTA |
+| `11_UML_SCMTA_StateMachine.puml` | Diagrama estados SCMTA (0-14 GD1) |
 | `12_UML_MTZ_Driver_StateMachine.puml` | Diagrama estados driver MTZ |
 | `13_UML_SHED_Activity.puml` | Diagrama actividad deslastre |
+| `14_UML_SCMTA_GD2_StateMachine.puml` | Diagrama estados SCMTA con GD2/failover (15-20) |
+| `15_UML_System_Architecture.puml` | Arquitectura completa del sistema |
 
 ### 13.3 Documentación Base (Fuentes Proyecto)
 
@@ -1133,7 +1209,7 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
 
 | Archivo | Descripción |
 |---------|-------------|
-| `README_SCMTA.md` | Este documento (documentación completa) |
+| `README_SCMTA.md` | Este documento (documentación completa V3.0) |
 
 ---
 
@@ -1168,11 +1244,13 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
 ### 15.1 Decisiones de Diseño Clave
 
 1. **Prioridad RED > GD:** Sistema siempre intenta retornar a red automáticamente (sin confirmación operador)
-2. **Enclavamiento absoluto:** Implementado en FB_CMD_ARBITER (verificación antes de cada cierre)
-3. **Fail-safe por defecto:** Si hay duda (estado desconocido, timeout), sistema va a FAULT_LOCKOUT
-4. **Modbus sin redundancia:** Por ahora no hay watchdog complejo; a futuro agregar diagnóstico avanzado
-5. **Arrays configurables:** SHED_ORDER/ENABLE permiten ajustar prioridades desde HMI sin reprogramar PLC
-6. **Tiempos conservadores:** T_GRID_STABLE=120s (puede parecer largo, pero evita rebotes y es norma IEEE 1547)
+2. **Failover GD1↔GD2:** Si GD1 falla durante operación, conmutación automática a GD2 (y viceversa)
+3. **Enclavamiento absoluto:** Implementado en FB_CMD_ARBITER (verificación antes de cada cierre)
+4. **Fail-safe por defecto:** Si hay duda (estado desconocido, timeout), sistema va a FAULT_LOCKOUT
+5. **Modbus sin redundancia:** Por ahora no hay watchdog complejo; a futuro agregar diagnóstico avanzado
+6. **Arrays configurables:** SHED_ORDER/ENABLE/ESSENTIAL permiten ajustar prioridades desde HMI sin reprogramar PLC
+7. **SHED V2.0 en RED y GD:** Deslastre opera tanto en sobrecarga de trafo (RED) como sobrecarga GD
+8. **Tiempos conservadores:** T_GRID_STABLE=120s (puede parecer largo, pero evita rebotes y es norma IEEE 1547)
 
 ### 15.2 Trabajo Futuro (TODO)
 
@@ -1181,7 +1259,6 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
 - [ ] Implementar watchdog comunicación Modbus (timeout sin respuesta → COMM_ERROR)
 - [ ] Agregar lectura medidor PM5350 completa (registros 3000-3200)
 - [ ] Implementar log de eventos con timestamp (DB circular, 1000 eventos)
-- [ ] Agregar soporte QG2 (expansión segundo grupo diésel)
 - [ ] Implementar pantalla HMI completa (Siemens WinCC o similar)
 - [ ] Agregar trending histórico (carga GD, tensiones, transferencias)
 - [ ] Implementar envío alarmas por email/SMS (vía gateway)
@@ -1197,10 +1274,12 @@ TR_LoadPct := (TR_P_TOTAL / TR_POWER_NOMINAL) * 100.0;
 
 ## 📄 FIN DE DOCUMENTACIÓN
 
-**Total páginas:** ~25  
+**Total páginas:** ~30  
 **Total archivos código:** 10 FBs + 2 DBs + 1 OB1 = **13 archivos SCL**  
-**Total diagramas:** 3 PlantUML  
-**Estado:** ✅ **PROYECTO COMPLETO Y LISTO PARA IMPLEMENTACIÓN**
+**Total diagramas:** 5 PlantUML  
+**Total estados SCMTA:** 21 (0-20)  
+**Total modos SHED:** 6  
+**Estado:** ✅ **PROYECTO V3.0 - GD2 FAILOVER Y SHED V2 IMPLEMENTADOS**
 
 Para soporte técnico o consultas, consultar sección 14 (Contactos y Soporte).
 

@@ -30,19 +30,20 @@ tgbt_ladder/
 │   └── LADDER_10_OB1_MAIN.md        → OB1 en LADDER (visual)
 │
 ├── 03_DOCS/                         ← Documentación técnica
-│   ├── README_SCMTA.md              → Documentación completa sistema (25 págs)
+│   ├── README_SCMTA.md              → Documentación completa sistema V3.0 (~30 págs)
 │   ├── INDEX.md                     → Índice archivos proyecto
 │   ├── VALIDACION_SCL_TIA_V18.md    → Validación código SCL (100% compatible)
 │   ├── GUIA_COMPLETA_SCL_LADDER.md  → Comparación SCL vs LADDER + decisiones
 │   ├── CAMBIOS_REQ_2_SEGUNDOS.md    → Modificación REQ Modbus 2 segundos
-│   ├── INTRODUCCION_TECNICA_INGENIERO.md → Introducción técnica completa
-│   └── PRESENTACION_REUNION_2026-02-10.md → Presentación 4 diapositivas ⭐NEW
+│   ├── ARQUITECTURA_DESLASTRE_V2.md → Arquitectura SHED V2.0 (6 modos)
+│   ├── INTRODUCCION_TECNICA_INGENIERO.md → Introducción técnica completa V3.0
+│   └── PRESENTACION_REUNION_2026-02-10.md → Presentación 4 diapositivas
 │
 ├── 04_UML/                          ← Diagramas PlantUML
-│   ├── 11_UML_SCMTA_StateMachine.puml    → Diagrama estados SCMTA (15 estados)
+│   ├── 11_UML_SCMTA_StateMachine.puml    → Diagrama estados SCMTA GD1 (0-14)
 │   ├── 12_UML_MTZ_Driver_StateMachine.puml → Diagrama estados Driver Modbus
 │   ├── 13_UML_SHED_Activity.puml         → Diagrama actividad deslastre
-│   ├── 14_UML_SCMTA_GD2_StateMachine.puml → Diagrama estados con GD2 (N+1)
+│   ├── 14_UML_SCMTA_GD2_StateMachine.puml → Diagrama estados GD2 failover (15-20)
 │   ├── 15_UML_System_Architecture.puml   → Arquitectura completa sistema
 │   └── README_UML.md                      → Documentación diagramas
 │
@@ -59,13 +60,13 @@ tgbt_ladder/
 │   ├── TGBT_Config - listado de equipos.pdf → Lista equipos
 │   └── TGBT_Config - pm5330.pdf     → Configuración PM5350
 │
-└── 07_TEST/                         ← Tests Automatizados ⭐NEW
+└── 07_TEST/                         ← Tests Automatizados
     ├── TEST_FB_IO_NORMALIZE_SCMTA.scl → Test happy path (15 pasos - 100% OK)
     ├── TEST_FB_FALLAS_SCMTA.scl       → Test fallas (37 pasos - pendiente)
+    ├── TEST_FB_SHED.scl               → Test deslastre V2.0
+    ├── TEST_FB_GD2_FAILOVER.scl       → Test failover GD1↔GD2
     ├── README_TEST.md                 → Documentación test happy path
-    └── README_TEST_FALLAS.md          → Documentación test fallasapeo I/O
-    ├── TGBT_Config - listado de equipos.pdf → Lista equipos
-    └── TGBT_Config - pm5330.pdf     → Configuración PM5350
+    └── README_TEST_FALLAS.md          → Documentación test fallas
 ```
 
 ---
@@ -108,17 +109,20 @@ tgbt_ladder/
 ## 🔧 Características Principales
 
 ### **Sistema SCMTA**
-- ✅ Transferencia automática Red ↔ Grupo Diésel
-- ✅ Máquina estados 15 estados con timeouts
+- ✅ Transferencia automática Red ↔ Grupo Diésel (GD1 y GD2)
+- ✅ Máquina estados 21 estados (0-20) con failover GD1↔GD2
 - ✅ Detección falla red (tensión + frecuencia + fase)
 - ✅ Retorno automático con estabilidad 120s
-- ✅ Control marcha/parada GD
+- ✅ Failover bidireccional GD1↔GD2 (estados 15-20)
+- ✅ Control marcha/parada GD1 y GD2
 - ✅ Interlock fail-safe fuente única
 
-### **Deslastre de Cargas**
+### **Deslastre de Cargas V2.0**
 - ✅ 18 feeders configurables
+- ✅ Clasificación FEEDER_ESSENTIAL (esenciales protegidos)
+- ✅ 6 modos: IDLE, GRID_SHED, GD_INITIAL_SHED, GD_RECONNECT, GD_REACTIVE_SHED, GRID_RECONNECT
+- ✅ Deslastre en RED (sobrecarga trafo) y GD (sobrecarga GD)
 - ✅ Prioridad configurable (SHED_ORDER[1..18])
-- ✅ Deslastre automático por sobrecarga GD/TR
 - ✅ Reenganche escalonado automático
 
 ### **Comunicación Modbus RTU**
@@ -247,8 +251,8 @@ DO_PILOT_ON_GRID => %Q1.0,      // LED verde "EN RED"
 ## 📞 Soporte y Contacto
 
 **Proyecto**: Sistema SCMTA TGBT  
-**Fecha**: 4 de febrero de 2026  
-**Versión**: 1.0   (Actualizado 10/02/2026)
+**Fecha**: 10 de febrero de 2026  
+**Versión**: 3.0
 
 | Etapa | Estado | Fecha | Detalle |
 |-------|--------|-------|---------|
@@ -257,9 +261,11 @@ DO_PILOT_ON_GRID => %Q1.0,      // LED verde "EN RED"
 | Validación TIA Portal V18 | ✅ Completado | 04/02/2026 | SCL 100% compatible |
 | Conversión LADDER (ref.) | ✅ Completado | 04/02/2026 | Opciones implementación |
 | Documentación | ✅ Completado | 04/02/2026 | Completa + diagramas UML |
-| **Implementación TIA Portal** | ✅ **Parcial** | **09/02/2026** | **2/10 bloques implementados** |
+| **Implementación TIA Portal** | ✅ **Parcial** | **09/02/2026** | **Bloques base implementados** |
 | **Test Happy Path** | ✅ **Completado** | **09/02/2026** | **15/15 pasos OK** |
 | **Test Fallas** | 🔶 **Desarrollado** | **10/02/2026** | **37 pasos - pendiente ejecutar** |
+| **GD2 Failover** | ✅ **Completado** | **10/02/2026** | **Estados 15-20, failover bidireccional** |
+| **SHED V2.0** | ✅ **Completado** | **10/02/2026** | **6 modos, FEEDER_ESSENTIAL** |
 | Mapeo I/O físico | ⏳ Pendiente | - | Según listado CONFIG |
 | Testing en banco | 🔶 Iniciado | 09/02/2026 | Tests automatizados creados |
 | Comisionamiento | ⏳ Pendiente | - | Post testing completo |
@@ -267,11 +273,12 @@ DO_PILOT_ON_GRID => %Q1.0,      // LED verde "EN RED"
 ### 🎯 Métricas de Avance
 ```
 📊 Código SCL:          10/10 bloques (100%)
-✅ Implementados:        2/10 bloques (20%)  → FB_IO_NORMALIZE, FB_SCMTA
-✅ Testeados:            2/10 bloques (20%)  → Happy path 100% OK
+✅ Estados SCMTA:        21/21 implementados (0-20)
+✅ Modos SHED:           6/6 implementados (V2.0)
+✅ GD2 Failover:         Implementado (estados 15-20)
 🧪 Test happy path:     15/15 pasos (100%)
 🔥 Test fallas:          0/37 pasos (0%)   → Pendiente ejecutar
-📈 Cobertura funcional: ~35% implementada y validada
+📈 Cobertura funcional: ~70% implementada y validada
 ```
 
 ---
@@ -285,17 +292,16 @@ DO_PILOT_ON_GRID => %Q1.0,      // LED verde "EN RED"
 4. 📦 **Implementar FB_CMD_ARBITER** → Enclavamiento + prioridad comandos
 
 ### 🔶 Media Prioridad (Próximas 2 Semanas)
-5. 📦 **Implementar FB_SHED** → Deslastre escalonado 18 feeders
-6. 🧪 **Test deslastre** automatizado
+5. 📦 **Implementar FB_SHED V2.0** → Deslastre con 6 modos + FEEDER_ESSENTIAL
+6. 🧪 **Test deslastre** y **Test GD2 failover** automatizados
 7. 📦 **Implementar FB_MODBUS_MANAGER** + **FB_MTZ_DRIVER**
 8. 🔌 **Prueba Modbus RTU** con hardware real
 
 ### 📋 Baja Prioridad (Mes 2)
-9. 🔋 **Implementar redundancia GD2** (N+1) → Ver UML 14
-10. 🧪 **Test transferencia GD1↔GD2**
-11. 🖥️ **Integración HMI/SCADA**
-12. 📊 **DB_GLOBAL_STATUS** + **DB_PARAMS** implementación
-13. 🏭 **FAT (Factory Acceptance Test)** con cliente
+9. 🧪 **Test transferencia GD1↔GD2** en hardware
+10. 🖥️ **Integración HMI/SCADA**
+11. 📊 **DB_GLOBAL_STATUS** + **DB_PARAMS** implementación completa
+12. 🏭 **FAT (Factory Acceptance Test)** con cliente
 
 ---
 

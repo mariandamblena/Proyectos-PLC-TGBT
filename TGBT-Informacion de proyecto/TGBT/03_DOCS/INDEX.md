@@ -28,13 +28,22 @@ tgbt_ladder/
 │   └── 10_OB1_MAIN.scl                      [OB1 programa principal]
 │
 ├── 📊 DIAGRAMAS UML (PlantUML)
-│   ├── 11_UML_SCMTA_StateMachine.puml       [Máquina estados SCMTA 0-14]
+│   ├── 11_UML_SCMTA_StateMachine.puml       [Máquina estados SCMTA 0-14 (GD1)]
 │   ├── 12_UML_MTZ_Driver_StateMachine.puml  [Estados driver Modbus MTZ]
-│   └── 13_UML_SHED_Activity.puml            [Actividad deslastre/reenganche]
+│   ├── 13_UML_SHED_Activity.puml            [Actividad deslastre/reenganche]
+│   ├── 14_UML_SCMTA_GD2_StateMachine.puml   [Estados SCMTA con GD2/failover 15-20]
+│   ├── 15_UML_System_Architecture.puml      [Arquitectura completa sistema]
+│   └── README_UML.md                        [Documentación diagramas]
 │
 ├── 📖 DOCUMENTACIÓN TÉCNICA
-│   ├── README_SCMTA.md                      [Documentación completa sistema]
+│   ├── README_SCMTA.md                      [Documentación completa sistema V3.0]
 │   ├── 01_FB_IO_NORMALIZE_LADDER.md         [Rungs Ladder FB_IO_NORMALIZE]
+│   ├── INTRODUCCION_TECNICA_INGENIERO.md    [Introducción técnica completa]
+│   ├── ARQUITECTURA_DESLASTRE_V2.md         [Arquitectura SHED V2.0]
+│   ├── VALIDACION_SCL_TIA_V18.md            [Validación código SCL]
+│   ├── GUIA_COMPLETA_SCL_LADDER.md          [Comparación SCL vs LADDER]
+│   ├── CAMBIOS_REQ_2_SEGUNDOS.md            [Modificación REQ Modbus 2s]
+│   ├── PRESENTACION_REUNION_2026-02-10.md   [Presentación reunión]
 │   └── INDEX.md                             [Este archivo]
 │
 └── 🎯 ENTREGABLES FINALES
@@ -52,13 +61,14 @@ tgbt_ladder/
 
 ### ✅ PARTE 2: FB_SCMTA
 - **Archivo:** `02_FB_SCMTA.scl`
-- **Función:** Máquina de estados transferencia automática (15 estados: 0-14)
-- **Outputs:** REQ_SCMTA_*, DO_GD_START/STOP, IS_ON_GRID/ON_GD/IN_TRANSFER/FAULT
+- **Función:** Máquina de estados transferencia automática (21 estados: 0-20, con failover GD1↔GD2)
+- **Outputs:** REQ_SCMTA_*, DO_GD_START/STOP, DO_GD2_START/STOP, IS_ON_GRID/ON_GD/ON_GD2/IN_TRANSFER/FAULT
 
 ### ✅ PARTE 3: FB_SHED
 - **Archivo:** `03_FB_SHED.scl`
-- **Función:** Deslastre escalonado (18 feeders) + reenganche
-- **Outputs:** REQ_SHED_OPEN/CLOSE[1..18], SHED_ACTIVE, FEEDERS_SHED
+- **Función:** Deslastre V2.0 con 6 modos (GRID_SHED, GD_INITIAL_SHED, GD_REACTIVE_SHED, etc.) + reenganche
+- **Características:** FEEDER_ESSENTIAL, deslastre en RED y GD, 18 feeders configurables
+- **Outputs:** REQ_SHED_OPEN/CLOSE[1..18], SHED_ACTIVE, SHED_MODE, FEEDERS_SHED
 
 ### ✅ PARTE 4: FB_CMD_ARBITER
 - **Archivo:** `04_FB_CMD_ARBITER.scl`
@@ -86,30 +96,32 @@ tgbt_ladder/
 - **Ciclo recomendado:** 100-200 ms
 
 ### ✅ DIAGRAMAS UML
-- **Archivos:** `11_*.puml`, `12_*.puml`, `13_*.puml`
-- **Contenido:** State machines SCMTA y driver MTZ, Activity deslastre
+- **Archivos:** `11_*.puml`, `12_*.puml`, `13_*.puml`, `14_*.puml`, `15_*.puml`
+- **Contenido:** State machines SCMTA (GD1 + GD2 failover), driver MTZ, Activity deslastre, Arquitectura sistema
 
 ### ✅ DOCUMENTACIÓN TÉCNICA
-- **Archivo:** `README_SCMTA.md` (25 páginas, 15 secciones)
-- **Contenido:** Arquitectura, FBs, protocolo Modbus, testing, troubleshooting, mantenimiento
+- **Archivo:** `README_SCMTA.md` (~30 páginas, 15 secciones)
+- **Contenido:** Arquitectura, FBs, protocolo Modbus, GD2 failover, SHED V2.0, testing, troubleshooting, mantenimiento
 
 ---
 
 ## 🎯 ESTADO DEL PROYECTO
 
-**COMPLETADO AL 100%** ✅
+**COMPLETADO AL 100% (V3.0)** ✅
 
 Total entregables:
 - ✅ 10 Function Blocks (SCL)
 - ✅ 2 Data Blocks (SCL)
 - ✅ 1 Organization Block OB1 (SCL)
-- ✅ 3 Diagramas UML (PlantUML)
-- ✅ 1 Documentación técnica completa (25 páginas)
+- ✅ 5 Diagramas UML (PlantUML)
+- ✅ 1 Documentación técnica completa (~30 páginas)
 - ✅ 1 Documentación Ladder FB_IO_NORMALIZE
+- ✅ 4 Tests automatizados (happy path, fallas, SHED, GD2 failover)
 
 **Total archivos código:** 13 archivos SCL  
-**Total archivos documentación:** 5 archivos MD/PUML  
-**Total líneas código:** ~3000+ líneas SCL
+**Total archivos documentación:** 12+ archivos MD/PUML  
+**Total líneas código:** ~3500+ líneas SCL  
+**Total estados SCMTA:** 21 (0-20)
 
 ---
 
@@ -153,9 +165,9 @@ Para consultas técnicas sobre el código, referirse a:
 
 ---
 
-**Versión proyecto:** 1.0  
-**Fecha:** 04 de febrero de 2026  
-**Estado:** ✅ COMPLETO Y LISTO PARA IMPLEMENTACIÓN
+**Versión proyecto:** 3.0  
+**Fecha:** 10 de febrero de 2026  
+**Estado:** ✅ V3.0 - GD2 FAILOVER + SHED V2 IMPLEMENTADOS
 
 ---
 

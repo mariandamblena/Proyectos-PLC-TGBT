@@ -1,8 +1,8 @@
 # Introducción Técnica para Nuevo Ingeniero – Proyecto TGBT / SCMTA (PLC + HMI)
 
 **Proyecto**: Sistema de Control y Monitoreo de Transferencia Automática (SCMTA)  
-**Fecha**: 4 de febrero de 2026  
-**Versión**: 1.0  
+**Fecha**: 10 de febrero de 2026  
+**Versión**: 3.0  
 **TIA Portal**: V18  
 **PLC**: Siemens S7-1200  
 **Lenguaje principal**: SCL (Structured Control Language)
@@ -27,7 +27,7 @@ El sistema permite:
 
 1. **Red eléctrica externa** (prioritaria)
 2. **Grupo diésel de emergencia GD01** – 1000 kVA
-3. *El pliego contempla expansión futura a un segundo grupo (GD02)*
+3. **Grupo diésel GD02** – Implementado en V3.0 con failover bidireccional GD1↔GD2
 
 ### **2.2 Interruptores Principales (Nomenclatura)**
 
@@ -35,7 +35,7 @@ El sistema permite:
 |--------|-------------|---------|
 | **QT1** | Interruptor de Red | Schneider Masterpact MTZ1 |
 | **QG1** | Interruptor de GD01 | Schneider Compact NSX Micrologic |
-| **QG2** | Interruptor de GD02 (futuro) | Schneider Compact NSX Micrologic |
+| **QG2** | Interruptor de GD02 (implementado V3.0) | Schneider Compact NSX Micrologic |
 
 ### **2.3 Regla Absoluta – Enclavamiento Fuente Única**
 
@@ -582,7 +582,7 @@ SHED_ENABLE : Array[1..18] of Bool := [
 ✅ **SCL (Structured Control Language)** como lenguaje principal
 
 **Razones**:
-- Máquinas de estados complejas (15 estados SCMTA)
+- Máquinas de estados complejas (21 estados SCMTA con failover GD1↔GD2)
 - Arrays dinámicos (`SHED_ORDER[1..18]`)
 - Loops (`FOR i := 1 TO 18`)
 - Protocolos complejos (Modbus Command Interface)
@@ -612,17 +612,21 @@ El proyecto está organizado en **7 Function Blocks + 2 Data Blocks + 1 OB1**:
 │   │
 │   ├── 02_FB_SCMTA.scl
 │   │   └─ Máquina estados transferencia automática
-│   │      • 15 estados (0-14)
-│   │      • Secuencia Red→GD (con timeouts y confirmaciones)
+│   │      • 21 estados (0-20) con failover GD1↔GD2
+│   │      • Secuencia Red→GD1 (con timeouts y confirmaciones)
 │   │      • Secuencia GD→Red (con estabilidad 120s)
+│   │      • Failover GD1→GD2 (estados 15-20)
+│   │      • Failover GD2→GD1 (conmutación automática)
 │   │      • Detección falla red (tensión + frecuencia + fase)
-│   │      • Control marcha/parada GD
+│   │      • Control marcha/parada GD1 y GD2
 │   │      • Gestión fallas y lockout
 │   │
 │   ├── 03_FB_SHED.scl
-│   │   └─ Deslastre y reenganche cargas
+│   │   └─ Deslastre y reenganche cargas V2.0
+│   │      • 6 modos: IDLE, GRID_SHED, GD_INITIAL_SHED, GD_RECONNECT, GD_REACTIVE_SHED, GRID_RECONNECT
+│   │      • FEEDER_ESSENTIAL[1..18] (esenciales protegidos)
+│   │      • Deslastre en RED (sobrecarga trafo) y GD (sobrecarga GD)
 │   │      • Arrays configurables SHED_ORDER[1..18], SHED_ENABLE[1..18]
-│   │      • Deslastre escalonado por % carga GD/TR
 │   │      • Reenganche escalonado automático
 │   │      • Timeouts parametrizables (T_SHED_STEP, T_RECONNECT_STEP)
 │   │
@@ -959,9 +963,11 @@ END_IF;
 );
 
 "DB_QG2_DRV"(
-    ENABLE := FALSE,        // Futuro
+    ENABLE := TRUE,         // Implementado V3.0
     SLAVE_ADDR := 3,
-    // ...
+    CMD_OPEN := "DB_ARBITER".CMD_OPEN_QG2,
+    CMD_CLOSE := "DB_ARBITER".CMD_CLOSE_QG2,
+    CB_STATE => "DB_GLOBAL_STATUS".QG2_STATE
 );
 ```
 
@@ -1018,15 +1024,17 @@ END_IF;
 ✅ **Leer documentación principal**:
 
 1. [`README.md`](../README.md) - Vista general del proyecto
-2. [`03_DOCS/README_SCMTA.md`](README_SCMTA.md) - Documentación técnica completa (25 páginas)
+2. [`03_DOCS/README_SCMTA.md`](README_SCMTA.md) - Documentación técnica completa (~30 páginas, V3.0)
 3. [`03_DOCS/VALIDACION_SCL_TIA_V18.md`](VALIDACION_SCL_TIA_V18.md) - Validación código (100% compatible)
 4. Este documento - Introducción técnica
 
 ✅ **Revisar diagramas**:
 
-1. [`04_UML/11_UML_SCMTA_StateMachine.puml`](../04_UML/11_UML_SCMTA_StateMachine.puml) - Estados SCMTA
-2. [`04_UML/12_UML_MTZ_Driver_StateMachine.puml`](../04_UML/12_UML_MTZ_Driver_StateMachine.puml) - Estados Driver
-3. [`04_UML/13_UML_SHED_Activity.puml`](../04_UML/13_UML_SHED_Activity.puml) - Actividad deslastre
+1. [`04_UML/11_UML_SCMTA_StateMachine.puml`](../04_UML/11_UML_SCMTA_StateMachine.puml) - Estados SCMTA (GD1, 0-14)
+2. [`04_UML/14_UML_SCMTA_GD2_StateMachine.puml`](../04_UML/14_UML_SCMTA_GD2_StateMachine.puml) - Estados SCMTA GD2 failover (15-20)
+3. [`04_UML/12_UML_MTZ_Driver_StateMachine.puml`](../04_UML/12_UML_MTZ_Driver_StateMachine.puml) - Estados Driver
+4. [`04_UML/13_UML_SHED_Activity.puml`](../04_UML/13_UML_SHED_Activity.puml) - Actividad deslastre
+5. [`04_UML/15_UML_System_Architecture.puml`](../04_UML/15_UML_System_Architecture.puml) - Arquitectura sistema
 
 ✅ **Revisar configuración hardware**:
 
@@ -1241,8 +1249,18 @@ DB_ARBITER.CMD_CLOSE_QG1
 ```
 1. Forzar estado ON_GD (8)
 2. Forzar GD_LoadPct = 95% (> SHED_ON_PCT)
-3. Verificar deslastre escalonado según SHED_ORDER
-4. Verificar T_SHED_STEP (3-5s) entre pasos
+3. Verificar SHED_MODE = 4 (GD_REACTIVE_SHED)
+4. Verificar deslastre escalonado según SHED_ORDER
+5. Verificar T_SHED_STEP (3-5s) entre pasos
+6. Verificar FEEDER_ESSENTIAL protegidos
+```
+
+**Test 3b: Failover GD1→GD2**
+```
+1. Desde estado ON_GD (8), forzar GD1_ALARM = TRUE
+2. Verificar secuencia: 8→15→16→17→18→19 (ON_GD2)
+3. Verificar QG1 abre, QG2 cierra
+4. Verificar GD2 arranca correctamente
 ```
 
 **Test 4: Enclavamiento fuente única**
@@ -1455,7 +1473,9 @@ SHED_ORDER[1..18], SHED_ENABLE[1..18]
 
 | Qué necesitas | Archivo | Ubicación |
 |---------------|---------|-----------|
-| **Estados SCMTA** (15 estados) | 11_UML_SCMTA_StateMachine.puml | [`04_UML/`](../04_UML/) |
+| **Estados SCMTA GD1** (estados 0-14) | 11_UML_SCMTA_StateMachine.puml | [`04_UML/`](../04_UML/) |
+| **Estados SCMTA GD2 Failover** (estados 15-20) | 14_UML_SCMTA_GD2_StateMachine.puml | [`04_UML/`](../04_UML/) |
+| **Arquitectura Sistema** | 15_UML_System_Architecture.puml | [`04_UML/`](../04_UML/) |
 | **Estados Driver MTZ** | 12_UML_MTZ_Driver_StateMachine.puml | [`04_UML/`](../04_UML/) |
 | **Actividad deslastre** | 13_UML_SHED_Activity.puml | [`04_UML/`](../04_UML/) |
 
@@ -1542,7 +1562,7 @@ SHED_ORDER[1..18], SHED_ENABLE[1..18]
 | Tag HMI | Dirección PLC | Tipo | R/W | Descripción |
 |---------|---------------|------|-----|-------------|
 | MODE_AUTO | DB_GLOBAL_STATUS.MODE_AUTO | Bool | R | Modo automático activo |
-| SCMTA_STATE | DB_GLOBAL_STATUS.SCMTA_STATE | Int | R | Estado máquina (0-14) |
+| SCMTA_STATE | DB_GLOBAL_STATUS.SCMTA_STATE | Int | R | Estado máquina (0-20) |
 | V_MIN_PCT | DB_PARAMS.V_MIN_PCT | Real | R/W | Umbral subtensión [%] |
 | ... | ... | ... | ... | ... |
 
@@ -1551,7 +1571,7 @@ SHED_ORDER[1..18], SHED_ENABLE[1..18]
 ### **10.3 Diagramas**
 
 ✅ **Diagrama de estados SCMTA** (PDF):
-- 15 estados con transiciones
+- 21 estados con transiciones (incluyendo failover GD1↔GD2)
 - Timeouts indicados
 - Condiciones de transición
 
@@ -1678,6 +1698,6 @@ Este documento debería darte una visión completa del sistema SCMTA y una guía
 
 ---
 
-**Fecha**: 4 de febrero de 2026  
-**Versión documento**: 1.0  
+**Fecha**: 10 de febrero de 2026  
+**Versión documento**: 3.0  
 **Próxima revisión**: Post-comisionamiento
