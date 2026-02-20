@@ -44,7 +44,7 @@ fork
                     break
                 endif
                 
-            repeat while (SHED_STEP <= 18)
+            repeat while (SHED_STEP <= 19)
         endif
     endif
     
@@ -110,7 +110,7 @@ fork again
             break
         endif
         
-    repeat while (RECONNECT_STEP <= 18)
+    repeat while (RECONNECT_STEP <= 19)
     
     :Acoplamiento completado\no pausado;
     
@@ -148,7 +148,7 @@ if (RED retorna estable 120s) then (SÍ)
             break
         endif
         
-    repeat while (RECONNECT_STEP <= 18)
+    repeat while (RECONNECT_STEP <= 19)
     
     :SHED_MODE = IDLE (0);
     :Todos los feeders cerrados;
@@ -159,17 +159,18 @@ stop
 note right
     **CLASIFICACIÓN FEEDERS V2.0**
     
-    FEEDER_ESSENTIAL[i] = TRUE
+    FEEDER_ESSENTIAL[i] = TRUE  [1..19]
     → **ESENCIAL**: nunca se desacopla
        Ej: iluminación emergencia,
        bombas CI, servidores
     
-    FEEDER_ESSENTIAL[i] = FALSE
+    FEEDER_ESSENTIAL[i] = FALSE  [1..19]
     → **NO-ESENCIAL**: se desacopla
        al pasar a GD, deslastable
        en RED si carga alta
        Ej: A/C, ascensores, ilum. gral
     
+    SHED_ORDER[1..19] / RECONNECT_ORDER[1..19]
     Parametrizable desde HMI
 end note
 

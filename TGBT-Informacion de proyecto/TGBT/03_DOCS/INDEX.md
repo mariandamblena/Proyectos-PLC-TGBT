@@ -1,174 +1,129 @@
-# PROYECTO SCMTA - ÍNDICE DE ARCHIVOS
+# ÍNDICE MAESTRO DE ARCHIVOS — SCMTA TGBT
 
-## 📁 ESTRUCTURA DEL PROYECTO
-
-```
-tgbt_ladder/
-│
-├── 📘 DOCUMENTACIÓN BASE (Fuentes proyecto)
-│   ├── TGBT_Config - listado de entradas y salidas.pdf
-│   ├── TGBT_Config - listado de equipos.pdf
-│   ├── TGBT_Config - pm5330.pdf
-│   ├── Escritura_MTZ.pdf
-│   ├── MTZ MANUAL.pdf
-│   ├── NSX MANUAL.pdf
-│   ├── masterpact mtz1 y mtz2.pdf
-│   └── ET MONTAJE-TGBT.pdf
-│
-├── 💻 CÓDIGO FUENTE PLC (SCL - TIA Portal)
-│   ├── 01_FB_IO_NORMALIZE.scl               [FB normalización E/S]
-│   ├── 02_FB_SCMTA.scl                      [FB máquina estados transferencia]
-│   ├── 03_FB_SHED.scl                       [FB deslastre y reenganche]
-│   ├── 04_FB_CMD_ARBITER.scl                [FB árbitro comandos + enclavamiento]
-│   ├── 05_FB_OUTPUTS.scl                    [FB pilotos y alarmas]
-│   ├── 06_FB_MODBUS_MANAGER.scl             [FB scheduler Modbus]
-│   ├── 07_FB_MTZ_DRIVER.scl                 [FB driver MTZ/NSX]
-│   ├── 08_DB_GLOBAL_STATUS.scl              [DB estados consolidados]
-│   ├── 09_DB_PARAMS.scl                     [DB parámetros configurables RETAIN]
-│   └── 10_OB1_MAIN.scl                      [OB1 programa principal]
-│
-├── 📊 DIAGRAMAS UML (PlantUML)
-│   ├── 11_UML_SCMTA_StateMachine.puml       [Máquina estados SCMTA 0-14 (GD1)]
-│   ├── 12_UML_MTZ_Driver_StateMachine.puml  [Estados driver Modbus MTZ]
-│   ├── 13_UML_SHED_Activity.puml            [Actividad deslastre/reenganche]
-│   ├── 14_UML_SCMTA_GD2_StateMachine.puml   [Estados SCMTA con GD2/failover 15-20]
-│   ├── 15_UML_System_Architecture.puml      [Arquitectura completa sistema]
-│   └── README_UML.md                        [Documentación diagramas]
-│
-├── 📖 DOCUMENTACIÓN TÉCNICA
-│   ├── README_SCMTA.md                      [Documentación completa sistema V3.0]
-│   ├── 01_FB_IO_NORMALIZE_LADDER.md         [Rungs Ladder FB_IO_NORMALIZE]
-│   ├── INTRODUCCION_TECNICA_INGENIERO.md    [Introducción técnica completa]
-│   ├── ARQUITECTURA_DESLASTRE_V2.md         [Arquitectura SHED V2.0]
-│   ├── VALIDACION_SCL_TIA_V18.md            [Validación código SCL]
-│   ├── GUIA_COMPLETA_SCL_LADDER.md          [Comparación SCL vs LADDER]
-│   ├── CAMBIOS_REQ_2_SEGUNDOS.md            [Modificación REQ Modbus 2s]
-│   ├── PRESENTACION_REUNION_2026-02-10.md   [Presentación reunión]
-│   └── INDEX.md                             [Este archivo]
-│
-└── 🎯 ENTREGABLES FINALES
-    └── [Todos los archivos arriba constituyen el proyecto completo]
-```
+> **Actualizado:** 2026-02-20 | **Versión proyecto:** 3.0
 
 ---
 
-## 📋 RESUMEN ENTREGABLES
+## 01_SCL/ — Código Fuente
 
-### ✅ PARTE 1: FB_IO_NORMALIZE
-- **Archivos:** `01_FB_IO_NORMALIZE.scl`, `01_FB_IO_NORMALIZE_LADDER.md`
-- **Función:** Normaliza entradas físicas (selectores, pulsadores) → señales lógicas
-- **Outputs:** MODE_AUTO, *_REMOTE_ALLOWED, REQ_MAN_*, GD_READY/RUNNING/ALARM
-
-### ✅ PARTE 2: FB_SCMTA
-- **Archivo:** `02_FB_SCMTA.scl`
-- **Función:** Máquina de estados transferencia automática (21 estados: 0-20, con failover GD1↔GD2)
-- **Outputs:** REQ_SCMTA_*, DO_GD_START/STOP, DO_GD2_START/STOP, IS_ON_GRID/ON_GD/ON_GD2/IN_TRANSFER/FAULT
-
-### ✅ PARTE 3: FB_SHED
-- **Archivo:** `03_FB_SHED.scl`
-- **Función:** Deslastre V2.0 con 6 modos (GRID_SHED, GD_INITIAL_SHED, GD_REACTIVE_SHED, etc.) + reenganche
-- **Características:** FEEDER_ESSENTIAL, deslastre en RED y GD, 18 feeders configurables
-- **Outputs:** REQ_SHED_OPEN/CLOSE[1..18], SHED_ACTIVE, SHED_MODE, FEEDERS_SHED
-
-### ✅ PARTE 4: FB_CMD_ARBITER
-- **Archivo:** `04_FB_CMD_ARBITER.scl`
-- **Función:** Priorización requests (SCMTA > SHED > MANUAL) + enclavamiento fuente única
-- **Outputs:** CMD_OPEN/CLOSE_*, BLOCK_LOCAL, BLOCK_INTERLOCK, ALM_INTERLOCK_VIOLATION
-
-### ✅ PARTE 5: FB_OUTPUTS
-- **Archivo:** `05_FB_OUTPUTS.scl`
-- **Función:** Gestión pilotos LED, bocina, baliza, señales HMI
-- **Outputs:** DO_PILOT_*, DO_ALARM_HORN/BEACON, HMI_ALARM_*
-
-### ✅ PARTE 6: FB_MODBUS_MANAGER + FB_MTZ_DRIVER
-- **Archivos:** `06_FB_MODBUS_MANAGER.scl`, `07_FB_MTZ_DRIVER.scl`
-- **Función:** Scheduler Modbus RTU + driver Command Interface MTZ/NSX
-- **Protocolo:** Buffer 8000-8019 → FC16 Write → Poll 8020-8021 → Confirm 32001
-
-### ✅ DATA BLOCKS
-- **Archivos:** `08_DB_GLOBAL_STATUS.scl`, `09_DB_PARAMS.scl`
-- **DB_GLOBAL_STATUS:** Estados consolidados (NON_RETAIN)
-- **DB_PARAMS:** Parámetros configurables (RETAIN)
-
-### ✅ OB1 MAIN
-- **Archivo:** `10_OB1_MAIN.scl`
-- **Función:** Programa principal cíclico (6 networks)
-- **Ciclo recomendado:** 100-200 ms
-
-### ✅ DIAGRAMAS UML
-- **Archivos:** `11_*.puml`, `12_*.puml`, `13_*.puml`, `14_*.puml`, `15_*.puml`
-- **Contenido:** State machines SCMTA (GD1 + GD2 failover), driver MTZ, Activity deslastre, Arquitectura sistema
-
-### ✅ DOCUMENTACIÓN TÉCNICA
-- **Archivo:** `README_SCMTA.md` (~30 páginas, 15 secciones)
-- **Contenido:** Arquitectura, FBs, protocolo Modbus, GD2 failover, SHED V2.0, testing, troubleshooting, mantenimiento
+| Archivo | Bloque | Versión | Descripción |
+|---------|--------|---------|-------------|
+| 01_FB_IO_NORMALIZE.scl | FB | 2.0 | Normalización DI → señales lógicas (selectores, pulsadores, GD) |
+| 02_FB_SCMTA.scl | FB | 3.0 | Máquina de estados transferencia automática (21 estados, GD2 failover) |
+| 03_FB_SHED.scl | FB | 2.0 | Deslastre y reenganche de cargas (19 feeders, 6 modos) |
+| 04_FB_CMD_ARBITER.scl | FB | 2.0 | Arbitración comandos (SCMTA > SHED > MANUAL) + enclavamiento |
+| 05_FB_OUTPUTS.scl | FB | 3.0 | Pilotos LED (sistema + ACB + feeders) + alarmas + HMI |
+| 06_FB_MODBUS_MANAGER.scl | FB | 0.1 | Scheduler Modbus RTU (time-slicing 22 dispositivos) |
+| 07_FB_MTZ_DRIVER.scl | FB | 1.1 | Driver Modbus Schneider Command Interface (MasterPact MTZ) |
+| 08_DB_GLOBAL_STATUS.scl | DB | 3.0 | DATA_BUFF — DB global compartido (blackboard) |
+| 09_DB_PARAMS.scl | DB | 3.0 | Parámetros configurables (RETAIN) |
+| 10_OB1_MAIN.scl | OB | 3.0 | Programa principal cíclico (7 networks) |
 
 ---
 
-## 🎯 ESTADO DEL PROYECTO
+## 02_LADDER/ — Conversiones LADDER (referencia)
 
-**COMPLETADO AL 100% (V3.0)** ✅
+| Archivo | Descripción |
+|---------|-------------|
+| 01_FB_IO_NORMALIZE_LADDER.md | FB_IO_NORMALIZE en LADDER |
+| LADDER_01_FB_IO_NORMALIZE.md | Conversión completa con rungs |
+| LADDER_05_FB_OUTPUTS.md | FB_OUTPUTS en LADDER (versión previa) |
+| LADDER_10_OB1_MAIN.md | OB1 en LADDER (visual) |
 
-Total entregables:
-- ✅ 10 Function Blocks (SCL)
-- ✅ 2 Data Blocks (SCL)
-- ✅ 1 Organization Block OB1 (SCL)
-- ✅ 5 Diagramas UML (PlantUML)
-- ✅ 1 Documentación técnica completa (~30 páginas)
-- ✅ 1 Documentación Ladder FB_IO_NORMALIZE
-- ✅ 4 Tests automatizados (happy path, fallas, SHED, GD2 failover)
-
-**Total archivos código:** 13 archivos SCL  
-**Total archivos documentación:** 12+ archivos MD/PUML  
-**Total líneas código:** ~3500+ líneas SCL  
-**Total estados SCMTA:** 21 (0-20)
+> **Nota:** Los archivos LADDER corresponden a versiones anteriores del código (pre V3.0). Usar como referencia visual únicamente.
 
 ---
 
-## 🚀 SIGUIENTE PASO: IMPLEMENTACIÓN
+## 03_DOCS/ — Documentación Técnica
 
-1. Importar todos los archivos `.scl` a TIA Portal
-2. Crear project structure según arquitectura (OB1 → 6 networks)
-3. Configurar hardware (CPU, módulos E/S, Modbus RTU)
-4. Mapear direcciones físicas (%I, %Q) según `TGBT_Config - listado de entradas y salidas.pdf`
-5. Configurar parámetros `DB_PARAMS` según instalación real
-6. Ejecutar testing según sección 10 `README_SCMTA.md`
-7. Comisionar sistema completo
+### Documentos Principales (leer primero)
 
----
+| Archivo | Contenido | Audiencia |
+|---------|-----------|-----------|
+| **RESUMEN_PROYECTO.md** | Qué hacía antes vs. ahora, cambios V2→V3, todo lo que controla | Todos |
+| **LISTADO_EQUIPOS.md** | 39 equipos del tablero, tipos a/b/c/d, mapeo índices [1..19] | Todos |
+| **LISTADO_IO.md** | Mapeo completo DI/DO/%I/%Q, Modbus, HMI, módulos expansión | Programador |
+| **README_SCMTA.md** | Documentación técnica master (~30 páginas, 15 secciones) | Programador |
 
-## 📞 SOPORTE
+### Documentos de Referencia
 
-Para consultas técnicas sobre el código, referirse a:
-- **Documentación completa:** `README_SCMTA.md`
-- **Sección Troubleshooting:** Sección 11 del README
-- **Diagramas UML:** Archivos `.puml` (visualizar con PlantUML o online en plantuml.com)
-
----
-
-## 📝 NOTAS
-
-**Decisiones de diseño respetadas:**
-- Prioridad RED > GD (retorno automático)
-- Enclavamiento fuente única (QT1/QG1/QG2)
-- Fail-safe por defecto (timeout → FAULT_LOCKOUT)
-- Arrays configurables SHED_ORDER/ENABLE (sin sorting en PLC)
-- Protocolo Modbus Command Interface (Schneider MTZ/NSX)
-- Tiempos conservadores (T_GRID_STABLE=120s según IEEE 1547)
-
-**Trabajo futuro (opcional):**
-- Implementar polling cíclico completo en FB_MODBUS_MANAGER
-- Agregar drivers NSX individuales (1-18)
-- Implementar watchdog comunicación avanzado
-- Agregar log de eventos con timestamp
-- Desarrollar pantalla HMI (WinCC)
+| Archivo | Contenido | Audiencia |
+|---------|-----------|-----------|
+| ARQUITECTURA_DESLASTRE_V2.md | Diseño detallado SHED V2.0 (6 modos, temporal) | Programador |
+| CAMBIOS_REQ_2_SEGUNDOS.md | REQ Modbus activo 2s (requisito hardware RS-485) | Programador |
+| INSTRUCCIONES_CORRECCION_OB1.md | Renombrado DB_GLOBAL_STATUS → DATA_BUFF + instancias | Programador |
+| GUIA_COMPLETA_SCL_LADDER.md | Comparación SCL vs LADDER, recomendaciones | Decisión |
+| INTRODUCCION_TECNICA_INGENIERO.md | Guía onboarding ingeniero nuevo (plan 20 días) | Nuevo miembro |
+| VALIDACION_SCL_TIA_V18.md | Validación compatibilidad código SCL con TIA V18 | QA |
+| INDEX.md | **Este archivo** | Todos |
 
 ---
 
-**Versión proyecto:** 3.0  
-**Fecha:** 10 de febrero de 2026  
-**Estado:** ✅ V3.0 - GD2 FAILOVER + SHED V2 IMPLEMENTADOS
+## 04_UML/ — Diagramas PlantUML
+
+| Archivo | Contenido |
+|---------|-----------|
+| 11_UML_SCMTA_StateMachine.puml | Máquina estados SCMTA estados 0-14 (GD1) |
+| 12_UML_MTZ_Driver_StateMachine.puml | Estados driver Modbus MTZ |
+| 13_UML_SHED_Activity.puml | Diagrama actividad deslastre/reenganche |
+| 14_UML_SCMTA_GD2_StateMachine.puml | Estados SCMTA GD2 failover (15-20) |
+| 15_UML_System_Architecture.puml | Arquitectura completa del sistema |
+| README_UML.md | Catálogo y documentación diagramas |
+
+Visualizar con: [plantuml.com](https://www.plantuml.com/plantuml/uml/) o extensión VS Code PlantUML.
 
 ---
 
-**FIN DEL ÍNDICE**
+## 05_MANUALES/ — Manuales de Referencia
+
+| Archivo | Contenido |
+|---------|-----------|
+| MTZ MANUAL.pdf | Manual MasterPact MTZ — protocolo Modbus, registros |
+| Escritura_MTZ.pdf | Procedimiento escritura/comando MTZ vía Modbus |
+| masterpact mtz1 y mtz2.pdf | Catálogo MasterPact MTZ1/MTZ2 |
+| NSX MANUAL.pdf | Manual Compact NSX — Modbus feeders |
+| MTZ_MODBUS_CHARGING_REGISTERS.md | Extracto registros clave: 32001 (estado), 8000 (cmd) |
+| s71200_system_manual_en-US_en-US.pdf | Manual CPU S7-1200 |
+| s7_1500_compare_table_en_mnemo.pdf | Tabla comparación S7-1500 (referencia) |
+| 81318674_Programming_guideline_DOC_v16_en.pdf | Guía programación Siemens |
+
+---
+
+## 06_CONFIG/ — Configuración del Proyecto
+
+| Archivo | Contenido |
+|---------|-----------|
+| TGBT_Config - listado de equipos.pdf | Listado original equipos del tablero |
+| TGBT_Config - listado de entradas y salidas.pdf | Listado original I/O del proyecto |
+| TGBT_Config - pm5330.pdf | Configuración medidor PM5330 |
+| ET MONTAJE-TGBT.pdf | Esquema de montaje eléctrico |
+
+---
+
+## 07_TEST/ — Tests Automatizados
+
+| Archivo | Contenido | Estado |
+|---------|-----------|--------|
+| TEST_FB_IO_NORMALIZE_SCMTA.scl | Test happy path (15 pasos) | ✅ 15/15 OK |
+| TEST_FB_FALLAS_SCMTA.scl | Test fallas (37 pasos) | ⏳ Pendiente ejecutar |
+| TEST_FB_SHED.scl | Test deslastre V2.0 | ⏳ Pendiente actualizar a [1..19] |
+| TEST_FB_GD2_FAILOVER.scl | Test failover GD1↔GD2 | ⏳ Pendiente ejecutar |
+| README_TEST.md | Documentación test happy path | ✅ |
+| README_TEST_FALLAS.md | Documentación test fallas | ✅ |
+
+---
+
+## Archivos Eliminados (histórico)
+
+Los siguientes archivos fueron eliminados el 2026-02-20 por ser artefactos de análisis o documentos de reunión que ya no aplican:
+
+| Archivo | Motivo eliminación |
+|---------|-------------------|
+| 03_DOCS/INDICE_REUNION.md | Preparación reunión 10/02 — ya pasó |
+| 03_DOCS/PRESENTACION_REUNION_2026-02-10.md | Snapshot reunión 10/02 — métricas obsoletas |
+| 03_DOCS/RESUMEN_EJECUTIVO_REUNION.md | Handout reunión 10/02 — redundante |
+| 05_MANUALES/Escritura_MTZ_FULL_TEXT.txt | Extracción texto PDF — artefacto análisis |
+| 05_MANUALES/Escritura_MTZ_RELEVANT.txt | Extracción texto PDF — artefacto análisis |
+| 05_MANUALES/MTZ MANUAL_FULL_TEXT.txt | Extracción texto PDF — artefacto análisis |
+| 05_MANUALES/MTZ MANUAL_RELEVANT.txt | Extracción texto PDF — artefacto análisis |
+| 05_MANUALES/MTZ_MANUAL_STATUS_REGISTERS.txt | Extracción texto PDF — reemplazado por .md |

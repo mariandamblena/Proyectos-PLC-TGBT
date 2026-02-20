@@ -55,6 +55,11 @@ VAR_INPUT
     DI_GD2_READY : Bool;            // GD2 listo para transferir
     DI_GD2_RUNNING : Bool;          // GD2 en marcha
     DI_GD2_ALARM : Bool;            // GD2 en alarma/falla
+    
+    // Feeders (19 NSX con Modbus) - Pulsadores Open/Close
+    // Solo feeders tipo a (con pulsadores) se conectan; tipo b quedan FALSE
+    DI_FEEDER_PB_OPEN : Array[1..19] of Bool;     // Pulsadores OPEN físicos feeders
+    DI_FEEDER_PB_CLOSE : Array[1..19] of Bool;    // Pulsadores CLOSE físicos feeders
 END_VAR
 
 VAR_OUTPUT 
@@ -75,6 +80,8 @@ VAR_OUTPUT
     REQ_MAN_QG1_CLOSE : Bool;
     REQ_MAN_QG2_OPEN : Bool;
     REQ_MAN_QG2_CLOSE : Bool;
+    REQ_MAN_FEEDER_OPEN : Array[1..19] of Bool;   // Pulsos: solicitud manual abrir feeder[i]
+    REQ_MAN_FEEDER_CLOSE : Array[1..19] of Bool;  // Pulsos: solicitud manual cerrar feeder[i]
     
     // Estados GD normalizados (passthrough)
     GD_READY : Bool;                // GD1 listo
@@ -92,15 +99,8 @@ END_VAR
 
 VAR 
     // ========== MEMORIA INTERNA ==========
-    // R_TRIG para detección de flancos positivos en pulsadores
-    rtQT1_Open : Bool;
-    rtQT1_Close : Bool;
-    rtQG1_Open : Bool;
-    rtQG1_Close : Bool;
-    rtQG2_Open : Bool;
-    rtQG2_Close : Bool;
-    
     // Memoria para detección de flanco (estado anterior)
+    // Nota: debounce por hardware en módulos DI (filtro 6.4ms) - no se necesitan TON en SCL
     memQT1_PB_Open : Bool;
     memQT1_PB_Close : Bool;
     memQG1_PB_Open : Bool;
@@ -108,29 +108,17 @@ VAR
     memQG2_PB_Open : Bool;
     memQG2_PB_Close : Bool;
     
-    // Timer debounce (50ms) para filtrar rebotes mecánicos
-    tonDebounce_QT1_Open : TON;
-    tonDebounce_QT1_Close : TON;
-    tonDebounce_QG1_Open : TON;
-    tonDebounce_QG1_Close : TON;
-    tonDebounce_QG2_Open : TON;
-    tonDebounce_QG2_Close : TON;
-    
-    // Señales debounced
-    QT1_PB_Open_DB : Bool;
-    QT1_PB_Close_DB : Bool;
-    QG1_PB_Open_DB : Bool;
-    QG1_PB_Close_DB : Bool;
-    QG2_PB_Open_DB : Bool;
-    QG2_PB_Close_DB : Bool;
+    // Feeders (19) - Arrays para detección de flanco
+    memFeeder_PB_Open : Array[1..19] of Bool;
+    memFeeder_PB_Close : Array[1..19] of Bool;
 END_VAR
 
-VAR_TEMP 
+VAR_TEMP
+    i : Int;  // Loop counter para feeders
 END_VAR
 
-VAR CONSTANT 
-    DEBOUNCE_TIME : Time := T#50ms; // Tiempo debounce pulsadores
-END_VAR
+// Nota: filtro de entrada de hardware configurado en 6.4ms en TIA Portal (CPU onboard y SM 1223)
+// No se requiere debounce adicional en SCL
 
 BEGIN
     // ========================================================================
@@ -153,75 +141,42 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 3: DEBOUNCE PULSADORES (50ms)
-    // ========================================================================
-    // Filtro anti-rebote mecánico con TON
-    
-    // QT1 Open
-    #tonDebounce_QT1_Open(IN := #DI_QT1_PB_OPEN,
-                          PT := #DEBOUNCE_TIME,
-                          Q => #QT1_PB_Open_DB);
-    
-    // QT1 Close
-    #tonDebounce_QT1_Close(IN := #DI_QT1_PB_CLOSE,
-                           PT := #DEBOUNCE_TIME,
-                           Q => #QT1_PB_Close_DB);
-    
-    // QG1 Open
-    #tonDebounce_QG1_Open(IN := #DI_QG1_PB_OPEN,
-                          PT := #DEBOUNCE_TIME,
-                          Q => #QG1_PB_Open_DB);
-    
-    // QG1 Close
-    #tonDebounce_QG1_Close(IN := #DI_QG1_PB_CLOSE,
-                           PT := #DEBOUNCE_TIME,
-                           Q => #QG1_PB_Close_DB);
-    
-    // QG2 Open
-    #tonDebounce_QG2_Open(IN := #DI_QG2_PB_OPEN,
-                          PT := #DEBOUNCE_TIME,
-                          Q => #QG2_PB_Open_DB);
-    
-    // QG2 Close
-    #tonDebounce_QG2_Close(IN := #DI_QG2_PB_CLOSE,
-                           PT := #DEBOUNCE_TIME,
-                           Q => #QG2_PB_Close_DB);
-    
-    
-    // ========================================================================
-    // NETWORK 4: DETECCIÓN DE FLANCO POSITIVO (R_TRIG) → REQUESTS MANUALES
+    // NETWORK 3: DETECCIÓN DE FLANCO POSITIVO (R_TRIG) → REQUESTS MANUALES
+    // Filtro de rebotes: hardware (6.4ms en CPU onboard y SM 1223) - no se necesita TON en SCL
     // ========================================================================
     // Generamos PULSOS de 1 scan al detectar flanco ascendente 0→1
     
-    // QT1 Open: flanco 0→1 en señal debounced
-    #rtQT1_Open := #QT1_PB_Open_DB AND NOT #memQT1_PB_Open;
-    #REQ_MAN_QT1_OPEN := #rtQT1_Open;
-    #memQT1_PB_Open := #QT1_PB_Open_DB;
+    // QT1 Open: flanco 0→1
+    #REQ_MAN_QT1_OPEN  := #DI_QT1_PB_OPEN  AND NOT #memQT1_PB_Open;
+    #memQT1_PB_Open    := #DI_QT1_PB_OPEN;
     
     // QT1 Close
-    #rtQT1_Close := #QT1_PB_Close_DB AND NOT #memQT1_PB_Close;
-    #REQ_MAN_QT1_CLOSE := #rtQT1_Close;
-    #memQT1_PB_Close := #QT1_PB_Close_DB;
+    #REQ_MAN_QT1_CLOSE := #DI_QT1_PB_CLOSE AND NOT #memQT1_PB_Close;
+    #memQT1_PB_Close   := #DI_QT1_PB_CLOSE;
     
     // QG1 Open
-    #rtQG1_Open := #QG1_PB_Open_DB AND NOT #memQG1_PB_Open;
-    #REQ_MAN_QG1_OPEN := #rtQG1_Open;
-    #memQG1_PB_Open := #QG1_PB_Open_DB;
+    #REQ_MAN_QG1_OPEN  := #DI_QG1_PB_Open  AND NOT #memQG1_PB_Open;
+    #memQG1_PB_Open    := #DI_QG1_PB_Open;
     
     // QG1 Close
-    #rtQG1_Close := #QG1_PB_Close_DB AND NOT #memQG1_PB_Close;
-    #REQ_MAN_QG1_CLOSE := #rtQG1_Close;
-    #memQG1_PB_Close := #QG1_PB_Close_DB;
+    #REQ_MAN_QG1_CLOSE := #DI_QG1_PB_CLOSE AND NOT #memQG1_PB_Close;
+    #memQG1_PB_Close   := #DI_QG1_PB_CLOSE;
     
     // QG2 Open
-    #rtQG2_Open := #QG2_PB_Open_DB AND NOT #memQG2_PB_Open;
-    #REQ_MAN_QG2_OPEN := #rtQG2_Open;
-    #memQG2_PB_Open := #QG2_PB_Open_DB;
+    #REQ_MAN_QG2_OPEN  := #DI_QG2_PB_OPEN  AND NOT #memQG2_PB_Open;
+    #memQG2_PB_Open    := #DI_QG2_PB_OPEN;
     
     // QG2 Close
-    #rtQG2_Close := #QG2_PB_Close_DB AND NOT #memQG2_PB_Close;
-    #REQ_MAN_QG2_CLOSE := #rtQG2_Close;
-    #memQG2_PB_Close := #QG2_PB_Close_DB;
+    #REQ_MAN_QG2_CLOSE := #DI_QG2_PB_CLOSE AND NOT #memQG2_PB_Close;
+    #memQG2_PB_Close   := #DI_QG2_PB_CLOSE;
+    
+    // FEEDERS (19) - Detección de flanco con FOR loop
+    FOR #i := 1 TO 19 DO
+        #REQ_MAN_FEEDER_OPEN[#i]  := #DI_FEEDER_PB_OPEN[#i]  AND NOT #memFeeder_PB_Open[#i];
+        #memFeeder_PB_Open[#i]    := #DI_FEEDER_PB_OPEN[#i];
+        #REQ_MAN_FEEDER_CLOSE[#i] := #DI_FEEDER_PB_CLOSE[#i] AND NOT #memFeeder_PB_Close[#i];
+        #memFeeder_PB_Close[#i]   := #DI_FEEDER_PB_CLOSE[#i];
+    END_FOR;
     
     
     // ========================================================================

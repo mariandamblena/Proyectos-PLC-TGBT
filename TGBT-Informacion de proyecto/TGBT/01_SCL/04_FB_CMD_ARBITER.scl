@@ -37,8 +37,8 @@ VAR_INPUT
     REQ_SCMTA_CLOSE_QG2 : Bool;
     
     // ========== REQUESTS SHED (Prioridad 2) ==========
-    REQ_SHED_OPEN : Array[1..18] of Bool;
-    REQ_SHED_CLOSE : Array[1..18] of Bool;
+    REQ_SHED_OPEN : Array[1..19] of Bool;
+    REQ_SHED_CLOSE : Array[1..19] of Bool;
     
     // ========== REQUESTS MANUALES (Prioridad 3) ==========
     REQ_MAN_QT1_OPEN : Bool;
@@ -47,6 +47,8 @@ VAR_INPUT
     REQ_MAN_QG1_CLOSE : Bool;
     REQ_MAN_QG2_OPEN : Bool;
     REQ_MAN_QG2_CLOSE : Bool;
+    REQ_MAN_FEEDER_OPEN : Array[1..19] of Bool;   // Requests manuales Feeders
+    REQ_MAN_FEEDER_CLOSE : Array[1..19] of Bool;
     
     // ========== MODO Y PERMISOS ==========
     MODE_AUTO : Bool;                // TRUE = Automático
@@ -54,13 +56,12 @@ VAR_INPUT
     QT1_REMOTE_ALLOWED : Bool;       // TRUE = PLC puede comandar QT1
     QG1_REMOTE_ALLOWED : Bool;
     QG2_REMOTE_ALLOWED : Bool;
-    FEEDER_REMOTE_ALLOWED : Array[1..18] of Bool; // Por feeder
     
     // ========== ESTADOS INTERRUPTORES ==========
     QT1_STATE : Int;                 // 0=Abierto, 1=Cerrado, 2=Desconocido
     QG1_STATE : Int;
     QG2_STATE : Int;
-    FEEDER_STATE : Array[1..18] of Int;
+    FEEDER_STATE : Array[1..19] of Int;
 END_VAR
 
 VAR_OUTPUT 
@@ -71,8 +72,8 @@ VAR_OUTPUT
     CMD_CLOSE_QG1 : Bool;
     CMD_OPEN_QG2 : Bool;
     CMD_CLOSE_QG2 : Bool;
-    CMD_OPEN_FEEDER : Array[1..18] of Bool;
-    CMD_CLOSE_FEEDER : Array[1..18] of Bool;
+    CMD_OPEN_FEEDER : Array[1..19] of Bool;
+    CMD_CLOSE_FEEDER : Array[1..19] of Bool;
     
     // ========== BLOQUEOS Y ALARMAS ==========
     BLOCK_LOCAL : Bool;              // TRUE = comando bloqueado por LOCAL
@@ -110,7 +111,7 @@ VAR_TEMP
 END_VAR
 
 VAR CONSTANT 
-    N_FEEDERS : Int := 18;
+    N_FEEDERS : Int := 19;
 END_VAR
 
 BEGIN
@@ -310,28 +311,35 @@ BEGIN
         
         // Prioridad: SHED (AUTO) > MANUAL
         IF #MODE_AUTO THEN
-            // SHED requests
+            // SHED requests (Prioridad 2)
             IF #REQ_SHED_OPEN[#i] THEN
-                IF #FEEDER_REMOTE_ALLOWED[#i] THEN
-                    #CMD_OPEN_FEEDER[#i] := TRUE;
-                    #DIAG_CMD_SOURCE := 'SHED';
-                ELSE
-                    #BLOCK_LOCAL := TRUE;
-                END_IF;
+                #CMD_OPEN_FEEDER[#i] := TRUE;
+                #DIAG_CMD_SOURCE := 'SHED';
             END_IF;
             
             IF #REQ_SHED_CLOSE[#i] THEN
-                IF #FEEDER_REMOTE_ALLOWED[#i] THEN
-                    #CMD_CLOSE_FEEDER[#i] := TRUE;
-                    #DIAG_CMD_SOURCE := 'SHED';
-                ELSE
-                    #BLOCK_LOCAL := TRUE;
-                END_IF;
+                #CMD_CLOSE_FEEDER[#i] := TRUE;
+                #DIAG_CMD_SOURCE := 'SHED';
             END_IF;
         
         ELSIF #MODE_MANUAL THEN
-            // TODO: agregar requests manuales por feeder si se implementan pulsadores
-            // Por ahora feeders solo controlables por SHED o HMI
+            // Requests manuales por feeder (Prioridad 3)
+            IF #REQ_MAN_FEEDER_OPEN[#i] THEN
+                #CMD_OPEN_FEEDER[#i] := TRUE;
+                #DIAG_CMD_SOURCE := 'MANUAL';
+            END_IF;
+            
+            IF #REQ_MAN_FEEDER_CLOSE[#i] THEN
+                #CMD_CLOSE_FEEDER[#i] := TRUE;
+                #DIAG_CMD_SOURCE := 'MANUAL';
+            END_IF;
+        END_IF;
+        
+        // Bloqueo por conflicto Open+Close simultáneo
+        IF #CMD_OPEN_FEEDER[#i] AND #CMD_CLOSE_FEEDER[#i] THEN
+            #CMD_OPEN_FEEDER[#i] := FALSE;
+            #CMD_CLOSE_FEEDER[#i] := FALSE;
+            #BLOCK_CONFLICT := TRUE;
         END_IF;
         
     END_FOR;

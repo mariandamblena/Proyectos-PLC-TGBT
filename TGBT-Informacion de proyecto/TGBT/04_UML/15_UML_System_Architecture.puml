@@ -4,27 +4,24 @@ title Sistema TGBT - Arquitectura Completa
 
 skinparam componentStyle rectangle
 
-package "PLC Siemens S7-1500" {
+package "PLC Siemens S7-1215C (S7-1200)" {
     
     package "OB1 Main Cycle" as OB1 {
         component [OB1_MAIN] as OB1_MAIN
     }
     
-    package "Bloques Funcionales Implementados ✅" as Implemented {
+    package "Bloques Funcionales ✅ Todos implementados" as Implemented {
         component [FB_IO_NORMALIZE] #lightgreen
         component [FB_SCMTA] #lightgreen
-    }
-    
-    package "Bloques Funcionales Pendientes 🔶" as Pending {
-        component [FB_SHED] #yellow
-        component [FB_CMD_ARBITER] #yellow
-        component [FB_OUTPUTS] #yellow
-        component [FB_MODBUS_MANAGER] #yellow
-        component [FB_MTZ_DRIVER] #yellow
+        component [FB_SHED] #lightgreen
+        component [FB_CMD_ARBITER] #lightgreen
+        component [FB_OUTPUTS] #lightgreen
+        component [FB_MODBUS_MANAGER] #lightgreen
+        component [FB_MTZ_DRIVER] #lightgreen
     }
     
     package "Data Blocks" as DB {
-        database "DB_GLOBAL_STATUS" as DB_STATUS
+        database "DATA_BUFF" as DB_STATUS
         database "DB_PARAMS" as DB_PARAMS
     }
 }
@@ -45,8 +42,8 @@ package "Grupo Diésel 1" {
     component [Motor GD1\nStart/Stop] as GD1
 }
 
-package "Grupo Diésel 2 (Futuro)" {
-    component [QG2\nInterruptor GD2] as QG2 #lightgray
+package "Grupo Diésel 2" {
+    component [QG2\nInterruptor GD2] as QG2 #orange
     component [Motor GD2\nStart/Stop] as GD2
 }
 
@@ -55,8 +52,8 @@ package "Comunicaciones Modbus RTU" {
     node "RS485" as RS485
 }
 
-package "Feeders (18 salidas)" {
-    component [Feeder 1..18\nNSX Modbus] as FEEDERS
+package "Feeders Modbus (19 salidas)" {
+    component [Feeder 1..19\nNSX Modbus\ntipo a: 5 con pulsadores\ntipo b: 14 sin pulsadores] as FEEDERS
 }
 
 package "HMI/SCADA (Futuro)" {
@@ -87,7 +84,7 @@ FB_SCMTA --> FB_CMD_ARBITER : "REQ_SCMTA_OPEN_QT1\nREQ_SCMTA_CLOSE_QT1\nREQ_SCMT
 
 ' SHED solicita deslastre
 FB_SCMTA --> FB_SHED : "IS_ON_GD, IS_ON_GRID\nTRANSFER_TO_GD\nIS_IN_TRANSFER"
-FB_SHED --> FB_CMD_ARBITER : "REQ_SHED_OPEN[1..18]\nREQ_SHED_CLOSE[1..18]"
+FB_SHED --> FB_CMD_ARBITER : "REQ_SHED_OPEN[1..19]\nREQ_SHED_CLOSE[1..19]"
 
 ' ARBITER decide
 FB_CMD_ARBITER --> FB_MTZ_DRIVER : "CMD_OPEN\nCMD_CLOSE\nDEVICE_ID"
@@ -96,7 +93,7 @@ FB_CMD_ARBITER --> FB_OUTPUTS : "BLOCK_LOCAL\nBLOCK_INTERLOCK\nALM_INTERLOCK"
 ' Modbus Manager pooling
 FB_MODBUS_MANAGER --> FB_MTZ_DRIVER : "Conexión RTU\nTimeout recovery"
 FB_MTZ_DRIVER --> RS485
-RS485 --> MTZ : "Modbus RTU\n9600 8N1"
+RS485 --> MTZ : "Modbus RTU\n19200 8N1"
 RS485 --> FEEDERS : "Modbus RTU\nMulti-drop"
 
 ' Red eléctrica
@@ -125,23 +122,23 @@ DB_STATUS --> HMI : "Lectura\nestado"
 DB_STATUS --> SCADA : "Lectura\nremota"
 
 note right of FB_SCMTA
-    **Estado:** ✅ Implementado
+    **Estado:** ✅ Implementado V3.0
     **Test:** ✅ Happy path OK
-    **Fallas:** 🔶 Test pendiente
-    **GD2:** 🔶 Preparado (sin lógica)
+    21 estados (0-20)
+    Failover bidireccional GD1↔GD2
 end note
 
 note right of FB_IO_NORMALIZE
-    **Estado:** ✅ Implementado
+    **Estado:** ✅ Implementado V2.0
     **Test:** ✅ OK
-    **Función:** Normalización I/O
-    Filtros anti-rebote
+    Selectores QT1/QG1/QG2
+    Pulsadores feeders tipo a
+    Filtros anti-rebote 50ms
 end note
 
 note right of FB_SHED
-    **Estado:** 📄 Código listo V2.0
-    **Test:** ❌ Pendiente actualizar
-    **18 feeders** configurables
+    **Estado:** ✅ Implementado V2.0
+    **19 feeders** [1..19]
     **ESENCIAL / NO-ESENCIAL**
     Deslastre en RED + GD
     Acoplamiento escalonado en GD
@@ -149,10 +146,10 @@ note right of FB_SHED
 end note
 
 note right of FB_CMD_ARBITER
-    **Estado:** 📄 Código listo
-    **Test:** ❌ Pendiente
+    **Estado:** ✅ Implementado V2.0
     Prioridad: SCMTA>SHED>MANUAL
-    Enclavamiento triple
+    Enclavamiento fuente única
+    19 feeders
 end note
 
 note bottom of MTZ
@@ -165,25 +162,24 @@ note bottom of MTZ
 end note
 
 note bottom of FEEDERS
-    18 salidas Modbus
+    19 feeders Modbus [1..19]
     Clasificación:
-    FEEDER_ESSENTIAL[1..18]
+    FEEDER_ESSENTIAL[1..19]
     Prioridad deslastre:
-    SHED_ORDER[1..18]
-    RECONNECT_ORDER[1..18]
+    SHED_ORDER[1..19]
+    RECONNECT_ORDER[1..19]
     
+    tipo a (5): con pulsadores físicos
+    tipo b (14): solo cmd PLC/HMI
     Esenciales: siempre activos
-    No-esenciales: controlados
-    por FB_SHED según modo
+    No-esenciales: gestionados por SHED
 end note
 
 legend right
     |= Color |= Significado |
-    | <#lightgreen> | Implementado + Testeado |
-    | <#yellow> | Código listo - Pendiente implementar |
-    | <#lightgray> | Futuro (GD2 redundancia) |
+    | <#lightgreen> | Implementado |
     | <#lightblue> | Red eléctrica |
-    | <#orange> | Grupo diésel |
+    | <#orange> | Grupo diésel (GD1 y GD2) |
 endlegend
 
 @enduml

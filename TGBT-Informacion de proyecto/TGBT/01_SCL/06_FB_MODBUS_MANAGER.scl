@@ -37,8 +37,8 @@ VAR_INPUT
     CMD_CLOSE_QG1 : Bool;
     CMD_OPEN_QG2 : Bool;
     CMD_CLOSE_QG2 : Bool;
-    CMD_OPEN_FEEDER : Array[1..18] of Bool;
-    CMD_CLOSE_FEEDER : Array[1..18] of Bool;
+    CMD_OPEN_FEEDER : Array[1..19] of Bool;
+    CMD_CLOSE_FEEDER : Array[1..19] of Bool;
     
     // ========== PARÁMETROS ==========
     T_POLL_CYCLE : Time := T#1s;     // Ciclo polling lecturas
@@ -68,7 +68,7 @@ VAR_TEMP
 END_VAR
 
 VAR CONSTANT 
-    N_DEVICES : Int := 21;           // QT1, QG1, QG2 + 18 feeders
+    N_DEVICES : Int := 22;           // QT1, QG1, QG2 + 19 feeders
 END_VAR
 
 BEGIN
@@ -130,7 +130,7 @@ BEGIN
             1:  #ACTIVE_DEVICE := 'QT1';
             2:  #ACTIVE_DEVICE := 'QG1';
             3:  #ACTIVE_DEVICE := 'QG2';
-            4..21:  #ACTIVE_DEVICE := 'FEEDER_' + INT_TO_STRING(#pollIndex - 3);
+            4..22:  #ACTIVE_DEVICE := 'FEEDER_' + INT_TO_STRING(#pollIndex - 3);
         END_CASE;
         
         // TODO: llamar driver correspondiente para lectura estado

@@ -1,6 +1,6 @@
 (*
 ================================================================================
-  DATA BLOCK: DB_GLOBAL_STATUS
+  DATA BLOCK: DATA_BUFF  (ex DB_GLOBAL_STATUS)
   Versión: 3.0
   Fecha: 2026-02-10
   Autor: Sistema SCMTA TGBT
@@ -13,7 +13,7 @@
 ================================================================================
 *)
 
-DATA_BLOCK "DB_GLOBAL_STATUS"
+DATA_BLOCK "DATA_BUFF"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 NON_RETAIN
@@ -32,7 +32,6 @@ STRUCT
     QT1_REMOTE_ALLOWED : Bool;       // TRUE = PLC puede comandar QT1
     QG1_REMOTE_ALLOWED : Bool;
     QG2_REMOTE_ALLOWED : Bool;
-    FEEDER_REMOTE_ALLOWED : Array[1..18] of Bool;
     
     // ========================================================================
     // SECCIÓN 3: REQUESTS MANUALES (de FB_IO_NORMALIZE)
@@ -43,6 +42,10 @@ STRUCT
     REQ_MAN_QG1_CLOSE : Bool;
     REQ_MAN_QG2_OPEN : Bool;
     REQ_MAN_QG2_CLOSE : Bool;
+    
+    // Requests manuales FEEDERS (18 NSX)
+    REQ_MAN_FEEDER_OPEN : Array[1..19] of Bool;
+    REQ_MAN_FEEDER_CLOSE : Array[1..19] of Bool;
     
     // ========================================================================
     // SECCIÓN 4: SEÑALES GRUPO DIÉSEL (de FB_IO_NORMALIZE)
@@ -72,9 +75,15 @@ STRUCT
     QG2_TRIPPED : Bool;
     QG2_READY : Bool;
     
-    FEEDER_STATE : Array[1..18] of Int;
-    FEEDER_TRIPPED : Array[1..18] of Bool;
-    FEEDER_READY : Array[1..18] of Bool;
+    FEEDER_STATE : Array[1..19] of Int;
+    FEEDER_TRIPPED : Array[1..19] of Bool;
+    FEEDER_READY : Array[1..19] of Bool;
+    
+    // Señales adicionales feeders (NSX Micrologic)
+    FEEDER_ALARM : Array[1..19] of Bool;        // Alarma/falla feeder
+    FEEDER_I_L1 : Array[1..19] of Real;         // Corriente L1 [A] (si NSX tiene medición)
+    FEEDER_I_L2 : Array[1..19] of Real;         // Corriente L2 [A]
+    FEEDER_I_L3 : Array[1..19] of Real;         // Corriente L3 [A]
     
     // ========================================================================
     // SECCIÓN 6: MEDICIONES ELÉCTRICAS (de PM5350 vía Modbus)
@@ -142,8 +151,13 @@ STRUCT
     SHED_STEP : Int;
     RECONNECT_ACTIVE : Bool;
     RECONNECT_STEP : Int;
+    SHED_MODE : Int;                 // 0=IDLE, 1=GRID_SHED, 2=GD_INITIAL_SHED, 3=GD_RECONNECT, 4=GD_REACTIVE_SHED, 5=GRID_RECONNECT
     FEEDERS_SHED : Int;
+    FEEDERS_ESSENTIAL_COUNT : Int;   // Cantidad feeders esenciales
+    FEEDERS_NON_ESSENTIAL_COUNT : Int; // Cantidad feeders no-esenciales
     DIAG_LOAD_OVER_LIMIT : Bool;
+    DIAG_GD_LOAD_OK : Bool;          // TRUE = carga GD permite acoplar más
+    DIAG_GRID_LOAD_OK : Bool;        // TRUE = carga RED dentro de límites
     
     // ========================================================================
     // SECCIÓN 9: ALARMAS Y BLOQUEOS (de FB_CMD_ARBITER + FB_OUTPUTS)
@@ -154,6 +168,14 @@ STRUCT
     BLOCK_CONFLICT : Bool;
     HMI_ALARM_ACTIVE : Bool;
     HMI_ALARM_TEXT : String[100];
+    
+    // ========================================================================
+    // SECCIÓN 9B: SEÑALES HMI FEEDERS (de FB_OUTPUTS)
+    // ========================================================================
+    HMI_FEEDER_OPEN : Array[1..19] of Bool;      // TRUE = feeder abierto
+    HMI_FEEDER_CLOSED : Array[1..19] of Bool;    // TRUE = feeder cerrado
+    HMI_FEEDER_TRIPPED : Array[1..19] of Bool;   // TRUE = feeder disparado
+    HMI_FEEDER_ALARM : Array[1..19] of Bool;     // TRUE = feeder en alarma
     
     // ========================================================================
     // SECCIÓN 10: DIAGNÓSTICO COMUNICACIONES (de FB_MODBUS_MANAGER)

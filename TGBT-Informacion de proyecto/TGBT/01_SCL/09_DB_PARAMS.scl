@@ -72,33 +72,33 @@ STRUCT
     // ========================================================================
     // SECCIÓN 5: ARRAYS DESLASTRE (SHED_ORDER / RECONNECT_ORDER / ENABLE)
     // ========================================================================
-    // SHED_ORDER[1..18]: ID del feeder a deslastar en cada paso
+    // SHED_ORDER[1..19]: ID del feeder a deslastar en cada paso
     // Ejemplo: [5, 12, 3, 8, 15, 1, 9, ...] = paso 1 corta feeder 5, paso 2 corta 12, etc.
     // CONFIGURAR según relevamiento de cargas esenciales/no esenciales
-    SHED_ORDER : Array[1..18] of Int := [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
-    ];  // Default: secuencia 1-18 (modificar según prioridades reales)
+    SHED_ORDER : Array[1..19] of Int := [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+    ];  // Default: secuencia 1-19 (modificar según prioridades reales)
     
-    // RECONNECT_ORDER[1..18]: ID del feeder a reenganchar en cada paso
+    // RECONNECT_ORDER[1..19]: ID del feeder a reenganchar en cada paso
     // Puede ser igual a SHED_ORDER (misma secuencia) o diferente
-    RECONNECT_ORDER : Array[1..18] of Int := [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+    RECONNECT_ORDER : Array[1..19] of Int := [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
     ];  // Default: misma secuencia (modificar si se requiere orden distinto)
     
-    // FEEDER_ESSENTIAL[1..18]: clasificación esencial/no-esencial
+    // FEEDER_ESSENTIAL[1..19]: clasificación esencial/no-esencial
     // TRUE = esencial (nunca se deslasta, siempre activa en transferencia)
     // FALSE = no-esencial (se desacopla al pasar a GD, se puede deslastar en RED)
-    FEEDER_ESSENTIAL : Array[1..18] of Bool := [
+    FEEDER_ESSENTIAL : Array[1..19] of Bool := [
         FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
-        FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE
+        FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE
     ];  // Default: todos no-esenciales (CONFIGURAR según relevamiento de planta)
     
-    // SHED_ENABLE[1..18]: habilita/deshabilita deslastre por feeder
+    // SHED_ENABLE[1..19]: habilita/deshabilita deslastre por feeder
     // TRUE = permite deslastre, FALSE = excluir del control automático
     // NOTA: FEEDER_ESSENTIAL tiene prioridad sobre SHED_ENABLE
-    SHED_ENABLE : Array[1..18] of Bool := [
+    SHED_ENABLE : Array[1..19] of Bool := [
         TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE,
-        TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE
+        TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE
     ];  // Default: todos habilitados
     
     // ========================================================================
@@ -112,10 +112,10 @@ STRUCT
     SLAVE_ID_PM5350_GD : Byte := 11;    // Medidor GD
     SLAVE_ID_PM5350_TR : Byte := 12;    // Medidor trafo
     
-    // Slave IDs feeders (NSX 1-18)
-    SLAVE_ID_FEEDER : Array[1..18] of Byte := [
+    // Slave IDs feeders (NSX 1-19)
+    SLAVE_ID_FEEDER : Array[1..19] of Byte := [
         20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-        30, 31, 32, 33, 34, 35, 36, 37
+        30, 31, 32, 33, 34, 35, 36, 37, 38
     ];  // Default: direcciones consecutivas (ajustar según configuración real)
     
     // Passwords Micrologic nivel 3 (típicamente "3333")
@@ -130,9 +130,8 @@ STRUCT
     T_POLL_CYCLE : Time := T#1s;     // Ciclo polling lecturas
     
     // ========================================================================
-    // SECCIÓN 7: CONFIGURACIÓN ALARMAS
+    // SECCIÓN 7: CONFIGURACIÓN ALARMAS (reservado)
     // ========================================================================
-    ENABLE_HORN : Bool := TRUE;      // Habilitar bocina alarma
     
     // ========================================================================
     // SECCIÓN 8: CALIBRACIÓN GD (para LoadPct)

@@ -34,8 +34,8 @@
   7. Generación de requests abstractos para FB_CMD_ARBITER
   
   ARQUITECTURA:
-  - N_FEEDERS = 18 feeders controlables (NSX con Micrologic)
-  - FEEDER_ESSENTIAL[1..18]: clasificación esencial/no-esencial (parametrizable HMI)
+  - N_FEEDERS = 19 feeders controlables (NSX con Micrologic)
+  - FEEDER_ESSENTIAL[1..19]: clasificación esencial/no-esencial (parametrizable HMI)
   - Arrays configurables SHED_ORDER[] y RECONNECT_ORDER[]
   - Tiempos de paso escalonados (3-5s)
   - Esenciales NUNCA se deslastan
@@ -75,35 +75,35 @@ VAR_INPUT
     T_LOAD_CHECK_DELAY : Time := T#3s; // Delay verificación carga post-acoplamiento en GD
     
     // ========== ARRAYS CONFIGURABLES (DB_PARAMS) ==========
-    // SHED_ORDER[1..18]: ID del feeder a deslastar en cada paso (1-18)
-    SHED_ORDER : Array[1..18] of Int;
+    // SHED_ORDER[1..19]: ID del feeder a deslastar en cada paso (1-19)
+    SHED_ORDER : Array[1..19] of Int;
     
-    // RECONNECT_ORDER[1..18]: ID del feeder a reenganchar/acoplar en cada paso
-    RECONNECT_ORDER : Array[1..18] of Int;
+    // RECONNECT_ORDER[1..19]: ID del feeder a reenganchar/acoplar en cada paso
+    RECONNECT_ORDER : Array[1..19] of Int;
     
-    // FEEDER_ESSENTIAL[1..18]: TRUE = esencial (nunca se deslasta), FALSE = no-esencial
-    FEEDER_ESSENTIAL : Array[1..18] of Bool;
+    // FEEDER_ESSENTIAL[1..19]: TRUE = esencial (nunca se deslasta), FALSE = no-esencial
+    FEEDER_ESSENTIAL : Array[1..19] of Bool;
     
-    // SHED_ENABLE[1..18]: habilita deslastre por feeder (TRUE=habilitado)
+    // SHED_ENABLE[1..19]: habilita deslastre por feeder (TRUE=habilitado)
     // ESSENTIAL tiene prioridad: un feeder esencial NUNCA se deslasta aunque SHED_ENABLE=TRUE
-    SHED_ENABLE : Array[1..18] of Bool;
+    SHED_ENABLE : Array[1..19] of Bool;
     
     // ========== ESTADOS FEEDERS (de DB_GLOBAL_STATUS) ==========
-    FEEDER_STATE : Array[1..18] of Int; // 0=Abierto, 1=Cerrado, 2=Desconocido
+    FEEDER_STATE : Array[1..19] of Int; // 0=Abierto, 1=Cerrado, 2=Desconocido
 END_VAR
 
 VAR_OUTPUT 
     // ========== REQUESTS ABSTRACTOS (para FB_CMD_ARBITER) ==========
-    REQ_SHED_OPEN : Array[1..18] of Bool;  // Solicitud abrir feeder[i]
-    REQ_SHED_CLOSE : Array[1..18] of Bool; // Solicitud cerrar feeder[i]
+    REQ_SHED_OPEN : Array[1..19] of Bool;  // Solicitud abrir feeder[i]
+    REQ_SHED_CLOSE : Array[1..19] of Bool; // Solicitud cerrar feeder[i]
     
     // ========== ESTADO DESLASTRE ==========
-    SHED_ACTIVE : Bool;              // TRUE = deslastre activo (abriendo feeders)
-    SHED_STEP : Int;                 // Paso actual deslastre (0-18)
-    RECONNECT_ACTIVE : Bool;         // TRUE = reenganche/acoplamiento activo
-    RECONNECT_STEP : Int;            // Paso actual reenganche (0-18)
+    SHED_ACTIVE : Bool := FALSE;     // TRUE = deslastre activo (abriendo feeders)
+    SHED_STEP : Int := 0;            // Paso actual deslastre (0-18)
+    RECONNECT_ACTIVE : Bool := FALSE; // TRUE = reenganche/acoplamiento activo
+    RECONNECT_STEP : Int := 0;       // Paso actual reenganche (0-18)
     
-    SHED_MODE : Int;                 // Modo actual (0-5, ver descripción arriba)
+    SHED_MODE : Int := 0;            // Modo actual (0-5, ver descripción arriba)
     FEEDERS_SHED : Int;              // Cantidad feeders no-esenciales abiertos
     FEEDERS_ESSENTIAL_COUNT : Int;   // Cantidad feeders esenciales
     FEEDERS_NON_ESSENTIAL_COUNT : Int; // Cantidad feeders no-esenciales
@@ -154,7 +154,7 @@ VAR_TEMP
 END_VAR
 
 VAR CONSTANT 
-    N_FEEDERS : Int := 18;           // Cantidad total feeders
+    N_FEEDERS : Int := 19;           // Cantidad total feeders
     
     // Modos de operación
     MODE_IDLE : Int := 0;

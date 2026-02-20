@@ -1,25 +1,44 @@
 (*
 ================================================================================
   FUNCTION BLOCK: FB_OUTPUTS
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 3.0
+  Fecha: 2026-02-19
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
   Gestión de salidas físicas (pilotos, LEDs, alarmas) y señales para HMI.
   
   RESPONSABILIDADES:
-  1. Activar pilotos de estado (ON_GRID, ON_GD, IN_TRANSFER, FAULT)
-  2. Gestionar alarmas sonoras/visuales
-  3. Consolidar señales para pantalla HMI
-  4. Mapeo DO físicas del tablero
+  1. Activar pilotos de estado sistema (ON_GRID, ON_GD, FAULT, SHED)
+  2. Activar pilotos de estado interruptores QT1/QG1/QG2:
+     - OPEN (verde), CLOSED (rojo), FAULT (ámbar), CHARGING (blanco)
+  3. Activar pilotos de estado feeders (19 NSX con Modbus):
+     - FAULT, OPEN, CLOSED por cada feeder
+  4. Gestionar alarma visual (baliza)
+  5. Consolidar señales HMI para feeders
+  
+  NOTA PILOTOS INTERRUPTORES (QT1/QG1/QG2):
+  - 4 pilotos cada uno: OPEN (verde), CLOSED (rojo), FAULT (ámbar), CHARGING (blanco)
+  - FAULT: Bit 1 (SD) de Modbus reg 32001 → Qxx_TRIPPED
+  - CHARGING: Bit 5 (PF) de Modbus reg 32001 → Qxx_READY
+  - No existe piloto LOCAL en hardware (selector Local/Remoto es solo DI)
+  
+  NOTA PILOTOS FEEDERS (19 NSX):
+  - 3 pilotos cada uno: FAULT, CLOSE_IND, OPEN_IND
+  - Tipo a (con pulsadores): Q3.1-Q3.3, Q5.2, Q22
+  - Tipo b (sin pulsadores): resto
+  
+  SEÑALES ELIMINADAS V3.0:
+  - DO_PILOT_Qxx_LOCAL: no existe piloto físico en tablero
+  - DO_PILOT_TRANSFER: no existe piloto físico
+  - DO_ALARM_HORN: no existe bocina/sirena física
   
 ================================================================================
 *)
 
 FUNCTION_BLOCK "FB_OUTPUTS"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
+VERSION : 0.3
 
 VAR_INPUT 
     // ========== ESTADOS SISTEMA (de FB_SCMTA) ==========
@@ -31,36 +50,81 @@ VAR_INPUT
     STATE_NAME : String[30];
     FAULT_CODE : Int;
     
+    // ========== ESTADOS INTERRUPTORES (de DATA_BUFF) ==========
+    QT1_STATE : Int;                 // 0=Abierto, 1=Cerrado, 2=Desconocido, 3=Transición
+    QG1_STATE : Int;
+    QG2_STATE : Int;
+    QT1_TRIPPED : Bool;
+    QG1_TRIPPED : Bool;
+    QG2_TRIPPED : Bool;
+    QT1_READY : Bool;               // Modbus Bit 5 PF (listo para cerrar)
+    QG1_READY : Bool;
+    QG2_READY : Bool;
+    
+    // ========== FEEDERS (de DATA_BUFF) ==========
+    FEEDER_STATE : Array[1..19] of Int;
+    FEEDER_TRIPPED : Array[1..19] of Bool;
+    FEEDER_ALARM : Array[1..19] of Bool;
+    
     // ========== ALARMAS (de FB_SCMTA + FB_CMD_ARBITER) ==========
     ALM_INTERLOCK_VIOLATION : Bool;
     BLOCK_INTERLOCK : Bool;
     GRID_FAIL : Bool;
     GD_ALARM : Bool;
+    GD2_ALARM : Bool;
     
     // ========== DESLASTRE (de FB_SHED) ==========
     SHED_ACTIVE : Bool;
     FEEDERS_SHED : Int;
     
     // ========== CONTROL ==========
-    ENABLE_HORN : Bool := TRUE;      // Habilitar bocina alarma
     ACK_ALARM : Bool;                // Pulso reconocimiento alarma
 END_VAR
 
 VAR_OUTPUT 
-    // ========== SALIDAS FÍSICAS (DO) ==========
+    // ========== SALIDAS FÍSICAS SISTEMA (DO) ==========
     DO_PILOT_ON_GRID : Bool;         // LED/Piloto "EN RED" (verde)
     DO_PILOT_ON_GD : Bool;           // LED/Piloto "EN GRUPO" (amarillo)
-    DO_PILOT_TRANSFER : Bool;        // LED/Piloto "TRANSFERENCIA" (amarillo parpadeante)
     DO_PILOT_FAULT : Bool;           // LED/Piloto "FALLA" (rojo)
     DO_PILOT_SHED : Bool;            // LED/Piloto "DESLASTRE ACTIVO" (amarillo)
     
-    DO_ALARM_HORN : Bool;            // Bocina alarma (24VDC)
+    // ========== SALIDAS FÍSICAS INTERRUPTORES QT1/QG1/QG2 (DO) ==========
+    // QT1 - Interruptor RED
+    DO_PILOT_QT1_OPEN : Bool;       // LED "QT1 ABIERTO" (verde)
+    DO_PILOT_QT1_CLOSED : Bool;     // LED "QT1 CERRADO" (rojo)
+    DO_PILOT_QT1_FAULT : Bool;      // LED "QT1 FALLA" (ámbar) — Fault Indication
+    DO_PILOT_QT1_CHARGING : Bool;   // LED "QT1 LISTO" (blanco) — Charging Indication (PF)
+    
+    // QG1 - Interruptor GD01
+    DO_PILOT_QG1_OPEN : Bool;
+    DO_PILOT_QG1_CLOSED : Bool;
+    DO_PILOT_QG1_FAULT : Bool;      // LED "QG1 FALLA" (ámbar)
+    DO_PILOT_QG1_CHARGING : Bool;   // LED "QG1 LISTO" (blanco)
+    
+    // QG2 - Interruptor GD02
+    DO_PILOT_QG2_OPEN : Bool;
+    DO_PILOT_QG2_CLOSED : Bool;
+    DO_PILOT_QG2_FAULT : Bool;      // LED "QG2 FALLA" (ámbar)
+    DO_PILOT_QG2_CHARGING : Bool;   // LED "QG2 LISTO" (blanco)
+    
+    // ========== SALIDAS FÍSICAS FEEDERS (DO) — 19 NSX ==========
+    DO_PILOT_FEEDER_FAULT : Array[1..19] of Bool;    // Fault Indication (ámbar)
+    DO_PILOT_FEEDER_CLOSED : Array[1..19] of Bool;   // Close Indication (rojo)
+    DO_PILOT_FEEDER_OPEN : Array[1..19] of Bool;     // Open Indication (verde)
+    
+    // ========== ALARMAS FÍSICAS ==========
     DO_ALARM_BEACON : Bool;          // Baliza alarma (rojo parpadeante)
     
     // ========== SEÑALES HMI ==========
     HMI_STATUS_TEXT : String[50];    // Texto estado para HMI
     HMI_ALARM_ACTIVE : Bool;         // TRUE = hay alarma activa
     HMI_ALARM_TEXT : String[100];    // Descripción alarma
+    
+    // ========== HMI FEEDERS (consolidado para cada feeder) ==========
+    HMI_FEEDER_OPEN : Array[1..19] of Bool;      // TRUE = feeder abierto
+    HMI_FEEDER_CLOSED : Array[1..19] of Bool;    // TRUE = feeder cerrado
+    HMI_FEEDER_TRIPPED : Array[1..19] of Bool;   // TRUE = feeder disparado
+    HMI_FEEDER_ALARM : Array[1..19] of Bool;     // TRUE = feeder en alarma
     
 END_VAR
 
@@ -73,10 +137,14 @@ VAR
     // Timer parpadeo
     tonBlink : TON;
     blinkState : Bool;
+    blinkToggle : Bool;              // Auxiliar reset timer
     
     // R_TRIG para ACK
     rtAckAlarm : Bool;
     memAckAlarm : Bool;
+    
+    // Loop counter
+    i : Int;
     
 END_VAR
 
@@ -85,11 +153,26 @@ END_VAR
 
 VAR CONSTANT 
     BLINK_TIME : Time := T#500ms;
+    N_FEEDERS : Int := 19;
 END_VAR
 
 BEGIN
     // ========================================================================
-    // NETWORK 1: PILOTOS DE ESTADO
+    // NETWORK 1: PARPADEO (generador 500ms ON / 500ms OFF)
+    // ========================================================================
+    
+    #tonBlink(IN := NOT #blinkToggle, PT := #BLINK_TIME);
+    IF #tonBlink.Q THEN
+        #blinkState := NOT #blinkState;
+        #blinkToggle := TRUE;
+    END_IF;
+    IF #blinkToggle THEN
+        #blinkToggle := FALSE;
+    END_IF;
+    
+    
+    // ========================================================================
+    // NETWORK 2: PILOTOS DE ESTADO SISTEMA
     // ========================================================================
     
     // LED "EN RED" (verde fijo)
@@ -97,14 +180,6 @@ BEGIN
     
     // LED "EN GRUPO" (amarillo fijo)
     #DO_PILOT_ON_GD := #IS_ON_GD AND NOT #IS_FAULT;
-    
-    // LED "TRANSFERENCIA" (amarillo parpadeante)
-    #tonBlink(IN := #IS_IN_TRANSFER, PT := #BLINK_TIME);
-    IF #tonBlink.Q THEN
-        #blinkState := NOT #blinkState;
-        #tonBlink(IN := FALSE, PT := T#1s);
-    END_IF;
-    #DO_PILOT_TRANSFER := #IS_IN_TRANSFER AND #blinkState;
     
     // LED "FALLA" (rojo fijo)
     #DO_PILOT_FAULT := #IS_FAULT;
@@ -114,13 +189,122 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 2: DETECCIÓN Y GESTIÓN DE ALARMAS
+    // NETWORK 3: PILOTOS INTERRUPTORES QT1/QG1/QG2
+    // ========================================================================
+    // STATE: 0=Abierto, 1=Cerrado, 2=Desconocido, 3=Transición
+    // En transición: ambos pilotos parpadean alternado
+    // Si TRIPPED: rojo fijo + verde parpadea
+    // FAULT (ámbar): se enciende cuando TRIPPED = TRUE
+    // CHARGING (blanco): se enciende cuando READY = TRUE (Modbus PF bit)
+    
+    // ---- QT1 ----
+    IF #QT1_TRIPPED THEN
+        #DO_PILOT_QT1_CLOSED := TRUE;
+        #DO_PILOT_QT1_OPEN := #blinkState;
+    ELSIF #QT1_STATE = 0 THEN
+        #DO_PILOT_QT1_OPEN := TRUE;
+        #DO_PILOT_QT1_CLOSED := FALSE;
+    ELSIF #QT1_STATE = 1 THEN
+        #DO_PILOT_QT1_OPEN := FALSE;
+        #DO_PILOT_QT1_CLOSED := TRUE;
+    ELSIF #QT1_STATE = 3 THEN
+        #DO_PILOT_QT1_OPEN := #blinkState;
+        #DO_PILOT_QT1_CLOSED := NOT #blinkState;
+    ELSE
+        #DO_PILOT_QT1_OPEN := FALSE;
+        #DO_PILOT_QT1_CLOSED := FALSE;
+    END_IF;
+    
+    #DO_PILOT_QT1_FAULT := #QT1_TRIPPED;
+    #DO_PILOT_QT1_CHARGING := #QT1_READY;
+    
+    // ---- QG1 ----
+    IF #QG1_TRIPPED THEN
+        #DO_PILOT_QG1_CLOSED := TRUE;
+        #DO_PILOT_QG1_OPEN := #blinkState;
+    ELSIF #QG1_STATE = 0 THEN
+        #DO_PILOT_QG1_OPEN := TRUE;
+        #DO_PILOT_QG1_CLOSED := FALSE;
+    ELSIF #QG1_STATE = 1 THEN
+        #DO_PILOT_QG1_OPEN := FALSE;
+        #DO_PILOT_QG1_CLOSED := TRUE;
+    ELSIF #QG1_STATE = 3 THEN
+        #DO_PILOT_QG1_OPEN := #blinkState;
+        #DO_PILOT_QG1_CLOSED := NOT #blinkState;
+    ELSE
+        #DO_PILOT_QG1_OPEN := FALSE;
+        #DO_PILOT_QG1_CLOSED := FALSE;
+    END_IF;
+    
+    #DO_PILOT_QG1_FAULT := #QG1_TRIPPED;
+    #DO_PILOT_QG1_CHARGING := #QG1_READY;
+    
+    // ---- QG2 ----
+    IF #QG2_TRIPPED THEN
+        #DO_PILOT_QG2_CLOSED := TRUE;
+        #DO_PILOT_QG2_OPEN := #blinkState;
+    ELSIF #QG2_STATE = 0 THEN
+        #DO_PILOT_QG2_OPEN := TRUE;
+        #DO_PILOT_QG2_CLOSED := FALSE;
+    ELSIF #QG2_STATE = 1 THEN
+        #DO_PILOT_QG2_OPEN := FALSE;
+        #DO_PILOT_QG2_CLOSED := TRUE;
+    ELSIF #QG2_STATE = 3 THEN
+        #DO_PILOT_QG2_OPEN := #blinkState;
+        #DO_PILOT_QG2_CLOSED := NOT #blinkState;
+    ELSE
+        #DO_PILOT_QG2_OPEN := FALSE;
+        #DO_PILOT_QG2_CLOSED := FALSE;
+    END_IF;
+    
+    #DO_PILOT_QG2_FAULT := #QG2_TRIPPED;
+    #DO_PILOT_QG2_CHARGING := #QG2_READY;
+    
+    
+    // ========================================================================
+    // NETWORK 4: PILOTOS FEEDERS (19 NSX) + SEÑALES HMI
+    // ========================================================================
+    // 3 pilotos físicos por feeder: Fault (ámbar), Closed (rojo), Open (verde)
+    // + consolidación HMI
+    
+    FOR #i := 1 TO #N_FEEDERS DO
+        // Pilotos físicos feeders
+        #DO_PILOT_FEEDER_FAULT[#i] := #FEEDER_TRIPPED[#i] OR #FEEDER_ALARM[#i];
+        
+        IF #FEEDER_TRIPPED[#i] THEN
+            // Tripped: rojo fijo + verde parpadea
+            #DO_PILOT_FEEDER_CLOSED[#i] := TRUE;
+            #DO_PILOT_FEEDER_OPEN[#i] := #blinkState;
+        ELSIF #FEEDER_STATE[#i] = 0 THEN
+            // Abierto: verde fijo
+            #DO_PILOT_FEEDER_OPEN[#i] := TRUE;
+            #DO_PILOT_FEEDER_CLOSED[#i] := FALSE;
+        ELSIF #FEEDER_STATE[#i] = 1 THEN
+            // Cerrado: rojo fijo
+            #DO_PILOT_FEEDER_OPEN[#i] := FALSE;
+            #DO_PILOT_FEEDER_CLOSED[#i] := TRUE;
+        ELSE
+            // Desconocido: ambos apagados
+            #DO_PILOT_FEEDER_OPEN[#i] := FALSE;
+            #DO_PILOT_FEEDER_CLOSED[#i] := FALSE;
+        END_IF;
+        
+        // Señales HMI feeders
+        #HMI_FEEDER_OPEN[#i] := (#FEEDER_STATE[#i] = 0);
+        #HMI_FEEDER_CLOSED[#i] := (#FEEDER_STATE[#i] = 1);
+        #HMI_FEEDER_TRIPPED[#i] := #FEEDER_TRIPPED[#i];
+        #HMI_FEEDER_ALARM[#i] := #FEEDER_ALARM[#i];
+    END_FOR;
+    
+    
+    // ========================================================================
+    // NETWORK 5: DETECCIÓN Y GESTIÓN DE ALARMAS
     // ========================================================================
     
-    // Alarma activa si hay falla o violación enclavamiento
-    #alarmActive := #IS_FAULT OR #ALM_INTERLOCK_VIOLATION OR #GD_ALARM;
+    // Alarma activa si hay falla, violación enclavamiento, o alarma GD
+    #alarmActive := #IS_FAULT OR #ALM_INTERLOCK_VIOLATION OR #GD_ALARM OR #GD2_ALARM;
     
-    // Texto alarma
+    // Texto alarma (prioridad descendente)
     IF #IS_FAULT THEN
         CASE #FAULT_CODE OF
             101: #alarmText := 'TIMEOUT: No se pudo abrir QT1';
@@ -137,7 +321,9 @@ BEGIN
     ELSIF #ALM_INTERLOCK_VIOLATION THEN
         #alarmText := 'ALARMA: Múltiples fuentes cerradas simultáneamente';
     ELSIF #GD_ALARM THEN
-        #alarmText := 'ALARMA: Falla en Grupo Diésel';
+        #alarmText := 'ALARMA: Falla en Grupo Diésel 1';
+    ELSIF #GD2_ALARM THEN
+        #alarmText := 'ALARMA: Falla en Grupo Diésel 2';
     ELSE
         #alarmText := '';
     END_IF;
@@ -157,18 +343,15 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 3: BOCINA Y BALIZA
+    // NETWORK 6: BALIZA
     // ========================================================================
-    
-    // Bocina: activa si hay alarma y no está reconocida
-    #DO_ALARM_HORN := #alarmActive AND NOT #alarmAcknowledged AND #ENABLE_HORN;
     
     // Baliza: activa si hay alarma (independiente de ACK)
     #DO_ALARM_BEACON := #alarmActive;
     
     
     // ========================================================================
-    // NETWORK 4: SEÑALES HMI
+    // NETWORK 7: SEÑALES HMI GENERALES
     // ========================================================================
     
     // Texto estado

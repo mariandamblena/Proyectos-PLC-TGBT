@@ -60,6 +60,20 @@ BEGIN
         DI_GD2_RUNNING := %I1.7,
         DI_GD2_ALARM := %I2.1,
         
+        // Feeders pulsadores Open/Close (TODO: mapear según hardware)
+        // Solo tipo a (Q3.1-Q3.3, Q5.2, Q22) tienen pulsadores físicos
+        // DI_FEEDER_PB_OPEN[1] := %I3.0,   // Q3.1
+        // DI_FEEDER_PB_OPEN[2] := %I3.1,   // Q3.2
+        // DI_FEEDER_PB_OPEN[3] := %I3.2,   // Q3.3
+        // DI_FEEDER_PB_OPEN[12] := %I3.3,  // Q5.2
+        // DI_FEEDER_PB_OPEN[18] := %I3.4,  // Q22
+        // DI_FEEDER_PB_CLOSE[1] := %I4.0,
+        // DI_FEEDER_PB_CLOSE[2] := %I4.1,
+        // DI_FEEDER_PB_CLOSE[3] := %I4.2,
+        // DI_FEEDER_PB_CLOSE[12] := %I4.3,
+        // DI_FEEDER_PB_CLOSE[18] := %I4.4,
+        // Por ahora se pueden comentar o dejar sin conectar
+        
         // Outputs → DATA_BUFF (Global DB)
         MODE_AUTO => "DATA_BUFF".MODE_AUTO,
         MODE_MANUAL => "DATA_BUFF".MODE_MANUAL,
@@ -72,6 +86,8 @@ BEGIN
         REQ_MAN_QG1_CLOSE => "DATA_BUFF".REQ_MAN_QG1_CLOSE,
         REQ_MAN_QG2_OPEN => "DATA_BUFF".REQ_MAN_QG2_OPEN,
         REQ_MAN_QG2_CLOSE => "DATA_BUFF".REQ_MAN_QG2_CLOSE,
+        REQ_MAN_FEEDER_OPEN => "DATA_BUFF".REQ_MAN_FEEDER_OPEN,
+        REQ_MAN_FEEDER_CLOSE => "DATA_BUFF".REQ_MAN_FEEDER_CLOSE,
         GD_READY => "DATA_BUFF".GD_READY,
         GD_RUNNING => "DATA_BUFF".GD_RUNNING,
         GD_ALARM => "DATA_BUFF".GD_ALARM,
@@ -171,7 +187,7 @@ BEGIN
     // NETWORK 3: DESLASTRE Y REENGANCHE
     // ========================================================================
     // Input: IS_ON_GD, GD_LoadPct, TR_LoadPct, arrays SHED_ORDER/ENABLE
-    // Output: REQ_SHED_OPEN/CLOSE[1..18]
+    // Output: REQ_SHED_OPEN/CLOSE[1..19]
     
     "03_FB_SHED_DB"(
         // Control
@@ -252,6 +268,8 @@ BEGIN
         REQ_MAN_QG1_CLOSE := "DATA_BUFF".REQ_MAN_QG1_CLOSE,
         REQ_MAN_QG2_OPEN := "DATA_BUFF".REQ_MAN_QG2_OPEN,
         REQ_MAN_QG2_CLOSE := "DATA_BUFF".REQ_MAN_QG2_CLOSE,
+        REQ_MAN_FEEDER_OPEN := "DATA_BUFF".REQ_MAN_FEEDER_OPEN,
+        REQ_MAN_FEEDER_CLOSE := "DATA_BUFF".REQ_MAN_FEEDER_CLOSE,
         
         // Modo y permisos
         MODE_AUTO := "DATA_BUFF".MODE_AUTO,
@@ -259,7 +277,6 @@ BEGIN
         QT1_REMOTE_ALLOWED := "DATA_BUFF".QT1_REMOTE_ALLOWED,
         QG1_REMOTE_ALLOWED := "DATA_BUFF".QG1_REMOTE_ALLOWED,
         QG2_REMOTE_ALLOWED := "DATA_BUFF".QG2_REMOTE_ALLOWED,
-        FEEDER_REMOTE_ALLOWED := "DATA_BUFF".FEEDER_REMOTE_ALLOWED,
         
         // Estados interruptores
         QT1_STATE := "DATA_BUFF".QT1_STATE,
@@ -301,32 +318,78 @@ BEGIN
         STATE_NAME := "DATA_BUFF".SCMTA_STATE_NAME,
         FAULT_CODE := "DATA_BUFF".FAULT_CODE,
         
+        // Estados interruptores fuente
+        QT1_STATE := "DATA_BUFF".QT1_STATE,
+        QG1_STATE := "DATA_BUFF".QG1_STATE,
+        QG2_STATE := "DATA_BUFF".QG2_STATE,
+        QT1_TRIPPED := "DATA_BUFF".QT1_TRIPPED,
+        QG1_TRIPPED := "DATA_BUFF".QG1_TRIPPED,
+        QG2_TRIPPED := "DATA_BUFF".QG2_TRIPPED,
+        QT1_READY := "DATA_BUFF".QT1_READY,
+        QG1_READY := "DATA_BUFF".QG1_READY,
+        QG2_READY := "DATA_BUFF".QG2_READY,
+        
+        // Feeders
+        FEEDER_STATE := "DATA_BUFF".FEEDER_STATE,
+        FEEDER_TRIPPED := "DATA_BUFF".FEEDER_TRIPPED,
+        FEEDER_ALARM := "DATA_BUFF".FEEDER_ALARM,
+        
         // Alarmas
         ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
         BLOCK_INTERLOCK := "DATA_BUFF".BLOCK_INTERLOCK,
         GRID_FAIL := "DATA_BUFF".GRID_FAIL,
         GD_ALARM := "DATA_BUFF".GD_ALARM,
+        GD2_ALARM := "DATA_BUFF".GD2_ALARM,
         
         // Deslastre
         SHED_ACTIVE := "DATA_BUFF".SHED_ACTIVE,
         FEEDERS_SHED := "DATA_BUFF".FEEDERS_SHED,
         
         // Control
-        ENABLE_HORN := "DB_PARAMS".ENABLE_HORN,
         ACK_ALARM := %I2.1,  // TODO: mapear botón ACK físico o HMI
         
-        // Outputs → DO físicas (EJEMPLO - ajustar según hardware)
+        // Outputs → DO físicas SISTEMA (EJEMPLO - ajustar %Q según hardware)
         DO_PILOT_ON_GRID => %Q1.0,
         DO_PILOT_ON_GD => %Q1.1,
-        DO_PILOT_TRANSFER => %Q1.2,
-        DO_PILOT_FAULT => %Q1.3,
-        DO_PILOT_SHED => %Q1.4,
-        DO_ALARM_HORN => %Q1.5,
-        DO_ALARM_BEACON => %Q1.6,
+        DO_PILOT_FAULT => %Q1.2,
+        DO_PILOT_SHED => %Q1.3,
         
-        // Outputs HMI
+        // Outputs → DO físicas INTERRUPTORES QT1 (4 pilotos)
+        DO_PILOT_QT1_OPEN => %Q1.4,         // LED QT1 ABIERTO (verde)
+        DO_PILOT_QT1_CLOSED => %Q1.5,       // LED QT1 CERRADO (rojo)
+        DO_PILOT_QT1_FAULT => %Q1.6,        // LED QT1 FALLA (ámbar)
+        DO_PILOT_QT1_CHARGING => %Q1.7,     // LED QT1 LISTO (blanco) — Modbus PF
+        
+        // Outputs → DO físicas INTERRUPTORES QG1 (4 pilotos)
+        DO_PILOT_QG1_OPEN => %Q2.0,
+        DO_PILOT_QG1_CLOSED => %Q2.1,
+        DO_PILOT_QG1_FAULT => %Q2.2,
+        DO_PILOT_QG1_CHARGING => %Q2.3,
+        
+        // Outputs → DO físicas INTERRUPTORES QG2 (4 pilotos)
+        DO_PILOT_QG2_OPEN => %Q2.4,
+        DO_PILOT_QG2_CLOSED => %Q2.5,
+        DO_PILOT_QG2_FAULT => %Q2.6,
+        DO_PILOT_QG2_CHARGING => %Q2.7,
+        
+        // Outputs → DO físicas FEEDERS (19 × 3 pilotos)
+        // TODO: mapear %Q según módulos de expansión reales
+        // DO_PILOT_FEEDER_FAULT => ...,
+        // DO_PILOT_FEEDER_CLOSED => ...,
+        // DO_PILOT_FEEDER_OPEN => ...,
+        
+        // Outputs → DO ALARMAS
+        DO_ALARM_BEACON => %Q3.0,
+        
+        // Outputs HMI generales
         HMI_ALARM_ACTIVE => "DATA_BUFF".HMI_ALARM_ACTIVE,
-        HMI_ALARM_TEXT => "DATA_BUFF".HMI_ALARM_TEXT
+        HMI_ALARM_TEXT => "DATA_BUFF".HMI_ALARM_TEXT,
+        
+        // Outputs HMI FEEDERS → DATA_BUFF
+        HMI_FEEDER_OPEN => "DATA_BUFF".HMI_FEEDER_OPEN,
+        HMI_FEEDER_CLOSED => "DATA_BUFF".HMI_FEEDER_CLOSED,
+        HMI_FEEDER_TRIPPED => "DATA_BUFF".HMI_FEEDER_TRIPPED,
+        HMI_FEEDER_ALARM => "DATA_BUFF".HMI_FEEDER_ALARM
     );
     
     
