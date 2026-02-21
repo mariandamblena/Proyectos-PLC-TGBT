@@ -6,13 +6,13 @@ VERSION : 0.1
 BEGIN
     
     // ========================================================================
-    // NETWORK 1: NORMALIZACIï¿½N ENTRADAS/SALIDAS
+    // NETWORK 1: NORMALIZACIN ENTRADAS/SALIDAS
     // ========================================================================
-    // Convierte seï¿½ales fï¿½sicas DI -> seï¿½ales lï¿½gicas
+    // Convierte seales fsicas DI -> seales lgicas
     // Output: MODE_AUTO, *_REMOTE_ALLOWED, REQ_MAN_*, GD_READY/RUNNING/ALARM
     
     "01_FB_IO_NORMALIZE_DB"(
-        // Inputs - Mapeo DI fï¿½sicas (EJEMPLO - ajustar segï¿½n hardware real)
+        // Inputs - Mapeo DI fsicas (EJEMPLO - ajustar segn hardware real)
         DI_SYS_AUTO := %I0.0,
         DI_QT1_REMOTE_SEL := %I0.1,
         DI_QT1_PB_OPEN := %I0.2,
@@ -30,8 +30,8 @@ BEGIN
         DI_GD2_RUNNING := %I1.7,
         DI_GD2_ALARM := %I2.1,
         
-        // Feeders pulsadores Open/Close (TODO: mapear segï¿½n hardware)
-        // Solo tipo a (Q3.1-Q3.3, Q5.2, Q22) tienen pulsadores fï¿½sicos
+        // Feeders pulsadores Open/Close (TODO: mapear segn hardware)
+        // Solo tipo a (Q3.1-Q3.3, Q5.2, Q22) tienen pulsadores fsicos
         // DI_FEEDER_PB_OPEN[1] := %I3.0,   // Q3.1
         // DI_FEEDER_PB_OPEN[2] := %I3.1,   // Q3.2
         // DI_FEEDER_PB_OPEN[3] := %I3.2,   // Q3.3
@@ -69,7 +69,7 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 2: Mï¿½QUINA DE ESTADOS SCMTA (Transferencia Automï¿½tica)
+    // NETWORK 2: MQUINA DE ESTADOS SCMTA (Transferencia Automtica)
     // ========================================================================
     // Input: MODE_AUTO, estados interruptores, mediciones red, GD_READY
     // Output: REQ_SCMTA_*, DO_GD_START/STOP, flags estado (IS_ON_GRID, IS_ON_GD, etc.)
@@ -78,31 +78,31 @@ BEGIN
         // Control
         ENABLE := "DB_PARAMS".ENABLE_SCMTA,
         MODE_AUTO := "DATA_BUFF".MODE_AUTO,
-        RESET_FAULT := %I2.0,  // TODO: mapear botï¿½n reset fï¿½sico o HMI
+        RESET_FAULT := %I2.0,  // TODO: mapear botn reset fsico o HMI
         
         // Estados interruptores (de drivers Modbus)
         QT1_STATE := "DATA_BUFF".QT1_STATE,
         QG1_STATE := "DATA_BUFF".QG1_STATE,
         QG2_STATE := "DATA_BUFF".QG2_STATE,
         
-        // Mediciones RED (de PM5350 vï¿½a Modbus)
+        // Mediciones RED (de PM5350 va Modbus)
         GRID_V_L1L2 := "DATA_BUFF".GRID_V_L1L2,
         GRID_V_L2L3 := "DATA_BUFF".GRID_V_L2L3,
         GRID_V_L3L1 := "DATA_BUFF".GRID_V_L3L1,
         GRID_FREQ := "DATA_BUFF".GRID_FREQ,
         GRID_MEASUREMENT_OK := "DATA_BUFF".GRID_MEASUREMENT_OK,
         
-        // Seï¿½ales GD1 (primario)
+        // Seales GD1 (primario)
         GD_READY := "DATA_BUFF".GD_READY,
         GD_RUNNING := "DATA_BUFF".GD_RUNNING,
         GD_ALARM := "DATA_BUFF".GD_ALARM,
         
-        // Seï¿½ales GD2 (backup/redundante)
+        // Seales GD2 (backup/redundante)
         GD2_READY := "DATA_BUFF".GD2_READY,
         GD2_RUNNING := "DATA_BUFF".GD2_RUNNING,
         GD2_ALARM := "DATA_BUFF".GD2_ALARM,
         
-        // Parï¿½metros configurables (de DB_PARAMS)
+        // Parmetros configurables (de DB_PARAMS)
         V_NOM := "DB_PARAMS".V_NOM,
         V_MIN_PCT := "DB_PARAMS".V_MIN_PCT,
         V_MAX_PCT := "DB_PARAMS".V_MAX_PCT,
@@ -172,15 +172,15 @@ BEGIN
         GD_LoadPct := "DATA_BUFF".GD_LoadPct,
         TR_LoadPct := "DATA_BUFF".TR_LoadPct,
         
-        // Parï¿½metros deslastre GD (de DB_PARAMS)
+        // Parmetros deslastre GD (de DB_PARAMS)
         GD_SHED_ON := "DB_PARAMS".GD_SHED_ON,
         GD_SHED_OFF := "DB_PARAMS".GD_SHED_OFF,
         
-        // Parï¿½metros deslastre RED (de DB_PARAMS)
+        // Parmetros deslastre RED (de DB_PARAMS)
         GRID_SHED_ON := "DB_PARAMS".GRID_SHED_ON,
         GRID_SHED_OFF := "DB_PARAMS".GRID_SHED_OFF,
         
-        // Parï¿½metros tiempos (de DB_PARAMS)
+        // Parmetros tiempos (de DB_PARAMS)
         T_SHED_STEP := "DB_PARAMS".T_SHED_STEP,
         T_RECONNECT_STEP := "DB_PARAMS".T_RECONNECT_STEP,
         T_LOAD_FILTER := "DB_PARAMS".T_LOAD_FILTER,
@@ -213,7 +213,7 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 4: ï¿½RBITRO DE COMANDOS (Enclavamiento + Priorizaciï¿½n)
+    // NETWORK 4: RBITRO DE COMANDOS (Enclavamiento + Priorizacin)
     // ========================================================================
     // Input: REQ_SCMTA_*, REQ_SHED_*, REQ_MAN_*, permisos LOCAL/REMOTO
     // Output: CMD_* (comandos finales para drivers Modbus)
@@ -273,10 +273,10 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 5: GESTIï¿½N DE SALIDAS (Pilotos, Alarmas, HMI)
+    // NETWORK 5: GESTIN DE SALIDAS (Pilotos, Alarmas, HMI)
     // ========================================================================
     // Input: Estados SCMTA, alarmas, deslastre
-    // Output: DO pilotos, bocina, baliza, seï¿½ales HMI
+    // Output: DO pilotos, bocina, baliza, seales HMI
     
     "05_FB_OUTPUTS_DB"(
         // Estados sistema
@@ -316,34 +316,34 @@ BEGIN
         FEEDERS_SHED := "DATA_BUFF".FEEDERS_SHED,
         
         // Control
-        ACK_ALARM := %I2.1,  // TODO: mapear botï¿½n ACK fï¿½sico o HMI
+        ACK_ALARM := %I2.1,  // TODO: mapear botn ACK fsico o HMI
         
-        // Outputs -> DO fï¿½sicas SISTEMA (EJEMPLO - ajustar %Q segï¿½n hardware)
+        // Outputs -> DO fsicas SISTEMA (EJEMPLO - ajustar %Q segn hardware)
         DO_PILOT_ON_GRID => %Q1.0,
         DO_PILOT_ON_GD => %Q1.1,
         DO_PILOT_FAULT => %Q1.2,
         DO_PILOT_SHED => %Q1.3,
         
-        // Outputs -> DO fï¿½sicas INTERRUPTORES QT1 (4 pilotos)
+        // Outputs -> DO fsicas INTERRUPTORES QT1 (4 pilotos)
         DO_PILOT_QT1_OPEN => %Q1.4,         // LED QT1 ABIERTO (verde)
         DO_PILOT_QT1_CLOSED => %Q1.5,       // LED QT1 CERRADO (rojo)
-        DO_PILOT_QT1_FAULT => %Q1.6,        // LED QT1 FALLA (ï¿½mbar)
+        DO_PILOT_QT1_FAULT => %Q1.6,        // LED QT1 FALLA (mbar)
         DO_PILOT_QT1_CHARGING => %Q1.7,     // LED QT1 LISTO (blanco) -- Modbus PF
         
-        // Outputs -> DO fï¿½sicas INTERRUPTORES QG1 (4 pilotos)
+        // Outputs -> DO fsicas INTERRUPTORES QG1 (4 pilotos)
         DO_PILOT_QG1_OPEN => %Q2.0,
         DO_PILOT_QG1_CLOSED => %Q2.1,
         DO_PILOT_QG1_FAULT => %Q2.2,
         DO_PILOT_QG1_CHARGING => %Q2.3,
         
-        // Outputs -> DO fï¿½sicas INTERRUPTORES QG2 (4 pilotos)
+        // Outputs -> DO fsicas INTERRUPTORES QG2 (4 pilotos)
         DO_PILOT_QG2_OPEN => %Q2.4,
         DO_PILOT_QG2_CLOSED => %Q2.5,
         DO_PILOT_QG2_FAULT => %Q2.6,
         DO_PILOT_QG2_CHARGING => %Q2.7,
         
-        // Outputs -> DO fï¿½sicas FEEDERS (19 ï¿½ 3 pilotos)
-        // TODO: mapear %Q segï¿½n mï¿½dulos de expansiï¿½n reales
+        // Outputs -> DO fsicas FEEDERS (19  3 pilotos)
+        // TODO: mapear %Q segn mdulos de expansin reales
         // DO_PILOT_FEEDER_FAULT => ...,
         // DO_PILOT_FEEDER_CLOSED => ...,
         // DO_PILOT_FEEDER_OPEN => ...,
@@ -417,10 +417,10 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 7: Cï¿½LCULOS AUXILIARES
+    // NETWORK 7: CLCULOS AUXILIARES
     // ========================================================================
     
-    // Cï¿½lculo GD_LoadPct (carga GD en porcentaje)
+    // Clculo GD_LoadPct (carga GD en porcentaje)
     // LoadPct = (P_TOTAL / P_NOMINAL) * 100
     IF "DB_PARAMS".GD_POWER_NOMINAL > 0.0 THEN
         "DATA_BUFF".GD_LoadPct := 
@@ -429,7 +429,7 @@ BEGIN
         "DATA_BUFF".GD_LoadPct := 0.0;
     END_IF;
     
-    // Cï¿½lculo TR_LoadPct (carga transformador en porcentaje)
+    // Clculo TR_LoadPct (carga transformador en porcentaje)
     IF "DB_PARAMS".TR_POWER_NOMINAL > 0.0 THEN
         "DATA_BUFF".TR_LoadPct := 
             ("DATA_BUFF".TR_P_TOTAL / "DB_PARAMS".TR_POWER_NOMINAL) * 100.0;
