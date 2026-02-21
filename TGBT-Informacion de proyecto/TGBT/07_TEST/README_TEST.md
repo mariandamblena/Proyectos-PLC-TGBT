@@ -20,17 +20,19 @@ Test automatizado con secuencia de validación paso a paso con delays configurad
 
 ### ⚙️ Configuración Inicial
 
-1. **Importar** `TEST_FB_IO_NORMALIZE_SCMTA.scl` como **FB_TEST_SCMTA** en TIA Portal
-2. **Crear instance DB** (ej: `DB_TEST_SCMTA`)
-3. **Llamar desde Main (OB1):**
+1. **Importar** `TEST_FB_IO_NORMALIZE_SCMTA.scl` en TIA Portal (genera **FB_TEST_SCMTA**)
+2. **Importar** `12_TEST_INSTANCE_DBS.scl` (genera **TEST_SCMTA_DB** y demás instance DBs)
+3. **Llamar desde Main (OB1) o OB de test:**
    ```scl
-   "DB_TEST_SCMTA"();
+   "TEST_SCMTA_DB"();
    ```
+
+> **Nota:** El test FB usa instancias locales de `01_FB_IO_NORMALIZE` y `02_FB_SCMTA` internamente (no necesita instance DBs de producción).
 
 ### ▶️ Ejecución
 
 1. **Compilar** y descargar a PLCSIM
-2. **Activar** `DB_TEST_SCMTA.testEnable = TRUE` en watch table
+2. **Activar** `TEST_SCMTA_DB.testEnable = TRUE` en watch table
 3. **Observar** el avance automático a través de los pasos
 4. **Monitorear** variables en el instance DB
 

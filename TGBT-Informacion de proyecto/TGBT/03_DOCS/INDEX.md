@@ -1,6 +1,6 @@
 # ÍNDICE MAESTRO DE ARCHIVOS — SCMTA TGBT
 
-> **Actualizado:** 2026-02-20 | **Versión proyecto:** 3.0
+> **Actualizado:** 2026-02-21 | **Versión proyecto:** 3.1
 
 ---
 
@@ -18,6 +18,7 @@
 | 08_DB_GLOBAL_STATUS.scl | DB | 3.0 | DATA_BUFF — DB global compartido (blackboard) |
 | 09_DB_PARAMS.scl | DB | 3.0 | Parámetros configurables (RETAIN) |
 | 10_OB1_MAIN.scl | OB | 3.0 | Programa principal cíclico (7 networks) |
+| 11_INSTANCE_DBS.scl | DB | 0.1 | Instance DBs para FB 03-07 (6 instancias) |
 
 ---
 
@@ -104,10 +105,12 @@ Visualizar con: [plantuml.com](https://www.plantuml.com/plantuml/uml/) o extensi
 
 | Archivo | Contenido | Estado |
 |---------|-----------|--------|
-| TEST_FB_IO_NORMALIZE_SCMTA.scl | Test happy path (15 pasos) | ✅ 15/15 OK |
-| TEST_FB_FALLAS_SCMTA.scl | Test fallas (37 pasos) | ⏳ Pendiente ejecutar |
-| TEST_FB_SHED.scl | Test deslastre V2.0 | ⏳ Pendiente actualizar a [1..19] |
-| TEST_FB_GD2_FAILOVER.scl | Test failover GD1↔GD2 | ⏳ Pendiente ejecutar |
+| TEST_FB_IO_NORMALIZE_SCMTA.scl | Test happy path (15 pasos) | ✅ Listo para TIA import |
+| TEST_FB_FALLAS_SCMTA.scl | Test fallas (37 pasos) | ✅ Listo para TIA import |
+| TEST_FB_SHED.scl | Test deslastre V2.0 (20 pasos, [1..19]) | ✅ Listo para TIA import |
+| TEST_FB_GD2_FAILOVER.scl | Test failover GD1↔GD2 (25 pasos) | ✅ Listo para TIA import |
+| TEST_FB_SYSTEM_VALIDATION.scl | Test integración completa (50 pasos) | ✅ Listo para TIA import |
+| 12_TEST_INSTANCE_DBS.scl | Instance DBs para 5 test FBs | ✅ Listo para TIA import |
 | README_TEST.md | Documentación test happy path | ✅ |
 | README_TEST_FALLAS.md | Documentación test fallas | ✅ |
 

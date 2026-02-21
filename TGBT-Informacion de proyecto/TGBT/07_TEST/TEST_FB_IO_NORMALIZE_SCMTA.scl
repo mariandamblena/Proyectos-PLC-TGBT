@@ -1,4 +1,4 @@
-(*
+﻿(*
 ================================================================================
   FB_TEST_SCMTA: Test Automatizado FB_IO_NORMALIZE + FB_SCMTA
   Versión: 2.2
@@ -41,8 +41,6 @@
 
 FUNCTION_BLOCK "FB_TEST_SCMTA"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-
 VERSION : 0.1
 
 VAR 
@@ -126,6 +124,9 @@ END_VAR
 VAR STAT
     // ========== TIMER TEST (STATIC para mantener estado) ==========
     testTimer : TON;  // Timer para delays en secuencia
+    // ========== INSTANCIAS FB ==========
+    instIO : "01_FB_IO_NORMALIZE";
+    instSCMTA : "02_FB_SCMTA";
 END_VAR
 
 BEGIN
@@ -489,7 +490,7 @@ BEGIN
     // ========================================================================
     // NETWORK 2: LLAMADA FB_IO_NORMALIZE
     // ========================================================================
-    "01_FB_IO_NORMALIZE_DB_2"(DI_SYS_AUTO := #simDI_SYS_AUTO,
+    #instIO(DI_SYS_AUTO := #simDI_SYS_AUTO,
                    DI_QT1_REMOTE_SEL := #simDI_QT1_REMOTE_SEL,
                    DI_QT1_PB_OPEN := #simDI_QT1_PB_OPEN,
                    DI_QT1_PB_CLOSE := #simDI_QT1_PB_CLOSE,
@@ -518,7 +519,7 @@ BEGIN
     // ========================================================================
     // NETWORK 3: LLAMADA FB_SCMTA
     // ========================================================================
-    "02_FB_SCMTA_DB_2"(ENABLE := TRUE,
+    #instSCMTA(ENABLE := TRUE,
              MODE_AUTO := #outModeAuto,
              RESET_FAULT := #simRESET_FAULT,
              

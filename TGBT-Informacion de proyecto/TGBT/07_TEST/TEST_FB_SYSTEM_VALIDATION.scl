@@ -1,4 +1,4 @@
-(*
+﻿(*
 ================================================================================
   FB_TEST_SYSTEM_VALIDATION: Test Definitivo del Sistema de Transferencia
   Versión: 1.0
@@ -145,11 +145,11 @@ VAR
     // ========================================================================
     // INSTANCIAS FB (cadena completa)
     // ========================================================================
-    instIO : "FB_IO_NORMALIZE";
-    instSCMTA : "FB_SCMTA";
-    instSHED : "FB_SHED";
-    instARBITER : "FB_CMD_ARBITER";
-    instOUTPUTS : "FB_OUTPUTS";
+    instIO : "01_FB_IO_NORMALIZE";
+    instSCMTA : "02_FB_SCMTA";
+    instSHED : "03_FB_SHED";
+    instARBITER : "04_FB_CMD_ARBITER";
+    instOUTPUTS : "05_FB_OUTPUTS";
     
     // ========================================================================
     // OUTPUTS MONITOREADOS

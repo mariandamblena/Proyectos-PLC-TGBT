@@ -1,8 +1,18 @@
-# CORRECCIONES APLICADAS AL OB1_MAIN
+# ~~CORRECCIONES APLICADAS AL OB1_MAIN~~ (DEPRECADO)
 
-**Fecha:** 2026-02-14  
+> **⚠️ DOCUMENTO DEPRECADO (2026-02-21)**  
+> Las instrucciones de importación actualizadas están en:
+> - [README.md](../README.md) → Sección "Importar a TIA Portal"
+> - [VALIDACION_SCL_TIA_V18.md](VALIDACION_SCL_TIA_V18.md) → Lecciones aprendidas
+>
+> Los Instance DBs ahora se proporcionan en `01_SCL/11_INSTANCE_DBS.scl` — no es necesario crearlos manualmente.
+> Este documento se conserva solo como referencia histórica.
+
+---
+
+**Fecha original:** 2026-02-14  
 **Versión:** 3.0 Corregida  
-**Estado:** LISTO PARA IMPORTAR
+**Estado:** ~~LISTO PARA IMPORTAR~~ SUPERSEDED
 
 ---
 

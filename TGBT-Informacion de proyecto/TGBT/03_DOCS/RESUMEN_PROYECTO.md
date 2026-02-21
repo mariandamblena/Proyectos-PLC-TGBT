@@ -1,7 +1,7 @@
 # RESUMEN DEL PROYECTO — SCMTA TGBT
 
-> **Versión:** 1.0  
-> **Fecha:** 2026-02-20  
+> **Versión:** 3.1  
+> **Fecha:** 2026-02-21  
 > **CPU:** Siemens S7-1215C DC/DC/Rly  
 > **IDE:** TIA Portal V18  
 > **Lenguaje:** SCL (Structured Control Language)
@@ -157,6 +157,7 @@ Prioriza y valida todos los comandos de apertura/cierre:
 | 08_DB_GLOBAL_STATUS.scl | DB | 3.0 | DATA_BUFF — DB global compartido |
 | 09_DB_PARAMS.scl | DB | 3.0 | Parámetros configurables (RETAIN) |
 | 10_OB1_MAIN.scl | OB | 3.0 | Programa principal — orquestador |
+| 11_INSTANCE_DBS.scl | DB | 0.1 | Instance DBs para FB 03-07 |
 
 ### 5.2 Documentación (03_DOCS/)
 
@@ -233,6 +234,6 @@ Prioriza y valida todos los comandos de apertura/cierre:
 | 3 | FB_MODBUS_MANAGER | Media | Completar scheduler con drivers NSX |
 | 4 | Power Selector QT1 | Baja | DI 3 posiciones (0-1-2) — pospuesto |
 | 5 | FB_MTZ_DRIVER para NSX | Media | Adaptar driver MTZ o crear driver NSX |
-| 6 | Pruebas integración | Alta | Ejecutar tests en hardware real |
-| 7 | Configuración HMI | Media | Pantallas, tags, alarmas |
-| 8 | Actualizar tests | Baja | TEST_FB_SHED y otros usan [1..18] |
+| 6 | Testing en PLCSIM | Alta | Ejecutar 5 test FBs en simulador |
+| 7 | Pruebas integración | Alta | Ejecutar tests en hardware real |
+| 8 | Configuración HMI | Media | Pantallas, tags, alarmas |

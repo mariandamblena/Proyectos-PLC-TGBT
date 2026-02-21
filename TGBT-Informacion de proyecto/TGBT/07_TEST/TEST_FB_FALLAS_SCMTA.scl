@@ -1,4 +1,4 @@
-(*
+﻿(*
 ================================================================================
   FB_TEST_FALLAS_SCMTA: Test Automatizado de Casos de Falla
   Versión: 1.2
@@ -132,6 +132,9 @@ END_VAR
 
 VAR STAT
     testTimer : TON;
+    // ========== INSTANCIAS FB ==========
+    instIO : "01_FB_IO_NORMALIZE";
+    instSCMTA : "02_FB_SCMTA";
 END_VAR
 
 BEGIN
@@ -1064,7 +1067,7 @@ BEGIN
     // ========================================================================
     // NETWORK 3: LLAMADA FB_IO_NORMALIZE (IGUAL QUE TEST PRINCIPAL)
     // ========================================================================
-    "01_FB_IO_NORMALIZE_DB_2"(DI_SYS_AUTO := #simDI_SYS_AUTO,
+    #instIO(DI_SYS_AUTO := #simDI_SYS_AUTO,
                    DI_QT1_REMOTE_SEL := #simDI_QT1_REMOTE_SEL,
                    DI_QT1_PB_OPEN := #simDI_QT1_PB_OPEN,
                    DI_QT1_PB_CLOSE := #simDI_QT1_PB_CLOSE,
@@ -1093,7 +1096,7 @@ BEGIN
     // ========================================================================
     // NETWORK 4: LLAMADA FB_SCMTA (IGUAL QUE TEST PRINCIPAL)
     // ========================================================================
-    "02_FB_SCMTA_DB_2"(ENABLE := TRUE,
+    #instSCMTA(ENABLE := TRUE,
              MODE_AUTO := #outModeAuto,
              RESET_FAULT := #simRESET_FAULT,
              

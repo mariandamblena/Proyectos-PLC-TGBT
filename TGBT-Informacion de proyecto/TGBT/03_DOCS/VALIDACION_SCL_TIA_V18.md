@@ -1,370 +1,215 @@
-# VALIDACIÓN SCL - TIA PORTAL V18 S7-1200
+# VALIDACIÓN SCL — TIA PORTAL V18 S7-1200
 
-## 📋 RESUMEN EJECUTIVO
+## RESUMEN EJECUTIVO
 
-**Fecha**: 4 de febrero de 2026  
+**Fecha compilación real**: 20 de febrero de 2026  
 **Versión TIA Portal**: V18  
-**PLC Target**: Siemens S7-1200  
+**PLC Target**: Siemens S7-1215C DC/DC/Rly  
 **Lenguaje**: SCL (Structured Control Language)  
-**Total archivos validados**: 10 archivos SCL
+**Resultado**: **0 errores, 50 warnings**
 
 ---
 
-## ✅ VALIDACIÓN GENERAL
+## RESULTADO COMPILACIÓN
 
-### **CUMPLIMIENTO REGLAS TIA PORTAL V18**
+### Estado Final
 
-| Aspecto | Estado | Observaciones |
-|---------|--------|---------------|
-| Sintaxis SCL | ✅ CORRECTO | Sintaxis válida para S7-1200 |
-| Atributos FB | ✅ CORRECTO | `S7_Optimized_Access := 'TRUE'` válido |
-| Tipos de datos | ✅ CORRECTO | Bool, Int, Real, Time, String compatibles |
-| Estructura VAR | ✅ CORRECTO | VAR_INPUT, VAR_OUTPUT, VAR, VAR_TEMP, VAR_CONSTANT |
-| Timers TON | ✅ CORRECTO | Sintaxis correcta para S7-1200 |
-| Arrays | ✅ CORRECTO | Indexado [1..18] válido |
-| CASE statements | ✅ CORRECTO | Sintaxis CASE-OF-END_CASE válida |
-| Comentarios | ✅ CORRECTO | Formato `(* ... *)` estándar |
+| Tipo | Cantidad | Detalle |
+|------|----------|---------|
+| **Errores** | **0** | Todos los bloques compilan sin errores |
+| **Warnings** | **50** | Variables de DATA_BUFF sin asignar (esperado hasta mapeo %I/%Q) |
+
+Los 50 warnings corresponden a campos de DATA_BUFF que todavía no tienen asignación física de I/O. Esto es normal y esperado — se resolverán durante el mapeo %I/%Q en la etapa de comisionamiento.
 
 ---
 
-## 🔍 ANÁLISIS POR ARCHIVO
+## PROCESO DE IMPORTACIÓN VALIDADO
 
-### **1. FB_IO_NORMALIZE (01_FB_IO_NORMALIZE.scl)**
+### Orden de importación (verificado)
 
-**Estado**: ✅ **VÁLIDO** con recomendaciones menores
-
-**Cumplimiento**:
-- ✅ Sintaxis SCL correcta
-- ✅ Tipos de datos compatibles S7-1200
-- ✅ Timers TON configurados correctamente
-- ✅ Lógica de debounce implementada correctamente
-
-**Recomendaciones**:
-- ⚠️ Considerar agregar validación cruzada de pulsadores (no Open+Close simultáneo)
-- 💡 Los R_TRIG manuales funcionan, pero TIA Portal V18 soporta IEC_TIMER con R_TRIG nativo
-
-**Código crítico validado**:
-```scl
-// Detección flanco - CORRECTO
-#rtQT1_Open := #QT1_PB_Open_DB AND NOT #memQT1_PB_Open;
-#memQT1_PB_Open := #QT1_PB_Open_DB;
-
-// Timer TON - CORRECTO para S7-1200
-#tonDebounce_QT1_Open(IN := #DI_QT1_PB_OPEN, PT := #DEBOUNCE_TIME);
+```
+1. 08_DB_GLOBAL_STATUS.scl  → genera DATA_BUFF (DB global)
+2. 09_DB_PARAMS.scl         → genera DB_PARAMS (DB parámetros)
+3. 01_FB_IO_NORMALIZE.scl   → FB normalización DI
+4. 02_FB_SCMTA.scl          → FB máquina estados (21 estados)
+5. 03_FB_SHED.scl            → FB deslastre (19 feeders, 6 modos)
+6. 04_FB_CMD_ARBITER.scl    → FB arbitración comandos
+7. 05_FB_OUTPUTS.scl        → FB salidas pilotos + HMI
+8. 06_FB_MODBUS_MANAGER.scl → FB scheduler Modbus
+9. 07_FB_MTZ_DRIVER.scl     → FB driver Modbus MTZ
+10. 11_INSTANCE_DBS.scl      → 6 Instance DBs para FB 03-07
+11. 10_OB1_MAIN.scl          → copiar contenido a OB1 Main existente
 ```
 
+### Procedimiento exacto en TIA Portal V18
+
+1. **Crear proyecto** → Agregar CPU S7-1215C DC/DC/Rly
+2. Menú **External sources** → Add new external file
+3. Importar archivos `.scl` en orden listado arriba
+4. Click derecho sobre cada fuente → **Generate blocks from source**
+5. Para OB1: copiar contenido SCL al bloque Main (OB1) existente
+6. **Compilar** proyecto completo
+
 ---
 
-### **2. FB_SCMTA (02_FB_SCMTA.scl)**
+## LECCIONES APRENDIDAS EN LA IMPORTACIÓN
 
-**Estado**: ✅ **VÁLIDO** - Máquina de estados compleja correcta
+### 1. Encoding: UTF-8 con BOM obligatorio
 
-**Cumplimiento**:
-- ✅ CASE-OF-END_CASE sintaxis correcta
-- ✅ 15 estados (0-14) manejados correctamente
-- ✅ Timers TON configurados correctamente
-- ✅ Operaciones aritméticas Real compatibles
-- ✅ Comparaciones lógicas correctas
+TIA Portal V18 **requiere** archivos SCL con encoding **UTF-8 con BOM** (Byte Order Mark). Sin BOM, los caracteres especiales (ñ, á, é, etc.) en comentarios causan errores de parsing.
 
-**Código crítico validado**:
-```scl
-// CASE statement - CORRECTO
-CASE #STATE OF
-    0:  // ST_INIT
-        #STATE_NAME := 'INIT';
-    1:  // ST_NORMAL_ON_GRID
-        IF #GRID_FAIL THEN
-            #STATE := 2;
-        END_IF;
-    // ... resto estados
-END_CASE;
-
-// Cálculos Real - CORRECTO para S7-1200
-#vMin := #V_NOM * (#V_MIN_PCT / 100.0);
-#phaseOk := (#GRID_V_L1L2 >= #vMin) AND (#GRID_V_L1L2 <= #vMax);
+**Solución PowerShell para convertir:**
+```powershell
+$files = Get-ChildItem -Path "01_SCL" -Filter "*.scl"
+foreach ($f in $files) {
+    $content = Get-Content $f.FullName -Raw -Encoding UTF8
+    [System.IO.File]::WriteAllText($f.FullName, $content, [System.Text.UTF8Encoding]::new($true))
+}
 ```
 
-**Validaciones de rango**:
-- ✅ Real: -3.402823e+38 a 3.402823e+38 (S7-1200 soporta)
-- ✅ Int: -32768 a 32767 (suficiente para estados 0-14)
-- ✅ Time: T#-24d_20h_31m_23s_648ms a T#24d_20h_31m_23s_647ms
+### 2. DB_PARAMS: NON_RETAIN, no RETAIN
 
----
+El DB de parámetros usa `NON_RETAIN` en lugar de `RETAIN`. Esto significa que los parámetros se inicializan a sus valores por defecto en cada arranque del PLC. La configuración persistente se maneja desde HMI.
 
-### **3. FB_SHED (03_FB_SHED.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Arrays y loops correctos
-
-**Cumplimiento**:
-- ✅ Arrays [1..18] sintaxis correcta
-- ✅ Loops FOR-TO-DO correctos
-- ✅ Indexado array dentro de rango
-- ✅ Lógica prioridad implementada correctamente
-
-**Código crítico validado**:
-```scl
-// Array indexing - CORRECTO
-FOR i := 1 TO 18 DO
-    feederIdx := #SHED_ORDER[i];
-    IF #SHED_ENABLE[feederIdx] THEN
-        // ... lógica shed
-    END_IF;
-END_FOR;
-```
-
----
-
-### **4. FB_CMD_ARBITER (04_FB_CMD_ARBITER.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Árbitro de comandos correcto
-
-**Cumplimiento**:
-- ✅ Lógica de prioridad correcta (SCMTA > SHED > MANUAL)
-- ✅ Interlock fail-safe implementado
-- ✅ Operaciones booleanas optimizadas
-
-**Interlock crítico validado**:
-```scl
-// Interlock QT1 - CORRECTO (solo puede cerrar si QG1/QG2 abiertos)
-#interlockOkCloseQT1 := (#QG1_STATE = 0) AND (#QG2_STATE = 0);
-IF #CMD_CLOSE_QT1 AND NOT #interlockOkCloseQT1 THEN
-    #ALARM_INTERLOCK_VIOLATED := TRUE;
-END_IF;
-```
-
----
-
-### **5. FB_OUTPUTS (05_FB_OUTPUTS.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Salidas y alarmas correctas
-
-**Cumplimiento**:
-- ✅ Lógica blinking con timer correcto
-- ✅ Set/Reset latches correctos
-- ✅ Salidas digitales mapeadas
-
-**Código blinking validado**:
-```scl
-// Blink 1Hz - CORRECTO
-#tonBlink(IN := TRUE, PT := T#500ms);
-IF #tonBlink.Q THEN
-    #tonBlink(IN := FALSE);
-    #blinkState := NOT #blinkState;
-END_IF;
-```
-
----
-
-### **6. FB_MODBUS_MANAGER (06_FB_MODBUS_MANAGER.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Scheduler Modbus correcto
-
-**Cumplimiento**:
-- ✅ Timer REQ 2 segundos implementado correctamente
-- ✅ Scheduler polling cíclico correcto
-- ✅ Lógica cola comandos correcta
-
-**Código REQ 2s validado**:
-```scl
-// REQ activo 2 segundos - CORRECTO (modificación reciente)
-IF #tonPollCycle.Q THEN
-    #reqModbusActive := TRUE;
-    #tonReqActive(IN := FALSE);  // Reset timer
-END_IF;
-
-// Mantener REQ por 2s
-#tonReqActive(IN := #reqModbusActive, PT := T#2s);
-IF #tonReqActive.Q THEN
-    #reqModbusActive := FALSE;
-END_IF;
-```
-
----
-
-### **7. FB_MTZ_DRIVER (07_FB_MTZ_DRIVER.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Driver Modbus Schneider correcto
-
-**Cumplimiento**:
-- ✅ Máquina estados Modbus correcta
-- ✅ Buffer preparation correcto
-- ✅ REQ activo 2s implementado correctamente
-- ✅ Protocolo Schneider Command Interface válido
-
-**Código WRITE_CMD validado**:
-```scl
-// Estado WRITE_CMD con REQ 2s - CORRECTO
-2:  // WRITE_CMD
-    #STATE_NAME := 'WRITE_CMD';
-    #reqWriteActive := TRUE;
-    #tonReqWrite(IN := #reqWriteActive, PT := T#2s);
-    
-    // TODO: Conectar reqWriteActive a MB_CLIENT REQ
-    
-    IF #tonReqWrite.Q THEN
-        #reqWriteActive := FALSE;
-        #STATE := 3;  // POLL_RESPONSE
-    END_IF;
-```
-
----
-
-### **8. DB_GLOBAL_STATUS (08_DB_GLOBAL_STATUS.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Data Block NON_RETAIN correcto
-
-**Cumplimiento**:
-- ✅ Atributo `{ S7_Optimized_Access := 'TRUE' }` correcto
-- ✅ Atributo `NON_RETAIN` sintaxis correcta
-- ✅ Estructura datos correcta
-
-**Sintaxis validada**:
-```scl
-DATA_BLOCK "DB_GLOBAL_STATUS"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-NON_RETAIN  // Estados volátiles
-
-STRUCT
-    MODE_AUTO : Bool := FALSE;
-    // ... resto variables
-END_STRUCT;
-```
-
----
-
-### **9. DB_PARAMS (09_DB_PARAMS.scl)**
-
-**Estado**: ✅ **VÁLIDO** - Data Block RETAIN correcto
-
-**Cumplimiento**:
-- ✅ Atributo `RETAIN` sintaxis correcta
-- ✅ Valores default asignados correctamente
-- ✅ Arrays con inicialización correcta
-
-**Sintaxis validada**:
+**Formato correcto:**
 ```scl
 DATA_BLOCK "DB_PARAMS"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR
+      V_NOM : Real := 380.0;
+      // ...
+   END_VAR
+BEGIN
+END_DATA_BLOCK
+```
+
+> **Nota:** DB_PARAMS usa `S7_Optimized_Access := 'FALSE'` para permitir acceso simbólico desde HMI.
+
+### 3. DATA_BUFF: Estructura VAR con NON_RETAIN
+
+DATA_BUFF (DB global compartido) usa la estructura `VAR ... END_VAR` dentro del DATA_BLOCK, no `STRUCT`:
+
+```scl
+DATA_BLOCK "DATA_BUFF"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
-RETAIN  // Parámetros persistentes
-
-STRUCT
-    V_NOM : Real := 380.0;
-    V_MIN_PCT : Real := 85.0;
-    SHED_ORDER : Array[1..18] of Int := [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18];
-END_STRUCT;
+NON_RETAIN
+   VAR
+      MODE_AUTO : Bool;
+      QT1_STATE : Int;
+      // ...
+   END_VAR
+BEGIN
+END_DATA_BLOCK
 ```
 
----
+### 4. Instance DBs: archivo separado necesario
 
-### **10. OB1_MAIN (10_OB1_MAIN.scl)**
+Los FBs que se llaman desde OB1 necesitan Instance DBs explícitos. Estos se proporcionan en `11_INSTANCE_DBS.scl` que contiene 6 instancias:
 
-**Estado**: ✅ **VÁLIDO** - Main cíclico correcto
+| Instance DB | FB asociado |
+|------------|-------------|
+| 03_FB_SHED_DB | 03_FB_SHED |
+| 04_FB_CMD_ARBITER_DB | 04_FB_CMD_ARBITER |
+| 05_FB_OUTPUTS_DB | 05_FB_OUTPUTS |
+| 07_FB_MTZ_DRIVER_DB_QT1 | 07_FB_MTZ_DRIVER |
+| 07_FB_MTZ_DRIVER_DB_QG1 | 07_FB_MTZ_DRIVER |
+| 07_FB_MTZ_DRIVER_DB_QG2 | 07_FB_MTZ_DRIVER |
 
-**Cumplimiento**:
-- ✅ Sintaxis OB1 correcta
-- ✅ Llamadas a FB con DB instances correctas
-- ✅ Conexiones IN/OUT correctas
-- ✅ Secuencia lógica correcta
+> **Nota:** FB_IO_NORMALIZE y FB_SCMTA usan instancias locales en OB1 (no necesitan Instance DB separado). FB_MTZ_DRIVER tiene 3 instancias (una por interruptor ACB).
 
-**Llamadas FB validadas**:
+### 5. OB1 no se importa como external source
+
+OB1 (Main) ya existe como bloque del sistema. El código SCL de `10_OB1_MAIN.scl` debe **copiarse** al bloque Main existente, no importarse como fuente externa.
+
+### 6. TON_TIME con pragmas (timers en FBs)
+
+Los FBs exportados de TIA Portal usan `TON_TIME` con pragmas de instrucción:
 ```scl
-// Network 1: IO Normalize - CORRECTO
-"DB_IO_NORM"(
-    DI_SYS_AUTO := %I0.0,
-    MODE_AUTO => "DB_GLOBAL_STATUS".MODE_AUTO
-);
-
-// Network 2: SCMTA - CORRECTO
-"DB_SCMTA"(
-    ENABLE := TRUE,
-    MODE_AUTO := "DB_GLOBAL_STATUS".MODE_AUTO,
-    QT1_STATE := "DB_GLOBAL_STATUS".QT1_STATE,
-    STATE => "DB_GLOBAL_STATUS".SCMTA_STATE
-);
+tonStateTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'; S7_SetPoint := 'False'} : TON_TIME;
 ```
 
----
-
-## 🎯 CONCLUSIÓN VALIDACIÓN
-
-### **COMPATIBILIDAD TIA PORTAL V18 S7-1200**
-
-| Criterio | Resultado |
-|----------|-----------|
-| **Sintaxis SCL** | ✅ 100% Compatible |
-| **Tipos de datos** | ✅ 100% Compatible |
-| **Instrucciones** | ✅ 100% Compatible |
-| **Atributos FB/DB** | ✅ 100% Compatible |
-| **Lógica funcional** | ✅ 100% Correcta |
-| **Optimización** | ✅ Código optimizado |
+Esto es equivalente a `TON` pero usa el tipo `Time` nativo. El código actual mantiene esta convención para compatibilidad con TIA export/import.
 
 ---
 
-## ⚠️ RECOMENDACIONES MENORES
+## BLOQUES VALIDADOS
 
-### **Mejoras Opcionales** (no críticas):
+### Function Blocks (7)
 
-1. **R_TRIG Nativo**:
-   - Actual: R_TRIG manual con memoria
-   - Recomendado: Usar `R_TRIG` IEC de TIA Portal (menos código)
-   
-2. **Validación Cruzada**:
-   - Agregar detección pulsadores Open+Close simultáneos (hardware fail)
-   
-3. **Diagnóstico Ampliado**:
-   - Agregar contadores tiempo en estado para monitoreo HMI
-   
-4. **Timeout Parametrizable**:
-   - Algunos timeouts podrían ser VAR_INPUT para ajuste dinámico
+| Bloque | Versión | Estados/Modos | Arrays | Resultado |
+|--------|---------|---------------|--------|-----------|
+| 01_FB_IO_NORMALIZE | 2.0 | — | [1..19] feeders | ✅ Compila OK |
+| 02_FB_SCMTA | 3.0 | 21 estados | — | ✅ Compila OK |
+| 03_FB_SHED | 2.0 | 6 modos | [1..19] feeders | ✅ Compila OK |
+| 04_FB_CMD_ARBITER | 2.0 | — | [1..19] feeders | ✅ Compila OK |
+| 05_FB_OUTPUTS | 3.0 | — | [1..19] feeders | ✅ Compila OK |
+| 06_FB_MODBUS_MANAGER | 0.1 | 4 estados | — | ✅ Compila OK |
+| 07_FB_MTZ_DRIVER | 1.1 | 7 estados | — | ✅ Compila OK |
 
-### **Ninguna de estas recomendaciones afecta la validez del código**
+### Data Blocks (2)
+
+| Bloque | Tipo | Optimized | RETAIN | Resultado |
+|--------|------|-----------|--------|-----------|
+| DATA_BUFF | DB global | TRUE | NON_RETAIN | ✅ Compila OK |
+| DB_PARAMS | DB parámetros | FALSE | NON_RETAIN | ✅ Compila OK |
+
+### Instance DBs (6)
+
+Todos compilan OK con formato `NON_RETAIN` + `S7_Optimized_Access := 'TRUE'`.
+
+### OB1 Main
+
+Compila OK después de copiar código SCL al bloque Main existente.
 
 ---
 
-## 📊 MÉTRICAS CÓDIGO
+## MÉTRICAS ACTUALIZADAS
 
 | Métrica | Valor |
 |---------|-------|
-| Total Function Blocks | 7 |
-| Total Data Blocks | 2 |
-| Organization Blocks | 1 (OB1) |
-| Líneas código total | ~2000 líneas |
-| Estados máquina | 15 (SCMTA) + 5 (MTZ_DRIVER) |
-| Timers utilizados | 23 TON |
-| Arrays | 3 (SHED_ORDER, SHED_ENABLE, CMD_FEEDER) |
+| Function Blocks | 7 |
+| Data Blocks globales | 2 (DATA_BUFF + DB_PARAMS) |
+| Instance DBs | 6 |
+| Organization Blocks | 1 (OB1 Main) |
+| **Total bloques** | **16** |
+| Estados SCMTA | **21** (0-14 GD1 + 15-20 GD2) |
+| Estados MTZ_DRIVER | 7 |
+| Modos SHED | 6 |
+| Feeders gestionados | **19** (Array[1..19]) |
+| Timers TON_TIME | ~25 |
+| Pilotos DO totales | 74 (4 sistema + 12 ACB + 57 feeders + 1 baliza) |
 
 ---
 
-## ✅ APROBACIÓN FINAL
+## TEST FBs DISPONIBLES
 
-**El código SCL es 100% compatible con TIA Portal V18 para S7-1200.**
+5 test FBs preparados para importar a TIA Portal y ejecutar en PLCSIM:
 
-**Puede importarse directamente a TIA Portal sin modificaciones.**
+| Test FB | Pasos | Cobertura |
+|---------|-------|-----------|
+| FB_TEST_SCMTA | 15 | Happy path RED→GD1→RED |
+| FB_TEST_FALLAS_SCMTA | 37 | Timeouts, fallas GD, grid intermitente, LOCAL |
+| FB_TEST_SHED | 20 | Deslastre dual RED/GD, 19 feeders |
+| FB_TEST_GD2_FAILOVER | 25 | Failover GD1↔GD2 completo |
+| FB_TEST_SYSTEM_VALIDATION | 50 | Integración 5 FBs, happy + fault path |
 
-**Próximo paso**: Generación equivalentes LADDER (siguiente fase)
-
----
-
-## 📝 NOTAS ADICIONALES
-
-### **Importación a TIA Portal**:
-1. Crear proyecto TIA Portal V18
-2. Agregar S7-1200 (CPU 1214C o superior recomendado)
-3. Importar archivos SCL en orden:
-   - Data Blocks (08, 09)
-   - Function Blocks (01-07)
-   - Organization Block (10)
-4. Compilar proyecto
-5. Mapear direcciones físicas (%I/%Q/%M)
-
-### **Memoria Requerida** (estimación S7-1200):
-- Work Memory: ~10-15 KB
-- Load Memory: ~30-40 KB
-- Retain Memory: ~2 KB (DB_PARAMS)
-
-**Compatible con**: CPU 1211C, 1212C, 1214C, 1215C, 1217C
+Los tests usan instancias locales de los FBs de producción y no requieren acceso a hardware. Se importan igual que los FBs de producción, con sus propios Instance DBs (`07_TEST/12_TEST_INSTANCE_DBS.scl`).
 
 ---
 
+## CONCLUSIÓN
+
+El código SCL compila exitosamente en TIA Portal V18 para S7-1215C con **0 errores y 50 warnings** (todos esperados). Los warnings se resolverán durante la etapa de mapeo I/O y comisionamiento.
+
+**Próximos pasos:**
+1. Ejecutar tests en PLCSIM
+2. Mapear %I/%Q a módulos físicos
+3. Completar FB_MODBUS_MANAGER
+4. Testing en hardware real
+
+---
+
+*Documento actualizado: 21 de febrero de 2026 — Resultado de compilación real en TIA Portal V18*

@@ -20,7 +20,7 @@ El PLC controla la **transferencia automática** entre red eléctrica (QT1) y do
 
 ```
 TGBT/
-├── 01_SCL/                          ← Código fuente SCL (10 archivos)
+├── 01_SCL/                          ← Código fuente SCL (11 archivos)
 │   ├── 01_FB_IO_NORMALIZE.scl       → Normalización DI (selectores, pulsadores, GD)
 │   ├── 02_FB_SCMTA.scl              → Máquina de estados transferencia (21 estados)
 │   ├── 03_FB_SHED.scl               → Deslastre y reenganche (19 feeders, 6 modos)
@@ -29,8 +29,9 @@ TGBT/
 │   ├── 06_FB_MODBUS_MANAGER.scl     → Scheduler comunicación Modbus RTU
 │   ├── 07_FB_MTZ_DRIVER.scl         → Driver Modbus MasterPact MTZ
 │   ├── 08_DB_GLOBAL_STATUS.scl      → DATA_BUFF — DB global compartido
-│   ├── 09_DB_PARAMS.scl             → Parámetros configurables (RETAIN)
-│   └── 10_OB1_MAIN.scl              → OB1 Main — orquestador (7 networks)
+│   ├── 09_DB_PARAMS.scl             → Parámetros configurables (NON_RETAIN)
+│   ├── 10_OB1_MAIN.scl              → OB1 Main — orquestador (7 networks)
+│   └── 11_INSTANCE_DBS.scl          → Instance DBs para FB 03-07
 │
 ├── 02_LADDER/                       ← Conversiones LADDER (referencia)
 │
@@ -72,10 +73,12 @@ TGBT/
 │   └── ET MONTAJE-TGBT.pdf
 │
 └── 07_TEST/                         ← Tests automatizados SCL
-    ├── TEST_FB_IO_NORMALIZE_SCMTA.scl
-    ├── TEST_FB_FALLAS_SCMTA.scl
-    ├── TEST_FB_SHED.scl
-    ├── TEST_FB_GD2_FAILOVER.scl
+    ├── TEST_FB_IO_NORMALIZE_SCMTA.scl  → Test happy path (15 pasos)
+    ├── TEST_FB_FALLAS_SCMTA.scl        → Test fallas (37 pasos)
+    ├── TEST_FB_SHED.scl                → Test deslastre V2.0 (20 pasos)
+    ├── TEST_FB_GD2_FAILOVER.scl        → Test failover GD1↔GD2 (25 pasos)
+    ├── TEST_FB_SYSTEM_VALIDATION.scl   → Test integración completa (50 pasos)
+    ├── 12_TEST_INSTANCE_DBS.scl        → Instance DBs para test FBs
     ├── README_TEST.md
     └── README_TEST_FALLAS.md
 ```
@@ -117,19 +120,37 @@ Ver detalle completo en [03_DOCS/LISTADO_EQUIPOS.md](03_DOCS/LISTADO_EQUIPOS.md)
 
 ## Importar a TIA Portal
 
+### Requisitos de encoding
+Todos los archivos `.scl` deben estar en **UTF-8 con BOM** para que TIA Portal V18 los importe correctamente. Si ves errores de caracteres al importar, convertir con PowerShell:
+```powershell
+$files = Get-ChildItem -Path "01_SCL" -Filter "*.scl"
+foreach ($f in $files) {
+    $content = Get-Content $f.FullName -Raw -Encoding UTF8
+    [System.IO.File]::WriteAllText($f.FullName, $content, [System.Text.UTF8Encoding]::new($true))
+}
+```
+
+### Orden de importación
 ```
 1. Abrir TIA Portal V18
 2. Crear proyecto → Agregar CPU S7-1215C DC/DC/Rly
-3. Importar en este orden:
-   a. 08_DB_GLOBAL_STATUS.scl  (renombrar bloque a "DATA_BUFF")
-   b. 09_DB_PARAMS.scl         (renombrar bloque a "DB_PARAMS")
-   c. 01 a 07_*.scl            (Function Blocks)
-   d. 10_OB1_MAIN.scl          (copiar código a OB1 "Main")
-4. Renombrar Instance DBs según INSTRUCCIONES_CORRECCION_OB1.md
-5. Compilar → Verificar 0 errores
-6. Mapear %I/%Q según 03_DOCS/LISTADO_IO.md
-7. Configurar Modbus RTU (CM 1241 RS-485, 19200 baud)
+3. Importar en este orden (External source → Generate blocks):
+   a. 08_DB_GLOBAL_STATUS.scl  → genera DATA_BUFF (DB)
+   b. 09_DB_PARAMS.scl         → genera DB_PARAMS (DB)
+   c. 01 a 07_*.scl            → genera FBs (en orden numérico)
+   d. 11_INSTANCE_DBS.scl      → genera Instance DBs para FB 03-07
+   e. 10_OB1_MAIN.scl          → copiar contenido a OB1 "Main"
+4. Compilar → Verificar 0 errores (50 warnings esperados)
+5. Mapear %I/%Q según 03_DOCS/LISTADO_IO.md
+6. Configurar Modbus RTU (CM 1241 RS-485, 19200 baud)
 ```
+
+### Notas importantes de importación
+- Los DBs deben usar `S7_Optimized_Access := 'TRUE'` (ya incluido)
+- DB_PARAMS usa `NON_RETAIN` (los parámetros se configuran en cada arranque o desde HMI)
+- Los Instance DBs de producción están en `11_INSTANCE_DBS.scl`
+- OB1 no se puede importar directamente — copiar el código SCL al bloque Main existente
+- Los 50 warnings son por variables de DATA_BUFF sin asignar (normal hasta mapeo %I/%Q)
 
 ---
 
@@ -150,19 +171,23 @@ Ver detalle completo en [03_DOCS/LISTADO_EQUIPOS.md](03_DOCS/LISTADO_EQUIPOS.md)
 | Etapa | Estado | Fecha |
 |-------|--------|-------|
 | Diseño y arquitectura | ✅ Completado | 04/02/2026 |
-| Código SCL 10 bloques | ✅ Completado | 10/02/2026 |
+| Código SCL 11 bloques | ✅ Completado | 10/02/2026 |
 | GD2 Failover (estados 15-20) | ✅ Completado | 10/02/2026 |
 | SHED V2.0 (6 modos) | ✅ Completado | 10/02/2026 |
 | Corrección OB1 + DATA_BUFF | ✅ Completado | 14/02/2026 |
 | Validación I/O vs hardware real | ✅ Completado | 19/02/2026 |
 | FB_OUTPUTS V3.0 (pilotos reales) | ✅ Completado | 19/02/2026 |
+| Compilación TIA Portal V18 | ✅ 0 errores, 50 warnings | 20/02/2026 |
+| Instance DBs producción | ✅ Completado | 20/02/2026 |
+| Tests actualizados para TIA import | ✅ Completado | 21/02/2026 |
 | Mapeo %Q feeders (57 DO) | ⏳ Pendiente | — |
 | Mapeo %I feeders tipo a (10 DI) | ⏳ Pendiente | — |
 | FB_MODBUS_MANAGER completo | ⏳ Pendiente | — |
+| Testing en PLCSIM | ⏳ Pendiente | — |
 | Testing en hardware | ⏳ Pendiente | — |
 | Integración HMI | ⏳ Pendiente | — |
 | Comisionamiento | ⏳ Pendiente | — |
 
 ---
 
-**Versión:** 3.0 — Febrero 2026
+**Versión:** 3.1 — Febrero 2026

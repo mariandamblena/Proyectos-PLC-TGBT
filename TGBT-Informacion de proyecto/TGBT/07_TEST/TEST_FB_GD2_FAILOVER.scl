@@ -1,4 +1,4 @@
-(*
+﻿(*
 ================================================================================
   FB_TEST_GD2_FAILOVER: Test Failover GD1↔GD2
   Versión: 1.0
@@ -71,8 +71,8 @@ VAR
     simGridMeasOK : Bool := TRUE;
     
     // ========== INSTANCIAS FB ==========
-    instIO : "FB_IO_NORMALIZE";
-    instSCMTA : "FB_SCMTA";
+    instIO : "01_FB_IO_NORMALIZE";
+    instSCMTA : "02_FB_SCMTA";
     
     // ========== OUTPUTS MONITOREADOS ==========
     outState : Int;

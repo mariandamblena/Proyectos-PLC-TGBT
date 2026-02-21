@@ -148,17 +148,19 @@ FB_CMD_ARBITER genera `BLOCK_LOCAL=TRUE` cuando selector en LOCAL → comandos S
 
 ---
 
-## 🔧 Instrucciones de Uso
+## Instrucciones de Uso
 
-### Paso 1: Crear Instance DB en TIA Portal
-```scl
-// En árbol de proyecto: Agregar instancia
-"TEST_FB_FALLAS_DB_2" : "FB_TEST_FALLAS_SCMTA"
+### Paso 1: Importar en TIA Portal
+```
+1. Importar TEST_FB_FALLAS_SCMTA.scl (genera FB_TEST_FALLAS_SCMTA)
+2. Importar 12_TEST_INSTANCE_DBS.scl (genera TEST_FALLAS_DB)
 ```
 
-### Paso 2: Llamar desde OB100 o Ciclo de Test
+> **Nota:** El test FB usa instancias locales de `01_FB_IO_NORMALIZE` y `02_FB_SCMTA` internamente.
+
+### Paso 2: Llamar desde OB1 o OB de Test
 ```scl
-"TEST_FB_FALLAS_DB_2"();
+"TEST_FALLAS_DB"();
 ```
 
 ### Paso 3: Configurar Panel de Control (HMI o Watch Table)
