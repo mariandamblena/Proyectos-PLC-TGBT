@@ -24,29 +24,29 @@
     Paso 2: Validar SHED_MODE=0 (IDLE) en RED sin sobrecarga
     
   GRUPO B - DESLASTRE REACTIVO EN RED (GRID_SHED):
-    Paso 3: Subir TR_LoadPct > 85% → esperar SHED_MODE=1
+    Paso 3: Subir TR_LoadPct > 85% -> esperar SHED_MODE=1
     Paso 4: Verificar que abre no-esenciales (orden shed)
     Paso 5: Verificar que esenciales NO se abren
-    Paso 6: Bajar TR_LoadPct < 70% → esperar SHED_MODE=5 (GRID_RECONNECT)
+    Paso 6: Bajar TR_LoadPct < 70% -> esperar SHED_MODE=5 (GRID_RECONNECT)
     Paso 7: Verificar reenganche feeders en RED
     
   GRUPO C - DESACOPLE INICIAL TRANSFERENCIA GD (GD_INITIAL_SHED):
-    Paso 8: Simular TRANSFER_TO_GD=TRUE → SHED_MODE=2
+    Paso 8: Simular TRANSFER_TO_GD=TRUE -> SHED_MODE=2
     Paso 9: Verificar que no-esenciales se abren (REQ_SHED_OPEN)
     Paso 10: Verificar que esenciales permanecen cerrados
     
   GRUPO D - ACOPLAMIENTO ESCALONADO EN GD (GD_RECONNECT):
-    Paso 11: Pasar a IS_ON_GD=TRUE, carga baja → SHED_MODE=3
+    Paso 11: Pasar a IS_ON_GD=TRUE, carga baja -> SHED_MODE=3
     Paso 12: Verificar acoplamiento escalonado (1 feeder a la vez)
     Paso 13: Verificar pausa si GD_LoadPct > GD_SHED_ON
     Paso 14: Verificar reanudación cuando carga baja
     
   GRUPO E - DESLASTRE REACTIVO EN GD (GD_REACTIVE_SHED):
-    Paso 15: Subir GD_LoadPct > 90% → SHED_MODE=4
+    Paso 15: Subir GD_LoadPct > 90% -> SHED_MODE=4
     Paso 16: Verificar desacople no-esenciales en GD
     
   GRUPO F - REENGANCHE AL VOLVER A RED:
-    Paso 17: Simular retorno a RED (IS_ON_GRID=TRUE) → SHED_MODE=5
+    Paso 17: Simular retorno a RED (IS_ON_GRID=TRUE) -> SHED_MODE=5
     Paso 18: Verificar que todos los feeders se cierran
     Paso 19: TEST COMPLETADO
   
@@ -113,9 +113,8 @@ VAR
     essentialOk : Bool;
     nonEssentialOpenCount : Int;
     prevReconnectStep : Int;
-END_VAR
-
-VAR STAT
+    
+    // ========== TIMER TEST ==========
     testTimer : TON;
     // ========== INSTANCIA FB ==========
     instSHED : "03_FB_SHED";
@@ -140,7 +139,7 @@ BEGIN
                 #testStatus := 'PASO 0: Inicializando test FB_SHED V2.0';
                 #testExpectedResult := 'Feeders configurados, todos cerrados';
                 
-                // Configurar SHED_ORDER: deslastar 19→4 (inverso)
+                // Configurar SHED_ORDER: deslastar 19->4 (inverso)
                 #cfgShedOrder[1] := 19;
                 #cfgShedOrder[2] := 18;
                 #cfgShedOrder[3] := 17;
@@ -161,7 +160,7 @@ BEGIN
                 #cfgShedOrder[18] := 0;
                 #cfgShedOrder[19] := 0;
                 
-                // Configurar RECONNECT_ORDER: 4→19
+                // Configurar RECONNECT_ORDER: 4->19
                 #cfgReconnectOrder[1] := 4;
                 #cfgReconnectOrder[2] := 5;
                 #cfgReconnectOrder[3] := 6;
@@ -247,9 +246,9 @@ BEGIN
             // GRUPO B: DESLASTRE REACTIVO EN RED
             // ================================================================
             
-            // PASO 3: Subir TR_LoadPct > 85% → GRID_SHED
+            // PASO 3: Subir TR_LoadPct > 85% -> GRID_SHED
             3:
-                #testStatus := 'PASO 3: Subir TR_LoadPct=88% → esperar GRID_SHED';
+                #testStatus := 'PASO 3: Subir TR_LoadPct=88% -> esperar GRID_SHED';
                 #testExpectedResult := 'SHED_MODE=1, SHED_ACTIVE=TRUE';
                 
                 #simTR_LoadPct := 88.0;  // Sobre umbral GRID_SHED_ON (85%)
@@ -315,9 +314,9 @@ BEGIN
                     #testStep := 6;
                 END_IF;
                 
-            // PASO 6: Bajar TR_LoadPct < 70% → GRID_RECONNECT
+            // PASO 6: Bajar TR_LoadPct < 70% -> GRID_RECONNECT
             6:
-                #testStatus := 'PASO 6: Bajar TR_LoadPct=65% → GRID_RECONNECT';
+                #testStatus := 'PASO 6: Bajar TR_LoadPct=65% -> GRID_RECONNECT';
                 #testExpectedResult := 'SHED_MODE=5 (GRID_RECONNECT)';
                 
                 #simTR_LoadPct := 65.0;  // Bajo umbral GRID_SHED_OFF (70%)
@@ -370,9 +369,9 @@ BEGIN
             // GRUPO C: DESACOPLE INICIAL TRANSFERENCIA GD
             // ================================================================
             
-            // PASO 8: Simular TRANSFER_TO_GD=TRUE → GD_INITIAL_SHED
+            // PASO 8: Simular TRANSFER_TO_GD=TRUE -> GD_INITIAL_SHED
             8:
-                #testStatus := 'PASO 8: TRANSFER_TO_GD=TRUE → GD_INITIAL_SHED';
+                #testStatus := 'PASO 8: TRANSFER_TO_GD=TRUE -> GD_INITIAL_SHED';
                 #testExpectedResult := 'SHED_MODE=2, no-esenciales se abren';
                 
                 // Estabilizar en IDLE primero
@@ -435,9 +434,9 @@ BEGIN
             // GRUPO D: ACOPLAMIENTO ESCALONADO EN GD
             // ================================================================
             
-            // PASO 11: Pasar a IS_ON_GD=TRUE, carga baja → GD_RECONNECT
+            // PASO 11: Pasar a IS_ON_GD=TRUE, carga baja -> GD_RECONNECT
             11:
-                #testStatus := 'PASO 11: IS_ON_GD=TRUE, carga 40% → GD_RECONNECT';
+                #testStatus := 'PASO 11: IS_ON_GD=TRUE, carga 40% -> GD_RECONNECT';
                 #testExpectedResult := 'SHED_MODE=3, acoplamiento inicia';
                 
                 // Simular que GD esta operativo
@@ -469,7 +468,7 @@ BEGIN
                 END_FOR;
                 
                 // Subir carga simulada ligeramente por cada feeder (realista)
-                #simGD_LoadPct := 40.0 + (REAL#(#outReconnectStep) * 3.0);
+                #simGD_LoadPct := 40.0 + (INT_TO_REAL(#outReconnectStep) * 3.0);
                 
                 // Esperar que avance al menos 2 pasos
                 #testTimer(IN := TRUE, PT := T#20s);
@@ -480,9 +479,9 @@ BEGIN
                     #testStep := 13;
                 END_IF;
                 
-            // PASO 13: Subir carga GD → PAUSA acoplamiento
+            // PASO 13: Subir carga GD -> PAUSA acoplamiento
             13:
-                #testStatus := 'PASO 13: GD_LoadPct=92% → PAUSA acoplamiento';
+                #testStatus := 'PASO 13: GD_LoadPct=92% -> PAUSA acoplamiento';
                 #testExpectedResult := 'Acoplamiento pausado, SHED_MODE=4';
                 
                 // Subir carga GD súbitamente sobre 90% (umbral GD_SHED_ON)
@@ -498,10 +497,10 @@ BEGIN
                     #testStep := 14;
                 END_IF;
                 
-            // PASO 14: Bajar carga → reanuda acoplamiento
+            // PASO 14: Bajar carga -> reanuda acoplamiento
             14:
-                #testStatus := 'PASO 14: GD_LoadPct=50% → reanuda acoplamiento';
-                #testExpectedResult := 'SHED_MODE=3 o 4→3';
+                #testStatus := 'PASO 14: GD_LoadPct=50% -> reanuda acoplamiento';
+                #testExpectedResult := 'SHED_MODE=3 o 4->3';
                 
                 #simGD_LoadPct := 50.0;
                 
@@ -528,9 +527,9 @@ BEGIN
             // GRUPO E: DESLASTRE REACTIVO EN GD
             // ================================================================
             
-            // PASO 15: GD_LoadPct > 90% → GD_REACTIVE_SHED
+            // PASO 15: GD_LoadPct > 90% -> GD_REACTIVE_SHED
             15:
-                #testStatus := 'PASO 15: GD_LoadPct=93% → GD_REACTIVE_SHED';
+                #testStatus := 'PASO 15: GD_LoadPct=93% -> GD_REACTIVE_SHED';
                 #testExpectedResult := 'SHED_MODE=4, deslastre reactivo en GD';
                 
                 // Cerrar todos los feeders primero (estado inicial limpio)
@@ -586,9 +585,9 @@ BEGIN
             // GRUPO F: REENGANCHE AL VOLVER A RED
             // ================================================================
             
-            // PASO 17: Retorno a RED → GRID_RECONNECT
+            // PASO 17: Retorno a RED -> GRID_RECONNECT
             17:
-                #testStatus := 'PASO 17: Retorno a RED → GRID_RECONNECT (modo 5)';
+                #testStatus := 'PASO 17: Retorno a RED -> GRID_RECONNECT (modo 5)';
                 #testExpectedResult := 'SHED_MODE=5, todos reconectan';
                 
                 // Simular retorno a RED
@@ -711,10 +710,10 @@ BEGIN
         GRID_SHED_OFF := 70.0,
         
         // === TIMING OVERRIDES PARA TEST ===
-        T_SHED_STEP := T#3s,           // Default 5s → 3s (test más rápido)
-        T_RECONNECT_STEP := T#3s,      // Default 5s → 3s
+        T_SHED_STEP := T#3s,           // Default 5s -> 3s (test más rápido)
+        T_RECONNECT_STEP := T#3s,      // Default 5s -> 3s
         T_LOAD_FILTER := T#2s,         // Default 2s (sin cambio)
-        T_LOAD_CHECK_DELAY := T#2s,    // Default 3s → 2s
+        T_LOAD_CHECK_DELAY := T#2s,    // Default 3s -> 2s
         
         // Arrays configurables
         SHED_ORDER := #cfgShedOrder,

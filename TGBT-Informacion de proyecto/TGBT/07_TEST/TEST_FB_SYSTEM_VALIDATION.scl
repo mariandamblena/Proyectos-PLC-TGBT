@@ -6,15 +6,15 @@
 ================================================================================
   DESCRIPCIÓN:
   Test integral del core del sistema SCMTA sin dependencia de Modbus/MTZ.
-  Valida la cadena completa: IO_NORMALIZE → SCMTA → SHED → CMD_ARBITER → OUTPUTS
+  Valida la cadena completa: IO_NORMALIZE -> SCMTA -> SHED -> CMD_ARBITER -> OUTPUTS
   
   Simula los delays de retorno Modbus (2-4 segundos) para reproducir
   el comportamiento real de los interruptores MTZ.
   
   VARIABLE DE CONTROL:
   TEST_MODE:
-    0 = HAPPY PATH (transferencia completa RED→GD1, retorno GD1→RED,
-        failover GD1→GD2, deslastre en GD + acople, deslastre reactivo en RED)
+    0 = HAPPY PATH (transferencia completa RED->GD1, retorno GD1->RED,
+        failover GD1->GD2, deslastre en GD + acople, deslastre reactivo en RED)
     1 = FAULT PATH (timeout QT1, timeout QG1, timeout QT1 retorno,
         GD_ALARM arranque, GD_ALARM operación, ambos GD fallan,
         red intermitente, LOCAL bloquea)
@@ -381,7 +381,7 @@ BEGIN
     
     
     // ========================================================================
-    // SECCIÓN 2: CAPTURAR COMANDOS DEL ARBITER → PROGRAMAR CAMBIO CON DELAY
+    // SECCIÓN 2: CAPTURAR COMANDOS DEL ARBITER -> PROGRAMAR CAMBIO CON DELAY
     // (Solo si no hay bloqueo activo de test)
     // ========================================================================
     
@@ -506,15 +506,15 @@ BEGIN
         FREQ_MAX := 51.0,
         T_OPEN_QT1 := T#12s,            // Real: 2s + 3s delay Modbus + margen
         T_START_GD_DELAY := T#3s,
-        T_GD_READY_TIMEOUT := T#15s,    // Reducido 30→15 para test
+        T_GD_READY_TIMEOUT := T#15s,    // Reducido 30->15 para test
         T_GD_STABILIZATION := T#5s,
         T_CLOSE_QG1 := T#12s,
         T_CLOSE_QG2 := T#12s,
-        T_GRID_STABLE := T#5s,          // Reducido 120→5 para test
+        T_GRID_STABLE := T#5s,          // Reducido 120->5 para test
         T_OPEN_QG1 := T#12s,
         T_OPEN_QG2 := T#12s,
         T_CLOSE_QT1 := T#12s,
-        T_GD_COOLDOWN := T#5s,          // Reducido 60→5 para test
+        T_GD_COOLDOWN := T#5s,          // Reducido 60->5 para test
         T_GRID_FAIL_FILTER := T#2s,
         
         STATE => #outState,
@@ -565,8 +565,8 @@ BEGIN
         GD_SHED_OFF := 70.0,
         GRID_SHED_ON := 85.0,
         GRID_SHED_OFF := 70.0,
-        T_SHED_STEP := T#3s,           // Reducido 5→3 para test
-        T_RECONNECT_STEP := T#3s,      // Reducido 5→3 para test
+        T_SHED_STEP := T#3s,           // Reducido 5->3 para test
+        T_RECONNECT_STEP := T#3s,      // Reducido 5->3 para test
         T_LOAD_FILTER := T#2s,
         T_LOAD_CHECK_DELAY := T#3s,
         SHED_ORDER := #cfgShedOrder,
@@ -684,7 +684,7 @@ BEGIN
         CASE #testStep OF
             
             // ================================================================
-            // ESCENARIO A: TRANSFERENCIA RED → GD1 COMPLETA
+            // ESCENARIO A: TRANSFERENCIA RED -> GD1 COMPLETA
             // ================================================================
             
             // PASO 0: Verificar estado inicial NORMAL_ON_GRID
@@ -702,7 +702,7 @@ BEGIN
                     #testStep := 1;
                 END_IF;
             
-            // PASO 1: Simular falla de RED → detectar GRID_FAIL
+            // PASO 1: Simular falla de RED -> detectar GRID_FAIL
             1:
                 #testStatus := 'HP-01: Falla RED - Esperar GRID_FAIL_DETECTED';
                 #simGridV_L1L2 := 200.0;
@@ -742,7 +742,7 @@ BEGIN
                     #testStep := 3;
                 END_IF;
             
-            // PASO 3: GD1 arranca → simular GD_RUNNING
+            // PASO 3: GD1 arranca -> simular GD_RUNNING
             3:
                 #testStatus := 'HP-03: START_GD1 - Simular arranque GD1';
                 // Esperar que SCMTA pida arranque
@@ -760,7 +760,7 @@ BEGIN
                     #testStep := 4;
                 END_IF;
             
-            // PASO 4: GD1 listo → simular GD_READY + estabilización → CLOSE_QG1
+            // PASO 4: GD1 listo -> simular GD_READY + estabilización -> CLOSE_QG1
             4:
                 #testStatus := 'HP-04: WAIT_GD1_READY - Simular GD1 listo';
                 #simDI_GD_Ready := TRUE;
@@ -845,7 +845,7 @@ BEGIN
                     #testStep := 8;
                 END_IF;
             
-            // PASO 8: Subir carga GD → verificar que SHED reactivo frena acople
+            // PASO 8: Subir carga GD -> verificar que SHED reactivo frena acople
             8:
                 #testStatus := 'HP-08: SHED - Carga GD sube, freno acoplamiento';
                 #simGD_LoadPct := 92.0;  // Sobre umbral GD_SHED_ON (90%)
@@ -863,10 +863,10 @@ BEGIN
                 END_IF;
             
             // ================================================================
-            // ESCENARIO C: RETORNO GD1 → RED
+            // ESCENARIO C: RETORNO GD1 -> RED
             // ================================================================
             
-            // PASO 9: Restaurar RED → detectar GRID_RETURN
+            // PASO 9: Restaurar RED -> detectar GRID_RETURN
             9:
                 #testStatus := 'HP-09: Restaurar RED - Esperar GRID_RETURN';
                 #simGridV_L1L2 := 380.0;
@@ -889,7 +889,7 @@ BEGIN
                     #testStep := 10;
                 END_IF;
             
-            // PASO 10: Esperar red estable 5s → OPEN_QG1 → CLOSE_QT1
+            // PASO 10: Esperar red estable 5s -> OPEN_QG1 -> CLOSE_QT1
             10:
                 #testStatus := 'HP-10: WAIT_GRID_STABLE + retorno a RED';
                 #tonStep(IN := TRUE, PT := T#20s);  // 5s estable + delay open/close + margen
@@ -929,7 +929,7 @@ BEGIN
                 END_IF;
             
             // ================================================================
-            // ESCENARIO D: FAILOVER GD1 → GD2
+            // ESCENARIO D: FAILOVER GD1 -> GD2
             // ================================================================
             
             // PASO 12: Nueva falla RED
@@ -954,7 +954,7 @@ BEGIN
                     #testStep := 13;
                 END_IF;
             
-            // PASO 13: GD1 falla durante arranque → failover a GD2
+            // PASO 13: GD1 falla durante arranque -> failover a GD2
             13:
                 #testStatus := 'HP-13: FAILOVER - GD1 ALARM durante arranque';
                 // Esperar que SCMTA intente arrancar GD1
@@ -980,7 +980,7 @@ BEGIN
             
             // PASO 14: GD2 arranca y llega a ON_GD2
             14:
-                #testStatus := 'HP-14: FAILOVER - GD2 arranca → ON_GD2';
+                #testStatus := 'HP-14: FAILOVER - GD2 arranca -> ON_GD2';
                 IF #outDoGD2_Start THEN
                     #simDI_GD2_RUNNING := TRUE;
                 END_IF;
@@ -1039,9 +1039,9 @@ BEGIN
                     #testStep := 16;
                 END_IF;
             
-            // PASO 16: Sobrecarga transformador → deslastre reactivo en RED
+            // PASO 16: Sobrecarga transformador -> deslastre reactivo en RED
             16:
-                #testStatus := 'HP-16: Sobrecarga trafo → deslastre reactivo RED';
+                #testStatus := 'HP-16: Sobrecarga trafo -> deslastre reactivo RED';
                 #simTR_LoadPct := 88.0;  // Sobre GRID_SHED_ON (85%)
                 
                 #tonStep(IN := TRUE, PT := T#15s);
@@ -1055,9 +1055,9 @@ BEGIN
                     #testStep := 17;
                 END_IF;
             
-            // PASO 17: Bajar carga → histéresis → reenganche en RED
+            // PASO 17: Bajar carga -> histéresis -> reenganche en RED
             17:
-                #testStatus := 'HP-17: Carga baja → reenganche en RED (histeresis)';
+                #testStatus := 'HP-17: Carga baja -> reenganche en RED (histeresis)';
                 #simTR_LoadPct := 65.0;  // Bajo GRID_SHED_OFF (70%)
                 
                 #tonStep(IN := TRUE, PT := T#15s);
@@ -1117,7 +1117,7 @@ BEGIN
                     #testStep := 1;
                 END_IF;
             
-            // PASO 1: Falla RED + BLOQUEAR apertura QT1 → timeout
+            // PASO 1: Falla RED + BLOQUEAR apertura QT1 -> timeout
             1:
                 #testStatus := 'FP-01: Falla RED - QT1 BLOQUEADO (no abre)';
                 #simGridV_L1L2 := 200.0;
@@ -1241,12 +1241,12 @@ BEGIN
                 END_IF;
             
             // ================================================================
-            // ESCENARIO H: GD_ALARM DURANTE ARRANQUE → FAILOVER GD2
+            // ESCENARIO H: GD_ALARM DURANTE ARRANQUE -> FAILOVER GD2
             // ================================================================
             
             // PASO 6: Falla RED + GD1 ALARM durante START
             6:
-                #testStatus := 'FP-06: GD1 ALARM arranque → failover GD2';
+                #testStatus := 'FP-06: GD1 ALARM arranque -> failover GD2';
                 #simGridV_L1L2 := 200.0;
                 #simGridV_L2L3 := 200.0;
                 #simGridV_L3L1 := 200.0;
@@ -1271,12 +1271,12 @@ BEGIN
                 END_IF;
             
             // ================================================================
-            // ESCENARIO I: AMBOS GD FALLAN → FAULT_LOCKOUT (209)
+            // ESCENARIO I: AMBOS GD FALLAN -> FAULT_LOCKOUT (209)
             // ================================================================
             
-            // PASO 7: GD2 también alarma → ambos fallan
+            // PASO 7: GD2 también alarma -> ambos fallan
             7:
-                #testStatus := 'FP-07: GD2 ALARM → AMBOS GD FALLAN → LOCKOUT';
+                #testStatus := 'FP-07: GD2 ALARM -> AMBOS GD FALLAN -> LOCKOUT';
                 #simDI_GD2_ALARM := TRUE;  // GD2 también falla
                 
                 #tonStep(IN := TRUE, PT := T#15s);
@@ -1319,7 +1319,7 @@ BEGIN
                 END_IF;
             
             // ================================================================
-            // ESCENARIO J: GD_ALARM DURANTE OPERACIÓN (ON_GD1) → FAILOVER
+            // ESCENARIO J: GD_ALARM DURANTE OPERACIÓN (ON_GD1) -> FAILOVER
             // ================================================================
             
             // PASO 9: Falla RED + transferir a GD1 normalmente
@@ -1352,9 +1352,9 @@ BEGIN
                     #testStep := 10;
                 END_IF;
             
-            // PASO 10: GD1 ALARM en operación → failover a GD2
+            // PASO 10: GD1 ALARM en operación -> failover a GD2
             10:
-                #testStatus := 'FP-10: GD1 ALARM en ON_GD1 → OPEN_GD_FOR_SWITCH';
+                #testStatus := 'FP-10: GD1 ALARM en ON_GD1 -> OPEN_GD_FOR_SWITCH';
                 #simDI_GD_ALARM := TRUE;
                 
                 #tonStep(IN := TRUE, PT := T#10s);
@@ -1372,9 +1372,9 @@ BEGIN
                     #testStep := 11;
                 END_IF;
             
-            // PASO 11: GD2 arranca → ON_GD2
+            // PASO 11: GD2 arranca -> ON_GD2
             11:
-                #testStatus := 'FP-11: GD2 asume carga → ON_GD2';
+                #testStatus := 'FP-11: GD2 asume carga -> ON_GD2';
                 IF #outDoGD2_Start THEN
                     #simDI_GD2_RUNNING := TRUE;
                 END_IF;
@@ -1400,7 +1400,7 @@ BEGIN
             // ESCENARIO K: RED INTERMITENTE DURANTE WAIT_GRID_STABLE
             // ================================================================
             
-            // PASO 12: Restaurar RED → detectar retorno → luego falla de nuevo
+            // PASO 12: Restaurar RED -> detectar retorno -> luego falla de nuevo
             12:
                 #testStatus := 'FP-12: RED intermitente durante WAIT_GRID_STABLE';
                 #simGridV_L1L2 := 380.0;
@@ -1409,7 +1409,7 @@ BEGIN
                 
                 #tonStep(IN := TRUE, PT := T#5s);
                 IF #outState = 10 THEN
-                    // Está esperando red estable → forzar falla de nuevo
+                    // Está esperando red estable -> forzar falla de nuevo
                     #simGridV_L1L2 := 200.0;
                     #simGridV_L2L3 := 200.0;
                     #simGridV_L3L1 := 200.0;
@@ -1456,9 +1456,9 @@ BEGIN
                     #testStep := 14;
                 END_IF;
             
-            // PASO 14: Poner QT1 en LOCAL → falla RED → SCMTA no puede abrir QT1
+            // PASO 14: Poner QT1 en LOCAL -> falla RED -> SCMTA no puede abrir QT1
             14:
-                #testStatus := 'FP-14: QT1 LOCAL → SCMTA bloqueado';
+                #testStatus := 'FP-14: QT1 LOCAL -> SCMTA bloqueado';
                 #simDI_QT1_REMOTE_SEL := FALSE;  // LOCAL
                 #simGridV_L1L2 := 200.0;
                 #simGridV_L2L3 := 200.0;
@@ -1475,9 +1475,9 @@ BEGIN
                     #testStep := 15;
                 END_IF;
             
-            // PASO 15: Cambiar a REMOTO → SCMTA puede continuar
+            // PASO 15: Cambiar a REMOTO -> SCMTA puede continuar
             15:
-                #testStatus := 'FP-15: QT1 REMOTO → desbloquear';
+                #testStatus := 'FP-15: QT1 REMOTO -> desbloquear';
                 #simDI_QT1_REMOTE_SEL := TRUE;  // REMOTO
                 
                 #tonStep(IN := TRUE, PT := T#10s);

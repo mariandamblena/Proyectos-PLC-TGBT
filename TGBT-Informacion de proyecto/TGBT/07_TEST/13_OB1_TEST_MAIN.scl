@@ -1,0 +1,76 @@
+﻿(*
+================================================================================
+  OB1 TEST MAIN - Bloque principal para ejecucion de tests
+  Version: 1.0
+  Fecha: 2026-02-21
+================================================================================
+  DESCRIPCION:
+  OB1 alternativo para ejecutar los tests del proyecto SCMTA TGBT.
+  
+  INSTRUCCIONES DE USO:
+  1. Importar TODOS los FBs de produccion primero (01-07)
+  2. Importar TODOS los instance DBs de produccion (11_INSTANCE_DBS.scl)
+  3. Importar los Test FBs (07_TEST/*.scl)
+  4. Importar Test Instance DBs (12_TEST_INSTANCE_DBS.scl)
+  5. Importar este archivo (OB1 de test)
+  
+  EJECUCION:
+  - Solo UN test a la vez debe estar descomentado
+  - Activar testEnable := TRUE en el instance DB del test activo
+  - Observar testStep y testStatus en watch table
+  - Al terminar, comentar ese test y descomentar el siguiente
+  - testReset := TRUE para reiniciar un test
+  
+  TESTS DISPONIBLES:
+  1. TEST_SCMTA_DB       -> Happy path IO_NORMALIZE + SCMTA (15 pasos)
+  2. TEST_FALLAS_DB      -> Escenarios de falla SCMTA (37 pasos)
+  3. TEST_SHED_DB        -> Deslastre dual RED/GD (20 pasos)
+  4. TEST_GD2_FAILOVER_DB -> Failover GD1<->GD2 (25 pasos)
+  5. TEST_SYSTEM_DB      -> Validacion sistema completo (50 pasos)
+  
+================================================================================
+*)
+
+ORGANIZATION_BLOCK "Main"
+TITLE = "OB1 Test Main - Ejecucion secuencial de tests"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+    
+    // ========================================================================
+    // TEST 1: HAPPY PATH IO_NORMALIZE + SCMTA
+    // Transferencia RED->GD1, retorno GD1->RED, modo manual
+    // Activar: TEST_SCMTA_DB.testEnable := TRUE
+    // ========================================================================
+    "TEST_SCMTA_DB"();
+    
+    // ========================================================================
+    // TEST 2: ESCENARIOS DE FALLA SCMTA
+    // 37 pasos: timeouts, alarmas GD, oscilacion RED, bloqueo LOCAL
+    // Activar: TEST_FALLAS_DB.testEnable := TRUE
+    // ========================================================================
+    // "TEST_FALLAS_DB"();
+    
+    // ========================================================================
+    // TEST 3: DESLASTRE DUAL RED/GD (FB_SHED)
+    // 20 pasos: clasificacion, GRID_SHED, GD_INITIAL_SHED, acoplamiento
+    // Activar: TEST_SHED_DB.testEnable := TRUE
+    // ========================================================================
+    // "TEST_SHED_DB"();
+    
+    // ========================================================================
+    // TEST 4: FAILOVER GD1<->GD2
+    // 25 pasos: failover arranque, operacion, retorno, ambos fallan
+    // Activar: TEST_GD2_FAILOVER_DB.testEnable := TRUE
+    // ========================================================================
+    // "TEST_GD2_FAILOVER_DB"();
+    
+    // ========================================================================
+    // TEST 5: VALIDACION SISTEMA COMPLETO
+    // 50 pasos: cadena completa IO->SCMTA->SHED->ARBITER->OUTPUTS
+    // Activar: TEST_SYSTEM_DB.testEnable := TRUE
+    // ========================================================================
+    // "TEST_SYSTEM_DB"();
+
+END_ORGANIZATION_BLOCK

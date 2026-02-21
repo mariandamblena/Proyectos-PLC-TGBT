@@ -7,8 +7,8 @@
   DESCRIPCIÓN:
   Test secuencial con delays para validar paso a paso el comportamiento
   completo de FB_IO_NORMALIZE y FB_SCMTA, incluyendo:
-  - Transferencia RED → GD1 (falla)
-  - Retransferencia GD1 → RED (retorno)
+  - Transferencia RED -> GD1 (falla)
+  - Retransferencia GD1 -> RED (retorno)
   - Compatible V3.0: GD2 cableado pero no ejercitado (ver TEST_FB_GD2_FAILOVER)
   
   PASOS DEL TEST:
@@ -53,7 +53,7 @@ VAR
     testStep : Int := 0;  // Paso actual del test
     testStatus : String[100] := 'Test detenido - Activar testEnable para iniciar';  // Descripción del paso
     testExpectedState : Int := 0;  // Estado SCMTA esperado
-    testExpectedResult : String[50] := '';  // Resultado esperado
+    testExpectedResult : String[100] := '';  // Resultado esperado
     testResults : Array[0..14] of Bool;  // Resultados de validación de cada paso (TRUE=OK, FALSE=FAIL)
     
     // ========== SIMULACIÓN ENTRADAS FÍSICAS ==========
@@ -119,11 +119,8 @@ VAR
     outGD1_Available : Bool;
     outGD2_Available : Bool;
     
-END_VAR
-
-VAR STAT
-    // ========== TIMER TEST (STATIC para mantener estado) ==========
-    testTimer : TON;  // Timer para delays en secuencia
+    // ========== TIMER TEST ==========
+    testTimer : TON;
     // ========== INSTANCIAS FB ==========
     instIO : "01_FB_IO_NORMALIZE";
     instSCMTA : "02_FB_SCMTA";
@@ -550,17 +547,17 @@ BEGIN
              
              // === TIMING OVERRIDES PARA TEST ===
              // Timeouts de actuadores: más largos (dar tiempo al test de reaccionar)
-             T_OPEN_QT1 := T#10s,        // Default 2s → 10s
-             T_CLOSE_QG1 := T#10s,        // Default 2s → 10s
-             T_CLOSE_QG2 := T#10s,        // Default 2s → 10s
-             T_OPEN_QG1 := T#10s,         // Default 2s → 10s
-             T_OPEN_QG2 := T#10s,         // Default 2s → 10s
-             T_CLOSE_QT1 := T#10s,        // Default 2s → 10s
+             T_OPEN_QT1 := T#10s,        // Default 2s -> 10s
+             T_CLOSE_QG1 := T#10s,        // Default 2s -> 10s
+             T_CLOSE_QG2 := T#10s,        // Default 2s -> 10s
+             T_OPEN_QG1 := T#10s,         // Default 2s -> 10s
+             T_OPEN_QG2 := T#10s,         // Default 2s -> 10s
+             T_CLOSE_QT1 := T#10s,        // Default 2s -> 10s
              // Delays de proceso: más cortos (test más rápido)
-             T_START_GD_DELAY := T#2s,    // Default 3s → 2s
-             T_GD_STABILIZATION := T#3s,  // Default 5s → 3s
-             T_GRID_STABLE := T#5s,       // Default 120s → 5s (CRÍTICO)
-             T_GD_COOLDOWN := T#5s,       // Default 60s → 5s (CRÍTICO)
+             T_START_GD_DELAY := T#2s,    // Default 3s -> 2s
+             T_GD_STABILIZATION := T#3s,  // Default 5s -> 3s
+             T_GRID_STABLE := T#5s,       // Default 120s -> 5s (CRÍTICO)
+             T_GD_COOLDOWN := T#5s,       // Default 60s -> 5s (CRÍTICO)
              T_GRID_FAIL_FILTER := T#2s,  // Default 2s (sin cambio)
              
              STATE => #outState,

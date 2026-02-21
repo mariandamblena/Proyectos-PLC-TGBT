@@ -1,6 +1,6 @@
 ﻿(*
 ================================================================================
-  FB_TEST_GD2_FAILOVER: Test Failover GD1↔GD2
+  FB_TEST_GD2_FAILOVER: Test Failover GD1<->GD2
   Versión: 1.0
   Fecha: 2026-02-10
 ================================================================================
@@ -9,10 +9,10 @@
   Cubre todos los escenarios de redundancia N+1 del FB_SCMTA V3.0.
   
   GRUPOS DE TEST:
-  Grupo A (Pasos 0-4): Failover GD1→GD2 durante arranque (GD1_ALARM en START_GD1)
-  Grupo B (Pasos 5-9): Failover GD1→GD2 durante operación (GD1_ALARM en ON_GD1)
-  Grupo C (Pasos 10-14): Failover GD2→GD1 durante operación (GD2_ALARM en ON_GD2)
-  Grupo D (Pasos 15-17): Ambos GD fallan → FAULT_LOCKOUT (código 209)
+  Grupo A (Pasos 0-4): Failover GD1->GD2 durante arranque (GD1_ALARM en START_GD1)
+  Grupo B (Pasos 5-9): Failover GD1->GD2 durante operación (GD1_ALARM en ON_GD1)
+  Grupo C (Pasos 10-14): Failover GD2->GD1 durante operación (GD2_ALARM en ON_GD2)
+  Grupo D (Pasos 15-17): Ambos GD fallan -> FAULT_LOCKOUT (código 209)
   Grupo E (Pasos 18-23): Retorno a RED desde GD2 (OPEN_ACTIVE_GD abre QG2)
   Grupo F (Paso 24): Test finalizado
   
@@ -257,7 +257,7 @@ BEGIN
     CASE #testStep OF
         
         // ================================================================
-        // GRUPO A: FAILOVER GD1→GD2 DURANTE ARRANQUE
+        // GRUPO A: FAILOVER GD1->GD2 DURANTE ARRANQUE
         // Escenario: Falla RED, intenta GD1, GD1_ALARM, failover a GD2
         // ================================================================
         
@@ -278,9 +278,9 @@ BEGIN
                 #testStep := 1;
             END_IF;
         
-        // PASO 1: Simular falla RED → esperar estado START_GD1 (estado 5)
+        // PASO 1: Simular falla RED -> esperar estado START_GD1 (estado 5)
         1:
-            #testStatus := 'PASO 1: Falla RED → arrancando GD1';
+            #testStatus := 'PASO 1: Falla RED -> arrancando GD1';
             #currentDelay := T#10s;
             
             // Cortar red
@@ -295,9 +295,9 @@ BEGIN
                 #testStep := 2;
             END_IF;
         
-        // PASO 2: GD1 entra en ALARMA → failover a GD2
+        // PASO 2: GD1 entra en ALARMA -> failover a GD2
         2:
-            #testStatus := 'PASO 2: GD1_ALARM → failover GD2';
+            #testStatus := 'PASO 2: GD1_ALARM -> failover GD2';
             #currentDelay := T#8s;
             
             // GD1 falla
@@ -311,9 +311,9 @@ BEGIN
                 #testStep := 3;
             END_IF;
         
-        // PASO 3: GD2 arranca OK → WAIT_GD2_READY → CLOSE_QG2 → ON_GD2
+        // PASO 3: GD2 arranca OK -> WAIT_GD2_READY -> CLOSE_QG2 -> ON_GD2
         3:
-            #testStatus := 'PASO 3: GD2 arranca → ON_GD2';
+            #testStatus := 'PASO 3: GD2 arranca -> ON_GD2';
             #currentDelay := T#12s;
             
             // GD2 arranca y queda listo
@@ -357,8 +357,8 @@ BEGIN
         
         
         // ================================================================
-        // GRUPO B: FAILOVER GD1→GD2 DURANTE OPERACIÓN (LIVE SWITCH)
-        // Escenario: Operando en GD1, GD1_ALARM → OPEN_GD_FOR_SWITCH → GD2
+        // GRUPO B: FAILOVER GD1->GD2 DURANTE OPERACIÓN (LIVE SWITCH)
+        // Escenario: Operando en GD1, GD1_ALARM -> OPEN_GD_FOR_SWITCH -> GD2
         // ================================================================
         
         // PASO 5: Llevar a ON_GD1 (transferencia normal)
@@ -381,9 +381,9 @@ BEGIN
                 #testStep := 6;
             END_IF;
         
-        // PASO 6: GD1 ALARM durante operación → OPEN_GD_FOR_SWITCH (estado 20)
+        // PASO 6: GD1 ALARM durante operación -> OPEN_GD_FOR_SWITCH (estado 20)
         6:
-            #testStatus := 'PASO 6: GD1_ALARM en ON_GD1 → OPEN_GD_SWITCH';
+            #testStatus := 'PASO 6: GD1_ALARM en ON_GD1 -> OPEN_GD_SWITCH';
             #currentDelay := T#3s;
             
             // GD1 falla durante operación
@@ -399,7 +399,7 @@ BEGIN
         
         // PASO 7: GD2 arranca y llega a ON_GD2
         7:
-            #testStatus := 'PASO 7: GD2 arranca → ON_GD2';
+            #testStatus := 'PASO 7: GD2 arranca -> ON_GD2';
             #currentDelay := T#12s;
             
             // GD2 arranca OK
@@ -453,8 +453,8 @@ BEGIN
         
         
         // ================================================================
-        // GRUPO C: FAILOVER GD2→GD1 DURANTE OPERACIÓN
-        // Escenario: Operando en GD2, GD2_ALARM → OPEN_GD_FOR_SWITCH → GD1
+        // GRUPO C: FAILOVER GD2->GD1 DURANTE OPERACIÓN
+        // Escenario: Operando en GD2, GD2_ALARM -> OPEN_GD_FOR_SWITCH -> GD1
         // ================================================================
         
         // PASO 10: Forzar ON_GD2 (falla RED, GD1 alarm, failover a GD2)
@@ -494,15 +494,15 @@ BEGIN
             #simDI_GD2_ALARM := TRUE;
             
             IF #stepDelayDone THEN
-                // Debería ir a OPEN_GD_FOR_SWITCH(20) → START_GD1_DELAY(4)
+                // Debería ir a OPEN_GD_FOR_SWITCH(20) -> START_GD1_DELAY(4)
                 #testResults[11] := (#outState = 4 OR #outState = 5) AND (#outActiveGD = 1);
                 #tonStepDelay(IN := FALSE, PT := #currentDelay);
                 #testStep := 12;
             END_IF;
         
-        // PASO 12: GD1 arranca → ON_GD1
+        // PASO 12: GD1 arranca -> ON_GD1
         12:
-            #testStatus := 'PASO 12: GD1 arranca → ON_GD1';
+            #testStatus := 'PASO 12: GD1 arranca -> ON_GD1';
             #currentDelay := T#12s;
             
             // GD1 OK
@@ -555,7 +555,7 @@ BEGIN
         
         
         // ================================================================
-        // GRUPO D: AMBOS GD FALLAN → FAULT_LOCKOUT (código 209)
+        // GRUPO D: AMBOS GD FALLAN -> FAULT_LOCKOUT (código 209)
         // ================================================================
         
         // PASO 15: Falla RED, ambos GD en alarma
@@ -644,7 +644,7 @@ BEGIN
                 #testStep := 19;
             END_IF;
         
-        // PASO 19: RED retorna → WAIT_GRID_STABLE
+        // PASO 19: RED retorna -> WAIT_GRID_STABLE
         19:
             #testStatus := 'PASO 19: RED retorna, espera estable';
             #currentDelay := T#5s;
@@ -661,7 +661,7 @@ BEGIN
                 #testStep := 20;
             END_IF;
         
-        // PASO 20: OPEN_ACTIVE_GD abre QG2 → CLOSE_QT1
+        // PASO 20: OPEN_ACTIVE_GD abre QG2 -> CLOSE_QT1
         20:
             #testStatus := 'PASO 20: OPEN_ACTIVE_GD abre QG2';
             #currentDelay := T#5s;
@@ -674,9 +674,9 @@ BEGIN
                 #testStep := 21;
             END_IF;
         
-        // PASO 21: GD_COOLDOWN → NORMAL_ON_GRID + DO_GD2_STOP
+        // PASO 21: GD_COOLDOWN -> NORMAL_ON_GRID + DO_GD2_STOP
         21:
-            #testStatus := 'PASO 21: Cooldown → NORMAL_ON_GRID';
+            #testStatus := 'PASO 21: Cooldown -> NORMAL_ON_GRID';
             #currentDelay := T#8s;
             
             IF #stepDelayDone THEN

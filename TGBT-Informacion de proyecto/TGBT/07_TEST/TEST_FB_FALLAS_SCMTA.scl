@@ -10,24 +10,24 @@
   
   CASOS PROBADOS:
   GRUPO A - TIMEOUTS DE ACTUADORES:
-    - Paso 1-3: QT1 no abre → FAULT_LOCKOUT
-    - Paso 4-6: QG1 no cierra → FAULT_LOCKOUT  
-    - Paso 7-9: QT1 no cierra al retorno → FAULT_LOCKOUT
+    - Paso 1-3: QT1 no abre -> FAULT_LOCKOUT
+    - Paso 4-6: QG1 no cierra -> FAULT_LOCKOUT  
+    - Paso 7-9: QT1 no cierra al retorno -> FAULT_LOCKOUT
     
   GRUPO B - FALLAS GRUPO DIÉSEL:
-    - Paso 10-12: GD_ALARM durante arranque (estado 5) → FAULT
-    - Paso 13-15: GD_ALARM durante operación (estado 8, ON_GD1) → FAULT
-    - Paso 16-18: GD no alcanza READY en 30s → FAULT_TIMEOUT
-    - Paso 19-21: GD no arranca (GD_RUNNING nunca TRUE) → permanece en estado 5
+    - Paso 10-12: GD_ALARM durante arranque (estado 5) -> FAULT
+    - Paso 13-15: GD_ALARM durante operación (estado 8, ON_GD1) -> FAULT
+    - Paso 16-18: GD no alcanza READY en 30s -> FAULT_TIMEOUT
+    - Paso 19-21: GD no arranca (GD_RUNNING nunca TRUE) -> permanece en estado 5
     
   GRUPO C - FALLAS RED INTERMITENTES:
-    - Paso 22-24: RED falla durante WAIT_GRID_STABLE → vuelve a ON_GD1
-    - Paso 25-27: RED falla durante COOLDOWN → reinicia secuencia GD1
-    - Paso 28-30: Oscilación RED (bouncing) → filtro evita transferencias
+    - Paso 22-24: RED falla durante WAIT_GRID_STABLE -> vuelve a ON_GD1
+    - Paso 25-27: RED falla durante COOLDOWN -> reinicia secuencia GD1
+    - Paso 28-30: Oscilación RED (bouncing) -> filtro evita transferencias
   
   GRUPO D - COMANDOS BLOQUEADOS:
-    - Paso 31-33: Comando con selector LOCAL → BLOCK_LOCAL
-    - Paso 34-36: Cambio LOCAL→REMOTO durante secuencia → desbloquea
+    - Paso 31-33: Comando con selector LOCAL -> BLOCK_LOCAL
+    - Paso 34-36: Cambio LOCAL->REMOTO durante secuencia -> desbloquea
   
   INSTRUCCIONES:
   1. Crear instance DB "TEST_FALLAS_DB"
@@ -127,10 +127,9 @@ VAR
     blockQT1Closing : Bool := FALSE;  // Bloquear cierre QT1 al retorno
     blockGD_READY : Bool := FALSE;    // Bloquear GD_READY
     oscillationCounter : Int := 0;    // Contador oscilaciones RED
+    i : Int;                         // Indice para FOR loops
     
-END_VAR
-
-VAR STAT
+    // ========== TIMER TEST ==========
     testTimer : TON;
     // ========== INSTANCIAS FB ==========
     instIO : "01_FB_IO_NORMALIZE";
@@ -155,7 +154,7 @@ BEGIN
             0:
                 #testStatus := 'PASO 0: Init test TIMEOUT QT1 no abre';
                 #testExpectedState := 3;
-                #testExpectedResult := 'QT1 bloqueado, esperando timeout 12s → FAULT';
+                #testExpectedResult := 'QT1 bloqueado, esperando timeout 12s -> FAULT';
                 
                 // Configuración inicial: RED normal
                 #simDI_SYS_AUTO := TRUE;
@@ -204,9 +203,9 @@ BEGIN
                     #testStep := 2;
                 END_IF;
                 
-            // PASO 2: Esperar timeout T_OPEN_QT1 (10s) → debe ir a FAULT
+            // PASO 2: Esperar timeout T_OPEN_QT1 (10s) -> debe ir a FAULT
             2:
-                #testStatus := 'PASO 2: Esperando timeout QT1 (12s) → FAULT_LOCKOUT';
+                #testStatus := 'PASO 2: Esperando timeout QT1 (12s) -> FAULT_LOCKOUT';
                 #testExpectedState := 14;
                 #testExpectedResult := 'outState=14, FAULT_CODE timeout QT1';
                 
@@ -247,7 +246,7 @@ BEGIN
             // ====================================================================
             
             4:
-                #testStatus := 'PASO 4: Falla RED + Abre QT1 + Arranca GD → estado 7';
+                #testStatus := 'PASO 4: Falla RED + Abre QT1 + Arranca GD -> estado 7';
                 #testExpectedState := 7;
                 #testExpectedResult := 'SCMTA llega a CLOSE_QG1, QG1 bloqueado';
                 
@@ -281,7 +280,7 @@ BEGIN
                 END_IF;
                 
             5:
-                #testStatus := 'PASO 5: QG1 NO CIERRA - Esperando timeout 12s → FAULT';
+                #testStatus := 'PASO 5: QG1 NO CIERRA - Esperando timeout 12s -> FAULT';
                 #testExpectedState := 14;
                 #testExpectedResult := 'outState=14, FAULT_CODE timeout QG1';
                 
@@ -322,11 +321,11 @@ BEGIN
             // ====================================================================
             
             7:
-                #testStatus := 'PASO 7: Ciclo completo RED→GD→retorno hasta CLOSE_QT1';
+                #testStatus := 'PASO 7: Ciclo completo RED->GD->retorno hasta CLOSE_QT1';
                 #testExpectedState := 12;
                 #testExpectedResult := 'Llegar a estado 12, QT1 bloqueado';
                 
-                // Secuencia RED→GD→retorno completa (rápida)
+                // Secuencia RED->GD->retorno completa (rápida)
                 #simGridV_L1L2 := 200.0;
                 #simGridV_L2L3 := 200.0;
                 #simGridV_L3L1 := 200.0;
@@ -374,7 +373,7 @@ BEGIN
                 END_IF;
                 
             8:
-                #testStatus := 'PASO 8: QT1 NO CIERRA - Esperando timeout 12s → FAULT';
+                #testStatus := 'PASO 8: QT1 NO CIERRA - Esperando timeout 12s -> FAULT';
                 #testExpectedState := 14;
                 #testExpectedResult := 'outState=14, FAULT_CODE timeout QT1 close';
                 
@@ -413,7 +412,7 @@ BEGIN
             
             // PASO 10-12: GD_ALARM DURANTE ARRANQUE
             10:
-                #testStatus := 'PASO 10: Falla RED → GD arranca normalmente';
+                #testStatus := 'PASO 10: Falla RED -> GD arranca normalmente';
                 #testExpectedState := 5;
                 #testExpectedResult := 'GD en estado START_GD1';
                 
@@ -432,7 +431,7 @@ BEGIN
                 END_IF;
                 
             11:
-                #testStatus := 'PASO 11: GD_ALARM activado en estado 5 → FAULT inmediato';
+                #testStatus := 'PASO 11: GD_ALARM activado en estado 5 -> FAULT inmediato';
                 #testExpectedState := 14;
                 #testExpectedResult := 'outState=14, FAULT_CODE GD_ALARM';
                 
@@ -502,7 +501,7 @@ BEGIN
                 END_IF;
                 
             14:
-                #testStatus := 'PASO 14: GD_ALARM durante operación → FAULT inmediato';
+                #testStatus := 'PASO 14: GD_ALARM durante operación -> FAULT inmediato';
                 #testExpectedState := 14;
                 #testExpectedResult := 'outState=14, FAULT_CODE GD_ALARM';
                 
@@ -567,7 +566,7 @@ BEGIN
                 END_IF;
                 
             17:
-                #testStatus := 'PASO 17: Esperar timeout GD_READY (35s) → FAULT';
+                #testStatus := 'PASO 17: Esperar timeout GD_READY (35s) -> FAULT';
                 #testExpectedState := 14;
                 #testExpectedResult := 'outState=14, FAULT_CODE GD_NOT_READY';
                 
@@ -709,7 +708,7 @@ BEGIN
                 END_IF;
                 
             23:
-                #testStatus := 'PASO 23: RED falla DURANTE WAIT_GRID_STABLE → vuelve a estado 8';
+                #testStatus := 'PASO 23: RED falla DURANTE WAIT_GRID_STABLE -> vuelve a estado 8';
                 #testExpectedState := 8;
                 #testExpectedResult := 'Sistema vuelve a ON_GD1 correctamente';
                 
@@ -753,7 +752,7 @@ BEGIN
                 
             // PASO 25-27: RED FALLA DURANTE COOLDOWN
             25:
-                #testStatus := 'PASO 25: Ciclo completo RED→GD→retorno hasta COOLDOWN';
+                #testStatus := 'PASO 25: Ciclo completo RED->GD->retorno hasta COOLDOWN';
                 #testExpectedState := 13;
                 #testExpectedResult := 'Sistema en GD_COOLDOWN';
                 
@@ -804,7 +803,7 @@ BEGIN
                 END_IF;
                 
             26:
-                #testStatus := 'PASO 26: RED falla DURANTE COOLDOWN → reinicia secuencia';
+                #testStatus := 'PASO 26: RED falla DURANTE COOLDOWN -> reinicia secuencia';
                 #testExpectedState := 2;
                 #testExpectedResult := 'Vuelve a GRID_FAIL_DETECTED';
                 
@@ -922,7 +921,7 @@ BEGIN
                 END_IF;
                 
             32:
-                #testStatus := 'PASO 32: Falla RED con selectores LOCAL → comandos bloqueados';
+                #testStatus := 'PASO 32: Falla RED con selectores LOCAL -> comandos bloqueados';
                 #testExpectedState := 3;
                 #testExpectedResult := 'Comandos bloqueados, sin acción física';
                 
@@ -943,7 +942,7 @@ BEGIN
                 END_IF;
                 
             33:
-                #testStatus := 'PASO 33: Cambiar a REMOTO → desbloquea comandos';
+                #testStatus := 'PASO 33: Cambiar a REMOTO -> desbloquea comandos';
                 #testExpectedResult := 'Comandos ahora ejecutan';
                 
                 // Cambiar a REMOTO
