@@ -1,0 +1,68 @@
+// =============================================================================
+// INSTANCE DATA BLOCKS - Importar DESPUES de los FBs y ANTES del Main (OB1)
+// Orden de importacion en TIA Portal V18:
+//   1. DATA_BUFF (DB global) + DB_PARAMS
+//   2. FBs (01-07)
+//   3. Este archivo (Instance DBs)
+//   4. Main (OB1)
+// =============================================================================
+
+DATA_BLOCK "03_FB_SHED_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"03_FB_SHED"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "04_FB_CMD_ARBITER_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"04_FB_CMD_ARBITER"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "05_FB_OUTPUTS_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"05_FB_OUTPUTS"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "07_FB_MTZ_DRIVER_DB_QT1"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"07_FB_MTZ_DRIVER"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "07_FB_MTZ_DRIVER_DB_QG1"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"07_FB_MTZ_DRIVER"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "07_FB_MTZ_DRIVER_DB_QG2"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"07_FB_MTZ_DRIVER"
+
+BEGIN
+
+END_DATA_BLOCK
