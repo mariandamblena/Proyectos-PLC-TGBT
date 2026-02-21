@@ -1,4 +1,4 @@
-// =============================================================================
+﻿// =============================================================================
 // INSTANCE DATA BLOCKS - Importar DESPUES de los FBs y ANTES del Main (OB1)
 // Orden de importacion en TIA Portal V18:
 //   1. DATA_BUFF (DB global) + DB_PARAMS

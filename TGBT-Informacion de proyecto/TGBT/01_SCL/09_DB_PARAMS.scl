@@ -1,32 +1,32 @@
-DATA_BLOCK "DB_PARAMS"
+﻿DATA_BLOCK "DB_PARAMS"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 RETAIN
 
 STRUCT
     // ========================================================================
-    // SECCI�N 1: PAR�METROS TENSI�N/FRECUENCIA RED
+    // SECCIï¿½N 1: PARï¿½METROS TENSIï¿½N/FRECUENCIA RED
     // ========================================================================
-    V_NOM : Real := 380.0;           // Tensi�n nominal L-L [V]
-    V_MIN_PCT : Real := 85.0;        // Umbral m�nimo tensi�n [%] (subtensi�n)
-    V_MAX_PCT : Real := 110.0;       // Umbral m�ximo tensi�n [%] (sobretensi�n)
+    V_NOM : Real := 380.0;           // Tensiï¿½n nominal L-L [V]
+    V_MIN_PCT : Real := 85.0;        // Umbral mï¿½nimo tensiï¿½n [%] (subtensiï¿½n)
+    V_MAX_PCT : Real := 110.0;       // Umbral mï¿½ximo tensiï¿½n [%] (sobretensiï¿½n)
     FREQ_NOM : Real := 50.0;         // Frecuencia nominal [Hz]
-    FREQ_MIN : Real := 49.0;         // Frecuencia m�nima [Hz]
-    FREQ_MAX : Real := 51.0;         // Frecuencia m�xima [Hz]
+    FREQ_MIN : Real := 49.0;         // Frecuencia mï¿½nima [Hz]
+    FREQ_MAX : Real := 51.0;         // Frecuencia mï¿½xima [Hz]
     
     // ========================================================================
-    // SECCI�N 2: TIEMPOS TRANSFERENCIA RED->GD
+    // SECCIï¿½N 2: TIEMPOS TRANSFERENCIA RED->GD
     // ========================================================================
     T_OPEN_QT1 : Time := T#2s;       // Timeout comando Open QT1
     T_START_GD_DELAY : Time := T#3s; // Delay antes de arrancar GD (GD1 o GD2)
     T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD_READY (GD1 o GD2)
-    T_GD_STABILIZATION : Time := T#5s;  // Estabilizaci�n desde GD_READY
+    T_GD_STABILIZATION : Time := T#5s;  // Estabilizaciï¿½n desde GD_READY
     T_CLOSE_QG1 : Time := T#2s;      // Timeout comando Close QG1
     T_CLOSE_QG2 : Time := T#2s;      // Timeout comando Close QG2
     T_GRID_FAIL_FILTER : Time := T#2s; // Filtro falla de red (anti-bouncing)
     
     // ========================================================================
-    // SECCI�N 3: TIEMPOS RETORNO GD->RED
+    // SECCIï¿½N 3: TIEMPOS RETORNO GD->RED
     // ========================================================================
     T_GRID_STABLE : Time := T#120s;  // Estabilidad red antes de retorno
     T_OPEN_QG1 : Time := T#2s;       // Timeout comando Open QG1
@@ -35,31 +35,31 @@ STRUCT
     T_GD_COOLDOWN : Time := T#60s;   // Cooldown antes de parar GD (GD1 o GD2)
     
     // ========================================================================
-    // SECCI�N 4: PAR�METROS DESLASTRE
+    // SECCIï¿½N 4: PARï¿½METROS DESLASTRE
     // ========================================================================
     // Deslastre GD
     GD_SHED_ON : Real := 90.0;       // Umbral deslastre GD [%]
-    GD_SHED_OFF : Real := 70.0;      // Umbral fin deslastre GD (hist�resis) [%]
+    GD_SHED_OFF : Real := 70.0;      // Umbral fin deslastre GD (histï¿½resis) [%]
     
     // Deslastre RED
     GRID_SHED_ON : Real := 85.0;     // Umbral deslastre RED [%] (carga trafo)
-    GRID_SHED_OFF : Real := 70.0;    // Umbral fin deslastre RED (hist�resis) [%]
+    GRID_SHED_OFF : Real := 70.0;    // Umbral fin deslastre RED (histï¿½resis) [%]
     
     // Tiempos
     T_SHED_STEP : Time := T#5s;      // Tiempo entre pasos deslastre
     T_RECONNECT_STEP : Time := T#5s; // Tiempo entre pasos reenganche/acoplamiento
     T_LOAD_FILTER : Time := T#2s;    // Filtro carga para evitar bouncing
-    T_LOAD_CHECK_DELAY : Time := T#3s; // Delay verificaci�n carga post-acoplamiento en GD
+    T_LOAD_CHECK_DELAY : Time := T#3s; // Delay verificaciï¿½n carga post-acoplamiento en GD
     
     // ========================================================================
-    // SECCI�N 5: ARRAYS DESLASTRE (SHED_ORDER / RECONNECT_ORDER / ENABLE)
+    // SECCIï¿½N 5: ARRAYS DESLASTRE (SHED_ORDER / RECONNECT_ORDER / ENABLE)
     // ========================================================================
     // SHED_ORDER[1..19]: ID del feeder a deslastar en cada paso
     // Ejemplo: [5, 12, 3, 8, 15, 1, 9, ...] = paso 1 corta feeder 5, paso 2 corta 12, etc.
-    // CONFIGURAR seg�n relevamiento de cargas esenciales/no esenciales
+    // CONFIGURAR segï¿½n relevamiento de cargas esenciales/no esenciales
     SHED_ORDER : Array[1..19] of Int := [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
-    ];  // Default: secuencia 1-19 (modificar seg�n prioridades reales)
+    ];  // Default: secuencia 1-19 (modificar segï¿½n prioridades reales)
     
     // RECONNECT_ORDER[1..19]: ID del feeder a reenganchar en cada paso
     // Puede ser igual a SHED_ORDER (misma secuencia) o diferente
@@ -67,16 +67,16 @@ STRUCT
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
     ];  // Default: misma secuencia (modificar si se requiere orden distinto)
     
-    // FEEDER_ESSENTIAL[1..19]: clasificaci�n esencial/no-esencial
+    // FEEDER_ESSENTIAL[1..19]: clasificaciï¿½n esencial/no-esencial
     // TRUE = esencial (nunca se deslasta, siempre activa en transferencia)
     // FALSE = no-esencial (se desacopla al pasar a GD, se puede deslastar en RED)
     FEEDER_ESSENTIAL : Array[1..19] of Bool := [
         FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE,
         FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE
-    ];  // Default: todos no-esenciales (CONFIGURAR seg�n relevamiento de planta)
+    ];  // Default: todos no-esenciales (CONFIGURAR segï¿½n relevamiento de planta)
     
     // SHED_ENABLE[1..19]: habilita/deshabilita deslastre por feeder
-    // TRUE = permite deslastre, FALSE = excluir del control autom�tico
+    // TRUE = permite deslastre, FALSE = excluir del control automï¿½tico
     // NOTA: FEEDER_ESSENTIAL tiene prioridad sobre SHED_ENABLE
     SHED_ENABLE : Array[1..19] of Bool := [
         TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE,
@@ -84,7 +84,7 @@ STRUCT
     ];  // Default: todos habilitados
     
     // ========================================================================
-    // SECCI�N 6: CONFIGURACI�N MODBUS
+    // SECCIï¿½N 6: CONFIGURACIï¿½N MODBUS
     // ========================================================================
     // Direcciones Modbus de equipos (Slave ID)
     SLAVE_ID_QT1 : Byte := 1;
@@ -98,13 +98,13 @@ STRUCT
     SLAVE_ID_FEEDER : Array[1..19] of Byte := [
         20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
         30, 31, 32, 33, 34, 35, 36, 37, 38
-    ];  // Default: direcciones consecutivas (ajustar seg�n configuraci�n real)
+    ];  // Default: direcciones consecutivas (ajustar segï¿½n configuraciï¿½n real)
     
-    // Passwords Micrologic nivel 3 (t�picamente "3333")
+    // Passwords Micrologic nivel 3 (tï¿½picamente "3333")
     PASSWORD_MTZ_QT1 : String[4] := '3333';
     PASSWORD_MTZ_QG1 : String[4] := '3333';
     PASSWORD_MTZ_QG2 : String[4] := '3333';
-    PASSWORD_NSX : String[4] := '3333';  // Password com�n para NSX
+    PASSWORD_NSX : String[4] := '3333';  // Password comï¿½n para NSX
     
     // Timeouts Modbus
     T_MODBUS_POLL_TIMEOUT : Time := T#5s;
@@ -112,31 +112,31 @@ STRUCT
     T_POLL_CYCLE : Time := T#1s;     // Ciclo polling lecturas
     
     // ========================================================================
-    // SECCI�N 7: CONFIGURACI�N ALARMAS (reservado)
+    // SECCIï¿½N 7: CONFIGURACIï¿½N ALARMAS (reservado)
     // ========================================================================
     
     // ========================================================================
-    // SECCI�N 8: CALIBRACI�N GD (para LoadPct)
+    // SECCIï¿½N 8: CALIBRACIï¿½N GD (para LoadPct)
     // ========================================================================
     GD_POWER_NOMINAL : Real := 1000.0; // Potencia nominal GD [kW] (1000 kVA @ PF=1)
     GD_CURRENT_NOMINAL : Real := 1520.0; // Corriente nominal GD [A] (aproximado para 1000 kVA @ 380V)
     
     // ========================================================================
-    // SECCI�N 9: CALIBRACI�N TRANSFORMADOR (para LoadPct)
+    // SECCIï¿½N 9: CALIBRACIï¿½N TRANSFORMADOR (para LoadPct)
     // ========================================================================
     TR_POWER_NOMINAL : Real := 1000.0; // Potencia nominal trafo [kVA]
     TR_CURRENT_NOMINAL : Real := 1520.0; // Corriente nominal trafo [A]
     
     // ========================================================================
-    // SECCI�N 10: FLAGS DE SISTEMA
+    // SECCIï¿½N 10: FLAGS DE SISTEMA
     // ========================================================================
     ENABLE_SCMTA : Bool := TRUE;     // Habilitar sistema SCMTA
     ENABLE_SHED : Bool := TRUE;      // Habilitar sistema deslastre
-    ENABLE_AUTO_RETURN : Bool := TRUE; // Habilitar retorno autom�tico GD->Red
+    ENABLE_AUTO_RETURN : Bool := TRUE; // Habilitar retorno automï¿½tico GD->Red
     
 END_STRUCT;
 
 BEGIN
-    // Inicializaci�n valores por defecto
-    // Los valores est�n definidos arriba con := operator
+    // Inicializaciï¿½n valores por defecto
+    // Los valores estï¿½n definidos arriba con := operator
 END_DATA_BLOCK
