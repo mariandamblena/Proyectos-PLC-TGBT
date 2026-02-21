@@ -1,8 +1,8 @@
 (*
 ================================================================================
   FUNCTION BLOCK: FB_MTZ_DRIVER
-  Versión: 1.0
-  Fecha: 2026-02-04
+  Versión: 2.0
+  Fecha: 2026-02-21
   Autor: Sistema SCMTA TGBT
 ================================================================================
   DESCRIPCIÓN:
@@ -31,12 +31,18 @@
     Al finalizar: 8021.LSB == 0 → OK
   - Confirmar estado leyendo 32001 (OF/SD)
   
+  CORRECCIONES V2.0:
+  - Todos los TON se ejecutan SIEMPRE fuera del CASE (cada ciclo)
+  - REQ escritura controlado por flag, mantenido 2 segundos
+  - Detección de flancos con memoria explícita
+  - Polling cíclico de estado fuera de командos
+  
 ================================================================================
 *)
 
 FUNCTION_BLOCK "FB_MTZ_DRIVER"
 { S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
+VERSION : 0.2
 
 VAR_INPUT 
     // ========== CONTROL ==========
@@ -52,6 +58,7 @@ VAR_INPUT
     // ========== PARÁMETROS ==========
     T_POLL_TIMEOUT : Time := T#5s;   // Timeout polling respuesta
     T_CONFIRM_TIMEOUT : Time := T#2s; // Timeout confirmación estado
+    T_REQ_HOLD : Time := T#2s;       // Tiempo mantener REQ escritura
 END_VAR
 
 VAR_OUTPUT 
@@ -78,16 +85,21 @@ VAR
     statusReg32000 : Word;           // Registro calidad
     statusReg32001 : Word;           // Registro estado OF/SD/PF
     
+    // ========== TEMPORIZADORES (se llaman SIEMPRE fuera del CASE) ==========
     tonPollTimeout : TON;
     tonConfirmTimeout : TON;
     tonReqWrite : TON;               // Timer mantener REQ escritura 2s
-    reqWriteActive : Bool;           // REQ escritura activo
+    
+    // ========== FLAGS CONTROL TEMPORIZADORES ==========
+    pollTimeoutActive : Bool := FALSE;
+    confirmTimeoutActive : Bool := FALSE;
+    reqWriteActive : Bool := FALSE;  // REQ escritura activo
     
     // Flags
     cmdType : Int;                   // 904=Open, 905=Close, 906=Reset
     pollCount : Int;                 // Contador intentos polling
     
-    // R_TRIG comandos
+    // R_TRIG comandos (detección flanco con memoria explícita)
     rtCmdOpen : Bool;
     rtCmdClose : Bool;
     rtCmdReset : Bool;
@@ -133,7 +145,17 @@ END_VAR
 
 BEGIN
     // ========================================================================
-    // NETWORK 1: DETECCIÓN FLANCO COMANDOS (R_TRIG)
+    // SECCIÓN 1: TEMPORIZADORES - SIEMPRE ejecutados cada ciclo
+    // (Fuera de toda lógica condicional para garantizar reseteo correcto)
+    // ========================================================================
+    #tonReqWrite(IN := #reqWriteActive, PT := #T_REQ_HOLD);
+    #tonPollTimeout(IN := #pollTimeoutActive, PT := #T_POLL_TIMEOUT);
+    #tonConfirmTimeout(IN := #confirmTimeoutActive, PT := #T_CONFIRM_TIMEOUT);
+    
+    
+    // ========================================================================
+    // SECCIÓN 2: DETECCIÓN FLANCO COMANDOS (R_TRIG manual)
+    // (Fuera del CASE, se ejecuta siempre)
     // ========================================================================
     #rtCmdOpen := #CMD_OPEN AND NOT #memCmdOpen;
     #memCmdOpen := #CMD_OPEN;
@@ -146,7 +168,7 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 2: MÁQUINA DE ESTADOS DRIVER
+    // SECCIÓN 3: MÁQUINA DE ESTADOS DRIVER
     // ========================================================================
     
     CASE #STATE OF
@@ -160,6 +182,9 @@ BEGIN
             #DONE := FALSE;
             #ERROR := FALSE;
             #ERROR_CODE := 0;
+            #reqWriteActive := FALSE;
+            #pollTimeoutActive := FALSE;
+            #confirmTimeoutActive := FALSE;
             
             // Detectar comando nuevo
             IF #ENABLE THEN
@@ -208,24 +233,16 @@ BEGIN
             #cmdBuffer[18] := 8020;    // 8018
             #cmdBuffer[19] := 8021;    // 8019
             
-            // Transición inmediata
+            // Transición: activar REQ y pasar a escritura
+            #reqWriteActive := TRUE;
             #STATE := #ST_WRITE_CMD;
         
         
         // ====================================================================
-        // ESTADO 2: WRITE_CMD (Escribir FC16 8000-8019)
+        // ESTADO 2: WRITE_CMD (Escribir FC16 8000-8019, REQ activo 2s)
         // ====================================================================
         #ST_WRITE_CMD:
             #STATE_NAME := 'WRITE_CMD';
-            
-            // Activar REQ de escritura por 2 segundos
-            IF NOT #reqWriteActive THEN
-                #reqWriteActive := TRUE;
-                #tonReqWrite(IN := FALSE, PT := T#1s);  // Reset timer con PT
-            END_IF;
-            
-            // Mantener REQ activo 2 segundos
-            #tonReqWrite(IN := #reqWriteActive, PT := T#2s);
             
             // TODO: Conectar #reqWriteActive a MB_CLIENT.REQ
             // MB_CLIENT(
@@ -239,9 +256,9 @@ BEGIN
             // Transición: después de 2s pasar a polling
             IF #tonReqWrite.Q THEN
                 #reqWriteActive := FALSE;
-                #STATE := #ST_POLL_RESPONSE;
+                #pollTimeoutActive := TRUE;
                 #pollCount := 0;
-                #tonPollTimeout(IN := FALSE, PT := T#1s);  // Reset timer con PT
+                #STATE := #ST_POLL_RESPONSE;
             END_IF;
         
         
@@ -250,7 +267,6 @@ BEGIN
         // ====================================================================
         #ST_POLL_RESPONSE:
             #STATE_NAME := 'POLL_RESPONSE';
-            #tonPollTimeout(IN := TRUE, PT := #T_POLL_TIMEOUT);
             
             // TODO: Leer registros 8020-8021 (FC3 Read Holding Registers)
             // Simulación: asumir respuesta inmediata OK
@@ -264,21 +280,26 @@ BEGIN
                 
                 IF #tonPollTimeout.Q THEN
                     // Timeout
+                    #pollTimeoutActive := FALSE;
                     #ERROR_CODE := #ERR_TIMEOUT_POLL;
                     #STATE := #ST_ERROR;
                 END_IF;
                 
             ELSIF (#responseBuffer[1] AND 16#00FF) = 16#0000 THEN
                 // OK (LSB=0): comando aceptado
+                #pollTimeoutActive := FALSE;
+                #confirmTimeoutActive := TRUE;
                 #STATE := #ST_CONFIRM_STATE;
-                #tonConfirmTimeout(IN := FALSE, PT := T#1s);  // Reset timer con PT
                 
             ELSIF (#responseBuffer[1] AND 16#00FF) = 16#0001 THEN
                 // Código 0x0001: "Already in requested state" → considerar OK
+                #pollTimeoutActive := FALSE;
+                #confirmTimeoutActive := TRUE;
                 #STATE := #ST_CONFIRM_STATE;
                 
             ELSE
                 // Error desconocido
+                #pollTimeoutActive := FALSE;
                 #ERROR_CODE := #ERR_CMD_FAILED;
                 #STATE := #ST_ERROR;
             END_IF;
@@ -289,7 +310,6 @@ BEGIN
         // ====================================================================
         #ST_CONFIRM_STATE:
             #STATE_NAME := 'CONFIRM_STATE';
-            #tonConfirmTimeout(IN := TRUE, PT := #T_CONFIRM_TIMEOUT);
             
             // TODO: Leer registros 32000 (calidad) y 32001 (OF/SD/PF)
             // Simulación: asumir estado confirmado
@@ -315,15 +335,19 @@ BEGIN
             // Verificar si estado coincide con comando
             IF #cmdType = #CMD_CODE_OPEN AND #CB_STATE = 0 THEN
                 // Open confirmado
+                #confirmTimeoutActive := FALSE;
                 #STATE := #ST_DONE;
             ELSIF #cmdType = #CMD_CODE_CLOSE AND #CB_STATE = 1 THEN
                 // Close confirmado
+                #confirmTimeoutActive := FALSE;
                 #STATE := #ST_DONE;
             ELSIF #cmdType = #CMD_CODE_RESET THEN
                 // Reset no verifica estado, solo ejecución OK
+                #confirmTimeoutActive := FALSE;
                 #STATE := #ST_DONE;
             ELSIF #tonConfirmTimeout.Q THEN
                 // Timeout confirmación
+                #confirmTimeoutActive := FALSE;
                 #ERROR_CODE := #ERR_TIMEOUT_CONFIRM;
                 #STATE := #ST_ERROR;
             END_IF;
@@ -336,6 +360,9 @@ BEGIN
             #STATE_NAME := 'DONE';
             #BUSY := FALSE;
             #DONE := TRUE;
+            #reqWriteActive := FALSE;
+            #pollTimeoutActive := FALSE;
+            #confirmTimeoutActive := FALSE;
             
             // Retornar a IDLE
             #STATE := #ST_IDLE;
@@ -348,6 +375,9 @@ BEGIN
             #STATE_NAME := 'ERROR';
             #BUSY := FALSE;
             #ERROR := TRUE;
+            #reqWriteActive := FALSE;
+            #pollTimeoutActive := FALSE;
+            #confirmTimeoutActive := FALSE;
             
             // Retornar a IDLE (requiere reset externo o timeout)
             // Por ahora auto-reset después de 1 ciclo
@@ -357,7 +387,7 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 3: LECTURA ESTADO CÍCLICA (POLLING SIN COMANDO)
+    // SECCIÓN 4: LECTURA ESTADO CÍCLICA (POLLING SIN COMANDO)
     // ========================================================================
     // Si está en IDLE, leer estado cada ciclo para actualizar CB_STATE
     IF #STATE = #ST_IDLE AND #ENABLE THEN
