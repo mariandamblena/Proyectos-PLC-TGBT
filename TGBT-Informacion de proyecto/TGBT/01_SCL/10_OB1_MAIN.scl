@@ -1,35 +1,5 @@
-(*
-================================================================================
-  ORGANIZATION BLOCK: OB1 (Main Cyclic Execution)
-  Versión: 3.0
-  Fecha: 2026-02-10
-  Autor: Sistema SCMTA TGBT
-================================================================================
-  DESCRIPCIÓN:
-  Programa principal cíclico del sistema SCMTA.
-  Orquesta la ejecución secuencial de todos los Function Blocks.
-  
-  ARQUITECTURA:
-  Network 1: FB_IO_NORMALIZE
-  Network 2: FB_SCMTA
-  Network 3: FB_SHED
-  Network 4: FB_CMD_ARBITER
-  Network 5: FB_OUTPUTS
-  Network 6: Drivers MTZ (QT1, QG1, QG2)
-  Network 7: Cálculos auxiliares (LoadPct, Uptime)
-  
-  TIEMPO DE CICLO RECOMENDADO: 100-200 ms
-  
-  IMPORTANTE:
-  - Antes de usar este OB1, CREAR los Global DBs:
-    · DATA_BUFF (o renombrar a DB_GLOBAL_STATUS)
-    · DB_PARAMS
-  - Los Instance DBs se crean automáticamente al compilar
-  
-================================================================================
-*)
-
 ORGANIZATION_BLOCK "Main"
+TITLE = "Main Program Sweep (Cycle)"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 

@@ -1,21 +1,3 @@
-(*
-================================================================================
-  DATA BLOCK: DB_PARAMS
-  Versión: 3.0
-  Fecha: 2026-02-10
-  Autor: Sistema SCMTA TGBT
-================================================================================
-  DESCRIPCIÓN:
-  Data Block con parámetros configurables del sistema.
-  Todos los valores pueden ser modificados desde HMI (con nivel ADMIN).
-  
-  IMPORTANTE:
-  - Este DB debe ser RETAIN para mantener valores después de reset PLC
-  - Valores por defecto seguros (fail-safe)
-  
-================================================================================
-*)
-
 DATA_BLOCK "DB_PARAMS"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1

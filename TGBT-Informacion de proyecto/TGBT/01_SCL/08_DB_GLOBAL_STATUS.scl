@@ -1,18 +1,3 @@
-(*
-================================================================================
-  DATA BLOCK: DATA_BUFF  (ex DB_GLOBAL_STATUS)
-  Versión: 3.0
-  Fecha: 2026-02-10
-  Autor: Sistema SCMTA TGBT
-================================================================================
-  DESCRIPCIÓN:
-  Data Block global con estados consolidados del sistema.
-  Contiene señales normalizadas, estados de interruptores, mediciones,
-  y flags de estado que son compartidos entre todos los FBs.
-  
-================================================================================
-*)
-
 DATA_BLOCK "DATA_BUFF"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
