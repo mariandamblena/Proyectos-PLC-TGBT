@@ -43,7 +43,7 @@ BEGIN
     // Transferencia RED->GD1, retorno GD1->RED, modo manual
     // Activar: TEST_SCMTA_DB.testEnable := TRUE
     // ========================================================================
-    "TEST_SCMTA_DB"();
+    // "TEST_SCMTA_DB"();
     
     // ========================================================================
     // TEST 2: ESCENARIOS DE FALLA SCMTA
@@ -57,7 +57,7 @@ BEGIN
     // 20 pasos: clasificacion, GRID_SHED, GD_INITIAL_SHED, acoplamiento
     // Activar: TEST_SHED_DB.testEnable := TRUE
     // ========================================================================
-    // "TEST_SHED_DB"();
+    "TEST_SHED_DB"();
     
     // ========================================================================
     // TEST 4: FAILOVER GD1<->GD2

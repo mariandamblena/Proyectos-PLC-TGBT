@@ -227,7 +227,7 @@ BEGIN
                 // (orden de ejecución: capturar señal, luego simular feedback)
                 IF #outState >= 5 AND #outState < 14 THEN
                     // Capturar DO_GD_START antes de que se desactive
-                    #testResults[4] := (#outDoGD_Start OR #outState = 5);
+                    #testResults[4] := #outDoGD_Start;  // DO_GD_START debe estar activo en state 5
                     #simDI_GD_RUNNING := TRUE;  // Simular GD arranca
                     #testTimer(IN := FALSE,
                                PT := T#1s);
@@ -244,7 +244,7 @@ BEGIN
                            PT := T#10s);
                IF #testTimer.Q THEN
                     // Validar estado esperado
-                    #testResults[5] := (#outState >= 5);
+                    #testResults[5] := (#outState >= 5 AND #outState < 14);  // >= 5 y sin FAULT
                     #simDI_GD_READY := TRUE;  // Simular GD listo
                     #testTimer(IN := FALSE,
                                PT := T#1s);

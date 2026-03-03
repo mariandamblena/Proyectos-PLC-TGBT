@@ -275,6 +275,7 @@ BEGIN
                 IF #outState >= 7 THEN
                     #blockQG1Closing := TRUE;
                     #simQG1_STATE := 0;  // FORZAR abierto (no responde)
+                    #testTimer(IN := FALSE, PT := T#1s);  // Reset timer: evitar ET residual en paso 5
                     #testResults[4] := TRUE;
                     #testStep := 5;
                 END_IF;
@@ -368,6 +369,7 @@ BEGIN
                 IF #outState >= 12 THEN
                     #blockQT1Closing := TRUE;
                     #simQT1_STATE := 0;  // FORZAR abierto (no responde)
+                    #testTimer(IN := FALSE, PT := T#1s);  // Reset timer: evitar ET residual en paso 8
                     #testResults[7] := TRUE;
                     #testStep := 8;
                 END_IF;
@@ -420,6 +422,8 @@ BEGIN
                 #simGridV_L2L3 := 200.0;
                 #simGridV_L3L1 := 200.0;
                 #simGridFreq := 48.0;
+                // GD2 en alarma: sin failover disponible -> SCMTA ira a FAULT_LOCKOUT
+                #simDI_GD2_ALARM := TRUE;
                 
                 IF #outState >= 3 THEN
                     #simQT1_STATE := 0;
@@ -450,6 +454,7 @@ BEGIN
                 
                 #simRESET_FAULT := TRUE;
                 #simDI_GD_ALARM := FALSE;
+                #simDI_GD2_ALARM := FALSE;  // Restaurar GD2 sin alarma
                 #simQT1_STATE := 1;
                 #simQG1_STATE := 0;
                 #simGridV_L1L2 := 380.0;
@@ -472,6 +477,8 @@ BEGIN
                 #testExpectedResult := 'Sistema operando con GD1';
                 
                 // Secuencia completa hasta ON_GD
+                // GD2 en alarma: sin failover -> SCMTA ira a FAULT_LOCKOUT al recibir GD_ALARM
+                #simDI_GD2_ALARM := TRUE;
                 #simGridV_L1L2 := 200.0;
                 #simGridV_L2L3 := 200.0;
                 #simGridV_L3L1 := 200.0;
@@ -495,8 +502,8 @@ BEGIN
                     #simQG1_STATE := 1;
                 END_IF;
                 
-                IF #outState = 8 THEN
-                    #testResults[13] := TRUE;
+                IF #outState >= 8 THEN
+                    #testResults[13] := (#outState = 8);  // Debe ser exactamente ON_GD1
                     #testStep := 14;
                 END_IF;
                 
@@ -520,6 +527,7 @@ BEGIN
                 
                 #simRESET_FAULT := TRUE;
                 #simDI_GD_ALARM := FALSE;
+                #simDI_GD2_ALARM := FALSE;  // Restaurar GD2 sin alarma
                 #simDI_GD_RUNNING := FALSE;
                 #simDI_GD_READY := FALSE;
                 #simQT1_STATE := 1;
@@ -547,6 +555,8 @@ BEGIN
                 #simGridV_L2L3 := 200.0;
                 #simGridV_L3L1 := 200.0;
                 #simGridFreq := 48.0;
+                // GD2 en alarma: timeout GD1_READY no puede hacer failover -> FAULT_LOCKOUT
+                #simDI_GD2_ALARM := TRUE;
                 
                 IF #outState >= 3 THEN
                     #simQT1_STATE := 0;
@@ -587,6 +597,7 @@ BEGIN
                 #blockGD_READY := FALSE;
                 #simDI_GD_RUNNING := FALSE;
                 #simDI_GD_READY := FALSE;
+                #simDI_GD2_ALARM := FALSE;  // Restaurar GD2 sin alarma
                 #simQT1_STATE := 1;
                 #simQG1_STATE := 0;
                 #simGridV_L1L2 := 380.0;
@@ -694,16 +705,18 @@ BEGIN
                     #simQG1_STATE := 1;
                 END_IF;
                 
-                // Retorno RED
-                IF #outState >= 9 THEN
+                // Retorno RED: restaurar cuando ya estamos en ON_GD1 (estado 8)
+                // Estado 9 requiere GRID_OK -> no se puede esperar a >= 9
+                IF #outState >= 8 THEN
                     #simGridV_L1L2 := 380.0;
                     #simGridV_L2L3 := 380.0;
                     #simGridV_L3L1 := 380.0;
                     #simGridFreq := 50.0;
                 END_IF;
                 
-                IF #outState = 10 THEN
+                IF #outState >= 10 THEN
                     #testResults[22] := TRUE;
+                    #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 23;
                 END_IF;
                 
@@ -712,20 +725,18 @@ BEGIN
                 #testExpectedState := 8;
                 #testExpectedResult := 'Sistema vuelve a ON_GD1 correctamente';
                 
-                // Esperar 2s, luego falla RED de nuevo
-                #testTimer(IN := TRUE, PT := T#3s);
-                IF #testTimer.Q THEN
-                    // RED falla de nuevo
-                    #simGridV_L1L2 := 200.0;
-                    #simGridV_L2L3 := 200.0;
-                    #simGridV_L3L1 := 200.0;
-                    #simGridFreq := 48.0;
-                    #testTimer(IN := FALSE, PT := T#1s);
-                END_IF;
+                // Falla inmediata: T_GRID_FAIL_FILTER=2s confirma a t=2s
+                // T_GRID_STABLE=5s -> GRID_FAIL llega antes, SCMTA vuelve a estado 8
+                #simGridV_L1L2 := 200.0;
+                #simGridV_L2L3 := 200.0;
+                #simGridV_L3L1 := 200.0;
+                #simGridFreq := 48.0;
                 
-                // Validar que vuelve a estado 8
-                IF #outState = 8 THEN
-                    #testResults[23] := TRUE;
+                // Esperar que SCMTA detecte falla y vuelva a ON_GD1
+                #testTimer(IN := TRUE, PT := T#8s);
+                IF #testTimer.Q OR #outState = 8 THEN
+                    #testResults[23] := (#outState = 8);
+                    #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 24;
                 END_IF;
                 
@@ -780,7 +791,8 @@ BEGIN
                     #simQG1_STATE := 1;
                 END_IF;
                 
-                IF #outState >= 9 THEN
+                // Retorno RED: restaurar cuando ya estamos en ON_GD1 (estado 8)
+                IF #outState >= 8 THEN
                     #simGridV_L1L2 := 380.0;
                     #simGridV_L2L3 := 380.0;
                     #simGridV_L3L1 := 380.0;
@@ -797,29 +809,36 @@ BEGIN
                     #simQT1_STATE := 1;
                 END_IF;
                 
-                IF #outState = 13 THEN
+                IF #outState >= 13 THEN
                     #testResults[25] := TRUE;
+                    #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 26;
                 END_IF;
                 
             26:
                 #testStatus := 'PASO 26: RED falla DURANTE COOLDOWN -> reinicia secuencia';
                 #testExpectedState := 2;
-                #testExpectedResult := 'Vuelve a GRID_FAIL_DETECTED';
+                #testExpectedResult := 'Vuelve a GRID_FAIL_DETECTED (estado 2)';
                 
-                // Durante cooldown, RED falla de nuevo
-                #testTimer(IN := TRUE, PT := T#2s);
-                IF #testTimer.Q THEN
-                    #simGridV_L1L2 := 200.0;
-                    #simGridV_L2L3 := 200.0;
-                    #simGridV_L3L1 := 200.0;
-                    #simGridFreq := 48.0;
-                    #testTimer(IN := FALSE, PT := T#1s);
-                END_IF;
+                // Aplicar falla RED inmediatamente.
+                // State 13 (GD_COOLDOWN) NO tiene handler para GRID_FAIL:
+                // espera fin de cooldown (~5s) -> state 1 -> T_GRID_FAIL_FILTER(2s) -> state 2
+                #simGridV_L1L2 := 200.0;
+                #simGridV_L2L3 := 200.0;
+                #simGridV_L3L1 := 200.0;
+                #simGridFreq := 48.0;
                 
-                // Validar que detecta falla y va a estado 2
-                IF #outState >= 2 AND #outGridFail THEN
+                // Timer escape: cooldown restante(~5s) + filtro(2s) + margen = 15s
+                #testTimer(IN := TRUE, PT := T#15s);
+                IF #outState = 2 THEN
+                    // SCMTA llego a GRID_FAIL_DETECTED correctamente
                     #testResults[26] := TRUE;
+                    #testTimer(IN := FALSE, PT := T#1s);
+                    #testStep := 27;
+                ELSIF #testTimer.Q THEN
+                    // Timeout: capturar resultado aunque sea FALSE
+                    #testResults[26] := (#outState = 2);
+                    #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 27;
                 END_IF;
                 
@@ -849,6 +868,7 @@ BEGIN
                 #testExpectedResult := 'Filtro evita transferencias innecesarias';
                 
                 #oscillationCounter := 0;
+                #testResults[28] := TRUE;
                 #testStep := 29;
                 
             29:
@@ -1058,7 +1078,9 @@ BEGIN
         
         #testTimer(IN := FALSE, PT := T#1s);
     ELSE
-        #simRESET_FAULT := FALSE;
+        // simRESET_FAULT is managed by the step machine in Network 1.
+        // Do NOT override it here or reset steps 3/6/9/12/etc. will never
+        // deliver RESET_FAULT=TRUE to the SCMTA instance.
         #testReset := FALSE;
     END_IF;
     

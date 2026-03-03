@@ -210,7 +210,11 @@ BEGIN
                 
                 #testTimer(IN := TRUE, PT := T#3s);
                 IF #testTimer.Q THEN
-                    #testResults[0] := TRUE;
+                    // Verificar que el FB recibio la configuracion correctamente
+                    #testResults[0] := (#outFeedersEssentialCount = 3
+                                        AND #outFeedersNonEssentialCount = 16
+                                        AND #outShedMode = 0
+                                        AND NOT #outShedActive);
                     #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 1;
                 END_IF;
@@ -341,10 +345,10 @@ BEGIN
                     END_IF;
                 END_FOR;
                 
-                // Esperar reenganche (varios pasos de T_RECONNECT_STEP)
-                #testTimer(IN := TRUE, PT := T#15s);
+                // ~5 feeders abiertos x T_RECONNECT_STEP=3s = 15s + margen = 20s
+                #testTimer(IN := TRUE, PT := T#20s);
                 IF #testTimer.Q THEN
-                    // Verificar que al menos algunos feeders se reconectaron
+                    // Todos los no-esenciales deben estar cerrados (GRID_RECONNECT completo)
                     #nonEssentialOpenCount := 0;
                     FOR #i := 4 TO 19 DO
                         IF #simFeederState[#i] = 0 THEN
@@ -352,8 +356,8 @@ BEGIN
                         END_IF;
                     END_FOR;
                     
-                    // Algunos o todos deben haberse cerrado
-                    #testResults[7] := (#nonEssentialOpenCount < 16);
+                    // Todos deben haber reconectado
+                    #testResults[7] := (#nonEssentialOpenCount = 0);
                     
                     // Forzar todos cerrados para siguiente grupo
                     FOR #i := 1 TO 19 DO
@@ -383,6 +387,8 @@ BEGIN
                     #simIsOnGrid := FALSE;  // Ya no está en RED
                     #simIsOnGD := FALSE;    // Todavía no en GD
                     
+                    // Verificar que los inputs de activacion fueron seteados
+                    #testResults[8] := (#simTransferToGD AND #simIsInTransfer AND NOT #simIsOnGrid);
                     #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 9;
                 END_IF;
@@ -412,7 +418,7 @@ BEGIN
                     #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 10;
                 END_IF;
-                #testResults[8] := TRUE;  // Paso 8 completado
+                // testResults[8] se setea en paso 8 al confirmar activacion de transferencia
                 
             // PASO 10: Verificar que esenciales permanecen cerrados
             10:
@@ -491,8 +497,10 @@ BEGIN
                 #testTimer(IN := TRUE, PT := T#5s);
                 IF #testTimer.Q THEN
                     // Debe haber pasado a deslastre reactivo GD o pausado
+                    // OR con outReconnectActive evita falso positivo cuando reconnect
+                    // ya termino (step=0) y la condicion seria trivialmente TRUE
                     #testResults[13] := (#outShedMode = 4
-                                        OR #outReconnectStep = #prevReconnectStep);
+                                        OR (#outReconnectActive AND #outReconnectStep = #prevReconnectStep));
                     #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 14;
                 END_IF;
@@ -618,8 +626,8 @@ BEGIN
                     END_IF;
                 END_FOR;
                 
-                // Esperar reenganche completo (varios pasos)
-                #testTimer(IN := TRUE, PT := T#30s);
+                // Esperar reenganche completo: 16 feeders x T_RECONNECT_STEP=3s = 48s minimo
+                #testTimer(IN := TRUE, PT := T#60s);
                 IF #testTimer.Q THEN
                     // Contar feeders abiertos
                     #nonEssentialOpenCount := 0;
@@ -629,8 +637,8 @@ BEGIN
                         END_IF;
                     END_FOR;
                     
-                    // Todos deben estar cerrados (o al menos la mayoría)
-                    #testResults[18] := (#nonEssentialOpenCount <= 2);  // Tolerancia 2
+                    // Todos deben estar cerrados (60s timer cubre 16 feeders x 3s = 48s)
+                    #testResults[18] := (#nonEssentialOpenCount = 0);
                     #testTimer(IN := FALSE, PT := T#1s);
                     #testStep := 19;
                 END_IF;
