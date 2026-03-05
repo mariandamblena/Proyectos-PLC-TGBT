@@ -1,0 +1,175 @@
+FUNCTION_BLOCK "12_FB_PULSE_EXPANDER"
+{ S7_Optimized_Access := 'TRUE' }
+// ============================================================================
+// FB: 12_FB_PULSE_EXPANDER  V4.0
+// ============================================================================
+// Propósito:
+//   Convierte 8 señales de disparo de 1 scan en pulsos DO de duración fija.
+//   Cada CMD_xx que llega del FB_CMD_ARBITER dura exactamente 1 scan (~10 ms).
+//   Este FB sostiene la salida correspondiente durante T_PULSE (default 300 ms),
+//   que es la duración mínima requerida para actuar el bobinado del interruptor.
+//
+// Funcionamiento por canal (idéntico para los 8):
+//   1. Al flanco ascendente de TRIG → SET latch interno
+//   2. TON arranca contando T_PULSE
+//   3. OUT mantiene TRUE mientras latch=TRUE
+//   4. Al expirar TON → RESET latch → OUT vuelve a FALSE
+//   5. Un nuevo TRIG mientras el pulso aún es activo reinicia el timer
+//      (protección anti-rebote)
+//
+// Uso en OB1:
+//   "12_PULSE_EXPANDER_DB"(
+//       T_PULSE  := "DB_PARAMS".T_CMD_PULSE,
+//       TRIG_1   := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QT1,   // %Q0.0
+//       TRIG_2   := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QT1,    // %Q0.1
+//       ...
+//       OUT_1    => %Q0.0,
+//       OUT_2    => %Q0.1,
+//       ...
+//   );
+// ============================================================================
+VERSION : 0.1
+
+VAR_INPUT
+    TRIG_1 : Bool;   // CMD_CLOSE_QT1
+    TRIG_2 : Bool;   // CMD_OPEN_QT1
+    TRIG_3 : Bool;   // CMD_CLOSE_QG1
+    TRIG_4 : Bool;   // CMD_OPEN_QG1
+    TRIG_5 : Bool;   // CMD_CLOSE_QG2
+    TRIG_6 : Bool;   // CMD_OPEN_QG2
+    TRIG_7 : Bool;   // CMD_CLOSE_Q22
+    TRIG_8 : Bool;   // CMD_OPEN_Q22
+    T_PULSE : Time := T#300ms;
+END_VAR
+
+VAR_OUTPUT
+    OUT_1 : Bool;
+    OUT_2 : Bool;
+    OUT_3 : Bool;
+    OUT_4 : Bool;
+    OUT_5 : Bool;
+    OUT_6 : Bool;
+    OUT_7 : Bool;
+    OUT_8 : Bool;
+END_VAR
+
+VAR
+    rTrig1 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig2 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig3 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig4 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig5 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig6 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig7 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    rTrig8 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+
+    latch1 : Bool;
+    latch2 : Bool;
+    latch3 : Bool;
+    latch4 : Bool;
+    latch5 : Bool;
+    latch6 : Bool;
+    latch7 : Bool;
+    latch8 : Bool;
+
+    ton1 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton2 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton3 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton4 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton5 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton6 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton7 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    ton8 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+END_VAR
+
+BEGIN
+
+    // --- Canal 1: CLOSE QT1 → %Q0.0 ---
+    #rTrig1(CLK := #TRIG_1);
+    IF #rTrig1.Q THEN
+        #latch1 := TRUE;
+    END_IF;
+    #ton1(IN := #latch1, PT := #T_PULSE);
+    IF #ton1.Q THEN
+        #latch1 := FALSE;
+    END_IF;
+    #OUT_1 := #latch1;
+
+    // --- Canal 2: OPEN QT1 → %Q0.1 ---
+    #rTrig2(CLK := #TRIG_2);
+    IF #rTrig2.Q THEN
+        #latch2 := TRUE;
+    END_IF;
+    #ton2(IN := #latch2, PT := #T_PULSE);
+    IF #ton2.Q THEN
+        #latch2 := FALSE;
+    END_IF;
+    #OUT_2 := #latch2;
+
+    // --- Canal 3: CLOSE QG1 → %Q0.2 ---
+    #rTrig3(CLK := #TRIG_3);
+    IF #rTrig3.Q THEN
+        #latch3 := TRUE;
+    END_IF;
+    #ton3(IN := #latch3, PT := #T_PULSE);
+    IF #ton3.Q THEN
+        #latch3 := FALSE;
+    END_IF;
+    #OUT_3 := #latch3;
+
+    // --- Canal 4: OPEN QG1 → %Q0.3 ---
+    #rTrig4(CLK := #TRIG_4);
+    IF #rTrig4.Q THEN
+        #latch4 := TRUE;
+    END_IF;
+    #ton4(IN := #latch4, PT := #T_PULSE);
+    IF #ton4.Q THEN
+        #latch4 := FALSE;
+    END_IF;
+    #OUT_4 := #latch4;
+
+    // --- Canal 5: CLOSE QG2 → %Q0.4 ---
+    #rTrig5(CLK := #TRIG_5);
+    IF #rTrig5.Q THEN
+        #latch5 := TRUE;
+    END_IF;
+    #ton5(IN := #latch5, PT := #T_PULSE);
+    IF #ton5.Q THEN
+        #latch5 := FALSE;
+    END_IF;
+    #OUT_5 := #latch5;
+
+    // --- Canal 6: OPEN QG2 → %Q0.5 ---
+    #rTrig6(CLK := #TRIG_6);
+    IF #rTrig6.Q THEN
+        #latch6 := TRUE;
+    END_IF;
+    #ton6(IN := #latch6, PT := #T_PULSE);
+    IF #ton6.Q THEN
+        #latch6 := FALSE;
+    END_IF;
+    #OUT_6 := #latch6;
+
+    // --- Canal 7: CLOSE Q22 → %Q0.6 ---
+    #rTrig7(CLK := #TRIG_7);
+    IF #rTrig7.Q THEN
+        #latch7 := TRUE;
+    END_IF;
+    #ton7(IN := #latch7, PT := #T_PULSE);
+    IF #ton7.Q THEN
+        #latch7 := FALSE;
+    END_IF;
+    #OUT_7 := #latch7;
+
+    // --- Canal 8: OPEN Q22 → %Q0.7 ---
+    #rTrig8(CLK := #TRIG_8);
+    IF #rTrig8.Q THEN
+        #latch8 := TRUE;
+    END_IF;
+    #ton8(IN := #latch8, PT := #T_PULSE);
+    IF #ton8.Q THEN
+        #latch8 := FALSE;
+    END_IF;
+    #OUT_8 := #latch8;
+
+END_FUNCTION_BLOCK

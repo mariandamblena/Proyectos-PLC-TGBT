@@ -1,0 +1,818 @@
+// =============================================================================
+// TEST SUITE — FB_SCMTA V4.0
+// TGBT SCMTA — Sistema de Conmutacion con Transferencia Automatica
+// =============================================================================
+// Convencion de test:
+//   - Cada TEST_CASE es un FUNCTION_BLOCK independiente que simula
+//     entradas y verifica outputs del FB_SCMTA instanciado como "uut"
+//   - AssertBool / AssertInt: macros de verificacion inline
+//   - Simular ciclos del PLC: llamar al FB_SCMTA varias veces
+//   - Los tiempos se simulan mediante PT/ET de los TON internos
+//
+// Para ejecutar en TIA Portal:
+//   1. Crear DB de test: "TEST_SCMTA_V4_DB" : TYPE FB_SCMTA_TEST_RUNNER
+//   2. Llamar desde un OB de test (OB_SIM o FC de test) con ENABLE:=TRUE
+//   3. Verificar bit TESTS_PASSED al final del ciclo
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// HELPER: Estructura de entrada simulada
+// -----------------------------------------------------------------------------
+TYPE TEST_SCMTA_INPUTS
+VERSION : 0.1
+STRUCT
+    ENABLE               : Bool := TRUE;
+    MODE_AUTO            : Bool := TRUE;
+    ENABLE_QG2           : Bool := FALSE;  // FALSE en V4 por defecto
+    ENABLE_AUTO_RETURN   : Bool := TRUE;
+    RESET_FAULT          : Bool;
+    QT1_CLOSED           : Bool;
+    QT1_FAULT            : Bool;
+    QT1_REMOTE           : Bool;
+    QT1_UV_OV_DI         : Bool;
+    QG1_CLOSED           : Bool;
+    QG1_FAULT            : Bool;
+    QG1_REMOTE           : Bool;
+    QG2_CLOSED           : Bool;
+    QG2_FAULT            : Bool;
+    QG2_REMOTE           : Bool;
+    GD_READY             : Bool;
+    GD_RUNNING           : Bool;
+    GD_ALARM             : Bool;
+    GD2_READY            : Bool;
+    GD2_RUNNING          : Bool;
+    GD2_ALARM            : Bool;
+    GRID_V_L1L2          : Real := 4160.0;
+    GRID_V_L2L3          : Real := 4160.0;
+    GRID_V_L3L1          : Real := 4160.0;
+    GRID_FREQ            : Real := 60.0;
+    GRID_MEASUREMENT_OK  : Bool := TRUE;
+    GRID_PHASE_LOSS      : Bool;
+    GRID_ALM_UV          : Bool;
+    GRID_ALM_OV          : Bool;
+    // Parametros
+    V_NOM                : Real := 4160.0;
+    V_MIN_PCT            : Real := 85.0;
+    V_MAX_PCT            : Real := 115.0;
+    FREQ_NOM             : Real := 60.0;
+    FREQ_MIN             : Real := 58.0;
+    FREQ_MAX             : Real := 62.0;
+    T_OPEN_QT1           : Time := T#2s;
+    T_START_GD_DELAY     : Time := T#100ms; // Acortado para test
+    T_GD_READY_TIMEOUT   : Time := T#2s;
+    T_GD_STABILIZATION   : Time := T#200ms;
+    T_CLOSE_QG1          : Time := T#500ms;
+    T_CLOSE_QG2          : Time := T#500ms;
+    T_GRID_STABLE        : Time := T#500ms;
+    T_OPEN_QG1           : Time := T#500ms;
+    T_OPEN_QG2           : Time := T#500ms;
+    T_CLOSE_QT1          : Time := T#500ms;
+    T_GD_COOLDOWN        : Time := T#500ms;
+    T_GRID_FAIL_FILTER   : Time := T#200ms;
+END_STRUCT;
+END_TYPE
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_1: Happy Path — RED → GD1 → RED (PM5350P modo primario)
+// Precondicion: QT1_CLOSED=TRUE, GRID_OK, QT1_REMOTE y QG1_REMOTE=TRUE
+// Flujo esperado: NORMAL_ON_GRID → GRID_FAIL_DETECTED → OPEN_QT1 →
+//                 START_GD1_DELAY → START_GD1 → WAIT_GD1_READY →
+//                 CLOSE_QG1 → ON_GD1 → GRID_RETURN → WAIT_GRID_STABLE →
+//                 OPEN_ACTIVE_GD → CLOSE_QT1 → GD_COOLDOWN → NORMAL_ON_GRID
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_1_HAPPY_PATH_PM5350
+VAR
+    uut             : "02_FB_SCMTA";
+    inp             : TEST_SCMTA_INPUTS;
+    step            : Int := 0;
+    passed          : Bool := FALSE;
+    failed          : Bool := FALSE;
+    failMsg         : WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // Setup inicial: sistema en RED
+        inp.QT1_CLOSED  := TRUE;
+        inp.QT1_REMOTE  := TRUE;
+        inp.QG1_REMOTE  := TRUE;
+        inp.GD_READY    := FALSE;
+        inp.GD_RUNNING  := FALSE;
+        CallScmta(inp, uut);
+        // Esperar NORMAL_ON_GRID
+        IF uut.STATE = 1 THEN step := 10; END_IF;
+
+    10: // Simular falla RED: PM5350P reporta sub-tension
+        inp.GRID_ALM_UV     := TRUE;
+        inp.GRID_V_L1L2     := 3200.0; // < 85% de 4160
+        inp.GRID_V_L2L3     := 3200.0;
+        inp.GRID_V_L3L1     := 3200.0;
+        CallScmta(inp, uut);
+        IF uut.STATE = 2 THEN step := 20; END_IF; // GRID_FAIL_DETECTED
+
+    20: // Esperar que filtro anti-rebote venza → OPEN_QT1
+        // Simular tiempo T_GRID_FAIL_FILTER pasado (200ms en test)
+        CallScmtaMultiple(inp, uut, 25); // ~250ms a 10ms/ciclo
+        IF uut.STATE = 3 THEN
+            // Verificar DO_QT1_OPEN_CMD activo
+            IF NOT uut.DO_QT1_OPEN THEN
+                failMsg := 'TC1: DO_QT1_OPEN no activo en OPEN_QT1';
+                failed := TRUE;
+            END_IF;
+            step := 30;
+        ELSIF uut.IS_FAULT THEN
+            failMsg := 'TC1: Falla inesperada antes de OPEN_QT1';
+            failed := TRUE;
+        END_IF;
+
+    30: // Confirmar QT1 abierto (DI posicion)
+        inp.QT1_CLOSED := FALSE;
+        CallScmta(inp, uut);
+        IF uut.STATE = 4 OR uut.STATE = 5 THEN step := 40; END_IF; // START_GD1_DELAY/START_GD1
+
+    40: // Esperar arranque GD1
+        CallScmtaMultiple(inp, uut, 15); // >= T_START_GD_DELAY (100ms)
+        // SCMTA debe enviar DO_GD_START
+        IF uut.DO_GD_START THEN
+            step := 50;
+        ELSIF uut.STATE >= 14 THEN
+            failMsg := 'TC1: Falla en arranque GD1';
+            failed := TRUE;
+        END_IF;
+
+    50: // Simular GD1 listo
+        inp.GD_READY   := TRUE;
+        inp.GD_Running := TRUE;
+        CallScmta(inp, uut);
+        IF uut.STATE = 7 THEN step := 60; END_IF; // CLOSE_QG1
+
+    60: // SCMTA pide cerrar QG1 — confirmar con DI
+        IF uut.DO_QG1_CLOSE THEN
+            inp.QG1_CLOSED := TRUE; // DI posicion QG1 cerrado
+        END_IF;
+        CallScmtaMultiple(inp, uut, 60); // >= T_CLOSE_QG1 (500ms)
+        IF uut.STATE = 8 THEN
+            // Verificar IS_ON_GD y IS_ON_GD1
+            IF NOT uut.IS_ON_GD OR NOT uut.IS_ON_GD1 THEN
+                failMsg := 'TC1: IS_ON_GD/IS_ON_GD1 no activos en ON_GD1';
+                failed := TRUE;
+            END_IF;
+            step := 70;
+        END_IF;
+
+    70: // Simular retorno de RED
+        inp.GRID_ALM_UV := FALSE;
+        inp.GRID_V_L1L2 := 4160.0;
+        inp.GRID_V_L2L3 := 4160.0;
+        inp.GRID_V_L3L1 := 4160.0;
+        inp.GRID_FREQ   := 60.0;
+        CallScmta(inp, uut);
+        IF uut.STATE = 9 THEN step := 80; END_IF; // GRID_RETURN_DETECTED
+
+    80: // Esperar filtro T_GRID_STABLE (500ms) → OPEN_ACTIVE_GD
+        CallScmtaMultiple(inp, uut, 60);
+        IF uut.STATE = 11 THEN
+            // SCMTA debe abrir QG1
+            IF uut.DO_QG1_OPEN THEN
+                inp.QG1_CLOSED := FALSE; // Confirmar QG1 abierto
+            END_IF;
+            step := 90;
+        END_IF;
+
+    90: // Confirmar QG1 abierto → CLOSE_QT1
+        CallScmtaMultiple(inp, uut, 10);
+        IF uut.STATE = 12 THEN
+            IF uut.DO_QT1_CLOSE THEN
+                inp.QT1_CLOSED := TRUE; // Confirmar QT1 cerrado
+            END_IF;
+            step := 100;
+        END_IF;
+
+    100: // GD_COOLDOWN → NORMAL_ON_GRID
+        CallScmtaMultiple(inp, uut, 70);
+        IF uut.STATE = 1 THEN
+            // TEST PASADO: sistema volvio a RED
+            IF NOT uut.IS_ON_GRID THEN
+                failMsg := 'TC1: IS_ON_GRID no activo en NORMAL_ON_GRID';
+                failed := TRUE;
+            ELSE
+                passed := TRUE;
+            END_IF;
+            step := 999;
+        ELSIF uut.IS_FAULT THEN
+            failMsg := 'TC1: Falla inesperada en retorno a RED';
+            failed := TRUE; step := 999;
+        END_IF;
+
+    999: ; // Test finalizado
+
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_2: Happy Path — Modo DI fallback (GRID_MEAS_OK=FALSE)
+// Cuando PM5350P no comunica, usar DI BUSBAR_UV_OV como deteccion de falla
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_2_DI_FALLBACK
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // Setup: GRID_MEAS_OK=FALSE (Modbus no disponible)
+        inp.QT1_CLOSED          := TRUE;
+        inp.QT1_REMOTE          := TRUE;
+        inp.QG1_REMOTE          := TRUE;
+        inp.GRID_MEASUREMENT_OK := FALSE; // Modbus fuera de servicio
+        inp.BUSBAR_UV_OV_DI     := FALSE; // RED OK via DI
+        CallScmtaMultiple(inp, uut, 5);
+        IF uut.STATE = 1 THEN step := 10; END_IF;
+
+    10: // Simular falla RED via DI (BUSBAR_UV_OV bit desde interruptor)
+        inp.BUSBAR_UV_OV_DI := TRUE;
+        inp.QT1_UV_OV_DI    := TRUE;
+        CallScmta(inp, uut);
+        IF uut.STATE = 2 THEN step := 20; END_IF; // Debe detectar falla por DI
+
+    20: // Verificar que llega a transferencia sin Modbus
+        CallScmtaMultiple(inp, uut, 30);
+        IF uut.STATE = 3 THEN
+            // OK: deteccion por DI funcionando
+            step := 50;
+        ELSIF uut.STATE = 1 THEN
+            failMsg := 'TC2: Volvio a NORMAL sin haber confirm falla DI';
+            failed := TRUE;
+        END_IF;
+
+    50: // Confirmar apertura QT1 y cierre QG1 (igual que TC1)
+        inp.QT1_CLOSED := FALSE;
+        CallScmtaMultiple(inp, uut, 20);
+        inp.GD_Ready  := TRUE;
+        inp.GD_Running := TRUE;
+        CallScmtaMultiple(inp, uut, 20);
+        IF uut.DO_QG1_CLOSE THEN inp.QG1_CLOSED := TRUE; END_IF;
+        CallScmtaMultiple(inp, uut, 60);
+        IF uut.STATE = 8 THEN // ON_GD1
+            passed := TRUE;
+        ELSE
+            failMsg := 'TC2: No llego a ON_GD1 con DI fallback';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999: ;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_3: FAULT — QT1 no en REMOTO (código 111)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_3_QT1_NOT_REMOTE
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // QT1 NO está en REMOTO
+        inp.QT1_CLOSED := TRUE;
+        inp.QT1_REMOTE := FALSE; // <-- No REMOTO
+        inp.QG1_REMOTE := TRUE;
+        CallScmtaMultiple(inp, uut, 5);
+        // SCMTA debe quedarse en INIT o ir directo a FAULT
+        IF uut.STATE = 14 THEN // FAULT_LOCKOUT
+            IF uut.FAULT_CODE = 111 THEN
+                passed := TRUE;
+            ELSE
+                failMsg := 'TC3: FAULT_CODE esperado 111, obtenido otro';
+                failed := TRUE;
+            END_IF;
+            step := 999;
+        ELSIF uut.STATE = 1 THEN
+            // En algunos diseños, la verificacion de REMOTE es al inicio
+            // de la transferencia, no en NORMAL. Simular falla RED.
+            inp.GRID_ALM_UV := TRUE;
+            inp.GRID_V_L1L2 := 3000.0;
+            CallScmtaMultiple(inp, uut, 30);
+            step := 10;
+        END_IF;
+
+    10: // Esperar falla → OPEN_QT1 → detectar no REMOTE → FAULT
+        CallScmtaMultiple(inp, uut, 50);
+        IF uut.IS_FAULT AND uut.FAULT_CODE = 111 THEN
+            passed := TRUE; step := 999;
+        ELSIF uut.STATE >= 3 AND uut.STATE <= 8 AND NOT uut.IS_FAULT THEN
+            failMsg := 'TC3: Paso por transferencia sin QT1 REMOTE';
+            failed := TRUE; step := 999;
+        END_IF;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_4: FAULT — QT1 no abre en tiempo (código 101)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_4_QT1_OPEN_TIMEOUT
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // Sistema en RED, todos en REMOTE
+        inp.QT1_CLOSED := TRUE;
+        inp.QT1_REMOTE := TRUE;
+        inp.QG1_REMOTE := TRUE;
+        CallScmtaMultiple(inp, uut, 5);
+        // Introducir falla RED
+        inp.GRID_V_L1L2 := 2500.0;
+        inp.GRID_ALM_UV := TRUE;
+        step := 10;
+
+    10: // Esperar hasta OPEN_QT1
+        CallScmtaMultiple(inp, uut, 30);
+        IF uut.STATE = 3 THEN step := 20; // OPEN_QT1
+        ELSIF uut.IS_FAULT THEN step := 999; END_IF;
+
+    20: // NO confirmar apertura QT1 (QT1_CLOSED sigue TRUE)
+        // Esperar timeout T_OPEN_QT1 (2s en test)
+        CallScmtaMultiple(inp, uut, 210); // >200 ciclos a 10ms = 2.1s
+        IF uut.IS_FAULT THEN
+            IF uut.FAULT_CODE = 101 THEN
+                passed := TRUE;
+            ELSE
+                failMsg := 'TC4: FAULT_CODE esperado 101';
+                failed := TRUE;
+            END_IF;
+        ELSE
+            failMsg := 'TC4: No se genero FAULT_LOCKOUT por timeout QT1';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_5: FAULT — GD1 no listo en tiempo (código 102)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_5_GD1_READY_TIMEOUT
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:
+        inp.QT1_CLOSED := TRUE;
+        inp.QT1_REMOTE := TRUE;
+        inp.QG1_REMOTE := TRUE;
+        inp.GD_Ready   := FALSE;  // GD1 nunca responde
+        inp.GD_Running := FALSE;
+        inp.ENABLE_QG2 := FALSE;  // Sin GD2 disponible
+        CallScmtaMultiple(inp, uut, 5);
+        inp.GRID_V_L1L2 := 2500.0;
+        inp.GRID_ALM_UV := TRUE;
+        step := 10;
+
+    10: // Avanzar hasta WAIT_GD1_READY
+        CallScmtaMultiple(inp, uut, 30);
+        inp.QT1_CLOSED := FALSE;  // Confirmar apertura QT1
+        CallScmtaMultiple(inp, uut, 50);
+        IF uut.STATE = 6 THEN step := 20; // WAIT_GD1_READY
+        ELSIF uut.IS_FAULT THEN step := 999; END_IF;
+
+    20: // GD1 no responde — esperar timeout T_GD_READY_TIMEOUT (2s)
+        CallScmtaMultiple(inp, uut, 210);
+        IF uut.IS_FAULT THEN
+            IF uut.FAULT_CODE = 102 THEN
+                passed := TRUE;
+            ELSE
+                failMsg := 'TC5: FAULT_CODE esperado 102, obtenido ' + WString#CONCAT(uut.FAULT_CODE);
+                failed := TRUE;
+            END_IF;
+        ELSE
+            failMsg := 'TC5: No se genero FAULT por timeout GD1';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_6: FAULT — QG1 no cierra en tiempo (código 103)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_6_QG1_CLOSE_TIMEOUT
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:
+        inp.QT1_CLOSED := TRUE;
+        inp.QT1_REMOTE := TRUE;
+        inp.QG1_REMOTE := TRUE;
+        inp.ENABLE_QG2 := FALSE;
+        CallScmtaMultiple(inp, uut, 5);
+        inp.GRID_V_L1L2 := 2500.0;
+        inp.GRID_ALM_UV := TRUE;
+        step := 10;
+
+    10: // Avanzar hasta CLOSE_QG1
+        inp.QT1_CLOSED := FALSE;
+        CallScmtaMultiple(inp, uut, 30);
+        inp.GD_Ready  := TRUE;
+        inp.GD_Running := TRUE;
+        CallScmtaMultiple(inp, uut, 30);
+        // NO confirmar cierre QG1 (QG1_CLOSED sigue FALSE)
+        IF uut.STATE = 7 THEN step := 20;
+        ELSIF uut.IS_FAULT THEN step := 999; END_IF;
+
+    20: // Esperar timeout T_CLOSE_QG1 (500ms en test)
+        CallScmtaMultiple(inp, uut, 60);
+        IF uut.IS_FAULT THEN
+            IF uut.FAULT_CODE = 103 THEN passed := TRUE;
+            ELSE failMsg := 'TC6: FAULT_CODE esperado 103'; failed := TRUE;
+            END_IF;
+        ELSE
+            failMsg := 'TC6: No FAULT por QG1 close timeout';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_7: Auto-recuperacion desde FAULT_LOCKOUT
+// Cuando GRID_OK regresa, el sistema debe retransferir a RED automaticamente
+// (si ENABLE_AUTO_RETURN = TRUE)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_7_AUTO_RECOVERY
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // Forzar FAULT_LOCKOUT via QT1 no abre
+        inp.QT1_CLOSED      := TRUE;
+        inp.QT1_REMOTE      := TRUE;
+        inp.QG1_REMOTE      := TRUE;
+        inp.ENABLE_AUTO_RETURN := TRUE;
+        CallScmtaMultiple(inp, uut, 5);
+        inp.GRID_V_L1L2     := 2500.0;
+        inp.GRID_ALM_UV     := TRUE;
+        CallScmtaMultiple(inp, uut, 250); // Timeout QT1
+        IF uut.IS_FAULT THEN
+            step := 10; // en FAULT_LOCKOUT
+        ELSE
+            failMsg := 'TC7: No llego a FAULT para probar auto-recovery';
+            failed := TRUE; step := 999;
+        END_IF;
+
+    10: // Ahora RED regresa estable
+        inp.GRID_V_L1L2 := 4160.0;
+        inp.GRID_V_L2L3 := 4160.0;
+        inp.GRID_V_L3L1 := 4160.0;
+        inp.GRID_ALM_UV := FALSE;
+        inp.GRID_ALM_OV := FALSE;
+        // Simular QT1_CLOSED = TRUE (fue cerrado por proteccion)
+        inp.QT1_CLOSED := TRUE;
+        // Esperar tonFaultAutoRecover.Q (tiempo configurable, en test ~2s)
+        CallScmtaMultiple(inp, uut, 220);
+        IF uut.STATE = 12 OR uut.STATE = 1 THEN // CLOSE_QT1 o ya NORMAL
+            passed := TRUE;
+        ELSIF uut.IS_FAULT THEN
+            // Verificar que RESET_FAULT manual funciona si auto no actua
+            inp.RESET_FAULT := TRUE;
+            CallScmta(inp, uut);
+            inp.RESET_FAULT := FALSE;
+            CallScmtaMultiple(inp, uut, 5);
+            IF uut.STATE = 1 THEN passed := TRUE;
+            ELSE failMsg := 'TC7: No recupero ni auto ni manual'; failed := TRUE;
+            END_IF;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_8: ENABLE_QG2=FALSE — GD1 alarm lleva a FAULT (sin GD2)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_8_NO_GD2_PATH
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // Sistema en ON_GD1
+        inp.QT1_Remote  := TRUE;
+        inp.QG1_REMOTE  := TRUE;
+        inp.QG1_CLOSED  := TRUE;    // GD1 activo
+        inp.GD_RUNNING  := TRUE;
+        inp.ENABLE_QG2  := FALSE;   // GD2 NO habilitado
+        inp.GRID_V_L1L2 := 2500.0;  // RED fallida
+        inp.GRID_ALM_UV := TRUE;
+        inp.QT1_CLOSED  := FALSE;   // QT1 abierto
+        CallScmtaMultiple(inp, uut, 10);
+        IF uut.STATE = 8 THEN step := 10;
+        ELSE
+            // Ir directamente al escenario
+            uut.STATE := 8; // Forzar estado (solo en simulacion)
+            step := 10;
+        END_IF;
+
+    10: // Simular alarma GD1 mientras en ON_GD1
+        inp.GD_ALARM := TRUE;
+        CallScmtaMultiple(inp, uut, 20);
+        // Con ENABLE_QG2=FALSE, no puede ir a GD2 -> FAULT
+        IF uut.IS_FAULT THEN
+            passed := TRUE; // Correcto: sin GD2, cae a fault
+        ELSIF uut.STATE = 15 THEN // START_GD2_DELAY
+            failMsg := 'TC8: Intento usar GD2 con ENABLE_QG2=FALSE';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_9: ENABLE_QG2=TRUE — GD1 alarm → switch a GD2
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_9_GD2_FAILOVER
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:  // Sistema en ON_GD1 con GD2 habilitado
+        inp.QT1_Remote  := TRUE;
+        inp.QG1_REMOTE  := TRUE;
+        inp.QG2_REMOTE  := TRUE;
+        inp.QG1_CLOSED  := TRUE;
+        inp.GD_Running  := TRUE;
+        inp.ENABLE_QG2  := TRUE;    // GD2 HABILITADO
+        inp.GRID_V_L1L2 := 2500.0;
+        inp.GRID_ALM_UV := TRUE;
+        inp.QT1_CLOSED  := FALSE;
+        CallScmtaMultiple(inp, uut, 20);
+        step := 10;
+
+    10: // GD1 reporta alarma → debe iniciar camino a GD2
+        inp.GD_ALARM := TRUE;
+        CallScmta(inp, uut);
+        IF uut.STATE = 20 THEN // OPEN_GD_FOR_SWITCH
+            step := 20;
+        ELSIF uut.IS_FAULT THEN
+            failMsg := 'TC9: FAULT con ENABLE_QG2=TRUE, esperaba switch';
+            failed := TRUE; step := 999;
+        ELSE
+            CallScmtaMultiple(inp, uut, 20);
+            IF uut.STATE = 20 OR uut.STATE = 15 THEN step := 20; END_IF;
+        END_IF;
+
+    20: // Confirmar QG1 abierto → iniciar GD2
+        inp.QG1_CLOSED := FALSE;
+        CallScmtaMultiple(inp, uut, 15);
+        inp.GD2_READY  := TRUE;
+        inp.GD2_Running := TRUE;
+        CallScmtaMultiple(inp, uut, 20);
+        IF uut.DO_QG2_CLOSE THEN inp.QG2_CLOSED := TRUE; END_IF;
+        CallScmtaMultiple(inp, uut, 70);
+        IF uut.STATE = 19 THEN // ON_GD2
+            IF NOT uut.IS_ON_GD2 THEN
+                failMsg := 'TC9: IS_ON_GD2 no activo en ON_GD2';
+                failed := TRUE;
+            ELSE
+                passed := TRUE;
+            END_IF;
+        ELSE
+            failMsg := 'TC9: No llego a ON_GD2';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// TEST_CASE_10: QG1 no en REMOTO durante transferencia (código 112)
+// -----------------------------------------------------------------------------
+FUNCTION_BLOCK TEST_CASE_10_QG1_NOT_REMOTE
+VAR
+    uut    : "02_FB_SCMTA";
+    inp    : TEST_SCMTA_INPUTS;
+    step   : Int := 0;
+    passed : Bool;
+    failed : Bool;
+    failMsg: WString;
+END_VAR
+
+BEGIN
+
+    CASE step OF
+
+    0:
+        inp.QT1_CLOSED := TRUE;
+        inp.QT1_REMOTE := TRUE;
+        inp.QG1_REMOTE := FALSE;   // QG1 NO en REMOTO
+        inp.ENABLE_QG2 := FALSE;
+        CallScmtaMultiple(inp, uut, 5);
+        inp.GRID_V_L1L2 := 2500.0;
+        inp.GRID_ALM_UV := TRUE;
+        // Avanzar hasta el punto donde SCMTA intenta cerrar QG1
+        inp.QT1_CLOSED := FALSE;
+        CallScmtaMultiple(inp, uut, 50);
+        inp.GD_Ready  := TRUE;
+        inp.GD_Running := TRUE;
+        CallScmtaMultiple(inp, uut, 50); // Debe detectar QG1 no REMOTE
+        IF uut.IS_FAULT AND uut.FAULT_CODE = 112 THEN
+            passed := TRUE;
+        ELSIF uut.IS_FAULT THEN
+            failMsg := 'TC10: Fault pero codigo erroneo ' + DINT_TO_WSTRING(uut.FAULT_CODE);
+            failed := TRUE;
+        ELSE
+            failMsg := 'TC10: Sin fault con QG1 no REMOTE';
+            failed := TRUE;
+        END_IF;
+        step := 999;
+
+    999:;
+    END_CASE;
+
+END_FUNCTION_BLOCK
+
+
+// -----------------------------------------------------------------------------
+// HELPER FUNCTIONS — llamar FB_SCMTA con inputs actuales
+// (En TIA Portal, reemplazar con llamada directa con parametros)
+// -----------------------------------------------------------------------------
+FUNCTION CallScmta : Void
+VAR_INPUT
+    inp : TEST_SCMTA_INPUTS;
+END_VAR
+VAR_IN_OUT
+    uut : "02_FB_SCMTA";
+END_VAR
+
+BEGIN
+    uut(
+        ENABLE               := inp.ENABLE,
+        MODE_AUTO            := inp.MODE_AUTO,
+        ENABLE_QG2           := inp.ENABLE_QG2,
+        ENABLE_AUTO_RETURN   := inp.ENABLE_AUTO_RETURN,
+        RESET_FAULT          := inp.RESET_FAULT,
+        QT1_CLOSED           := inp.QT1_CLOSED,
+        QT1_FAULT            := inp.QT1_FAULT,
+        QT1_REMOTE           := inp.QT1_REMOTE,
+        QT1_UV_OV_DI         := inp.QT1_UV_OV_DI,
+        QG1_CLOSED           := inp.QG1_CLOSED,
+        QG1_FAULT            := inp.QG1_FAULT,
+        QG1_REMOTE           := inp.QG1_REMOTE,
+        QG2_CLOSED           := inp.QG2_CLOSED,
+        QG2_FAULT            := inp.QG2_FAULT,
+        QG2_REMOTE           := inp.QG2_REMOTE,
+        GD_READY             := inp.GD_READY,
+        GD_RUNNING           := inp.GD_RUNNING,
+        GD_ALARM             := inp.GD_ALARM,
+        GD2_READY            := inp.GD2_READY,
+        GD2_RUNNING          := inp.GD2_RUNNING,
+        GD2_ALARM            := inp.GD2_ALARM,
+        GRID_V_L1L2          := inp.GRID_V_L1L2,
+        GRID_V_L2L3          := inp.GRID_V_L2L3,
+        GRID_V_L3L1          := inp.GRID_V_L3L1,
+        GRID_FREQ            := inp.GRID_FREQ,
+        GRID_MEASUREMENT_OK  := inp.GRID_MEASUREMENT_OK,
+        GRID_PHASE_LOSS      := inp.GRID_PHASE_LOSS,
+        GRID_ALM_UV          := inp.GRID_ALM_UV,
+        GRID_ALM_OV          := inp.GRID_ALM_OV,
+        V_NOM                := inp.V_NOM,
+        V_MIN_PCT            := inp.V_MIN_PCT,
+        V_MAX_PCT            := inp.V_MAX_PCT,
+        FREQ_NOM             := inp.FREQ_NOM,
+        FREQ_MIN             := inp.FREQ_MIN,
+        FREQ_MAX             := inp.FREQ_MAX,
+        T_OPEN_QT1           := inp.T_OPEN_QT1,
+        T_START_GD_DELAY     := inp.T_START_GD_DELAY,
+        T_GD_READY_TIMEOUT   := inp.T_GD_READY_TIMEOUT,
+        T_GD_STABILIZATION   := inp.T_GD_STABILIZATION,
+        T_CLOSE_QG1          := inp.T_CLOSE_QG1,
+        T_CLOSE_QG2          := inp.T_CLOSE_QG2,
+        T_GRID_STABLE        := inp.T_GRID_STABLE,
+        T_OPEN_QG1           := inp.T_OPEN_QG1,
+        T_OPEN_QG2           := inp.T_OPEN_QG2,
+        T_CLOSE_QT1          := inp.T_CLOSE_QT1,
+        T_GD_COOLDOWN        := inp.T_GD_COOLDOWN,
+        T_GRID_FAIL_FILTER   := inp.T_GRID_FAIL_FILTER
+    );
+END_FUNCTION
+
+// Llamar N veces (simular N ciclos de scan de 10ms)
+FUNCTION CallScmtaMultiple : Void
+VAR_INPUT
+    inp : TEST_SCMTA_INPUTS;
+    n   : Int;
+END_VAR
+VAR_IN_OUT
+    uut : "02_FB_SCMTA";
+END_VAR
+VAR
+    i : Int;
+END_VAR
+
+BEGIN
+    FOR i := 1 TO n DO
+        CallScmta(inp, uut);
+    END_FOR;
+END_FUNCTION

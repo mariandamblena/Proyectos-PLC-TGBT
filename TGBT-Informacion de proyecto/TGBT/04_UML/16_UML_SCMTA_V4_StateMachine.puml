@@ -1,0 +1,196 @@
+@startuml SCMTA_V4_StateMachine
+' ============================================================================
+' UML STATE MACHINE — FB_SCMTA V4.0
+' TGBT Sistema de Conmutacion Manual con Transferencia Automatica
+' ============================================================================
+' Tecnología V4:
+'   - Posición/estado interruptores: ENTRADAS DIGITALES (DI) — SIN Modbus MTZ
+'   - Calidad de RED: PM5350P via Modbus RTU (solo lectura)
+'   - Control interruptores: SALIDAS DIGITALES (DO) pulsadas 300ms
+'   - QG2/GD2: guardado por ENABLE_QG2 (FALSE por defecto — no instalado)
+'   - DESLASTRE: disponible pero ENABLE_SHED=FALSE en V4
+' ============================================================================
+
+skinparam state {
+  BackgroundColor<<NORMAL>>   #C8E6C9
+  BackgroundColor<<TRANSFER>> #FFF9C4
+  BackgroundColor<<GD>>       #B3E5FC
+  BackgroundColor<<FAULT>>    #FFCDD2
+  BackgroundColor<<GD2>>      #E1BEE7
+  BorderColor                 #455A64
+  FontName                    Helvetica
+}
+
+title FB_SCMTA V4 — Maquina de Estados (DI/DO + PM5350P)
+
+[*] --> INIT
+
+' ===========================================================================
+state INIT <<NORMAL>> : Inicializacion\n⏱ 1 scan\nReset todos los bits internos
+
+state NORMAL_ON_GRID <<NORMAL>> : RED activa — QT1 CERRADO\n✓ QT1_CLOSED=TRUE\n✓ GRID_OK evaluado continuo\n⚡ IS_ON_GRID:=TRUE
+
+state GRID_FAIL_DETECTED <<TRANSFER>> : Falla RED detectada\n⏱ T_GRID_FAIL_FILTER (2s)\nEsperando filtro anti-rebote\n📡 GRID_FAIL := TRUE
+
+state OPEN_QT1 <<TRANSFER>> : Abriendo QT1\n🔺 DO_QT1_OPEN pulsado (300ms)\n⏱ espera QT1_CLOSED=FALSE\n⏳ timeout → FAULT(101)
+
+state START_GD1_DELAY <<TRANSFER>> : Retardo arranque GD1\n⏱ T_START_GD_DELAY\nQT1 confirmado ABIERTO\nEsperando retardo configurado
+
+state START_GD1 <<GD>> : Arrancando GD1\n🟢 DO_GD1_RUN:=%Q1.0 := TRUE\nEsperando señal READY o RUNNING\n⏳ timeout → ver GD2 (si ENABLE_QG2)
+
+state WAIT_GD1_READY <<GD>> : Esperando GD1 listo\n✓ GD_READY=TRUE O GD_RUNNING=TRUE\n⏱ T_GD_READY_TIMEOUT\n⏳ timeout → FAULT(102) o switch GD2
+
+state CLOSE_QG1 <<GD>> : Cerrando QG1 — GD1\n🔺 DO_QG1_CLOSE pulsado (300ms)\n⏱ T_GD_STABILIZATION\n⏳ QG1_CLOSED timeout → FAULT(103)
+
+state ON_GD1 <<GD>> : ALIMENTADO POR GD1\n✓ QG1_CLOSED=TRUE\n⚡ IS_ON_GD:=TRUE / IS_ON_GD1:=TRUE\n🔍 Monitoreo retorno RED continuo
+
+state GRID_RETURN_DETECTED <<TRANSFER>> : Retorno RED detectado\n⏱ T_GRID_STABLE\nPM5350P C02: V y FREQ dentro de banda\nFiltro anti-rebote activo
+
+state WAIT_GRID_STABLE <<TRANSFER>> : Estabilizacion RED\n⏱ pendiente T_GRID_STABLE\nConfirmacion calidad RED\n📡 PM5350P + DI respaldo
+
+state OPEN_ACTIVE_GD <<TRANSFER>> : Abriendo GD activo\n🔺 DO_QG1_OPEN o DO_QG2_OPEN pulsado\n⏱ espera QG1/2_CLOSED=FALSE\n⏳ timeout → FAULT(104)
+
+state CLOSE_QT1 <<TRANSFER>> : Cerrando QT1\n🔺 DO_QT1_CLOSE pulsado (300ms)\n⏱ T_CLOSE_QT1\n⏳ QT1_CLOSED timeout → FAULT(105)
+
+state GD_COOLDOWN <<GD>> : Enfriamiento GD\n⏱ T_GD_COOLDOWN\n🛑 DO_GDx_RUN := FALSE\nVolviendo a estado normal
+
+state FAULT_LOCKOUT <<FAULT>> : FALLA — BLOQUEO\n🔴 IS_FAULT:=TRUE\n📝 FAULT_CODE activo\n🔔 Alarma HMI activa\n\nSalidas: reset RESET_FAULT\nAuto-recuperacion si GRID_OK regresa
+
+' ---- Estados GD2 (guardados por ENABLE_QG2) ----
+state START_GD2_DELAY <<GD2>> : Retardo arranque GD2\n[ENABLE_QG2=TRUE]\n⏱ T_START_GD_DELAY
+
+state START_GD2 <<GD2>> : Arrancando GD2\n[ENABLE_QG2=TRUE]\n🟢 DO_GD2_RUN:=%Q1.1 := TRUE
+
+state WAIT_GD2_READY <<GD2>> : Esperando GD2 listo\n[ENABLE_QG2=TRUE]\n⏱ T_GD_READY_TIMEOUT\n⏳ timeout → FAULT(108)
+
+state CLOSE_QG2 <<GD2>> : Cerrando QG2\n[ENABLE_QG2=TRUE]\n🔺 DO_QG2_CLOSE pulsado (300ms)\n⏳ timeout → FAULT(109)
+
+state ON_GD2 <<GD2>> : ALIMENTADO POR GD2\n[ENABLE_QG2=TRUE]\n✓ QG2_CLOSED=TRUE\n⚡ IS_ON_GD2:=TRUE
+
+state OPEN_GD_FOR_SWITCH <<GD2>> : Abriendo GDx para cambio\n[ENABLE_QG2=TRUE]\nCambio GD1→GD2 o GD2→GD1
+
+' ===========================================================================
+' TRANSICIONES PRINCIPALES
+' ===========================================================================
+
+INIT --> NORMAL_ON_GRID : ENABLE AND QT1_CLOSED
+
+NORMAL_ON_GRID --> GRID_FAIL_DETECTED : GRID_FAIL\n(PM5350P[C02] fuera de banda\nO GRID_MEAS_OK=F AND\nBUSBAR_UV_OV_DI)
+
+NORMAL_ON_GRID --> FAULT_LOCKOUT : QT1_FAULT\nO NOT QT1_REMOTE\n[FAULT_CODE=111]
+
+GRID_FAIL_DETECTED --> NORMAL_ON_GRID : GRID_OK antes de timeout\n(falsa alarma)
+
+GRID_FAIL_DETECTED --> OPEN_QT1 : Filtro T_GRID_FAIL_FILTER vence\nFalla confirmada
+
+OPEN_QT1 --> START_GD1_DELAY : QT1_CLOSED=FALSE\n(posicion DI confirmada)
+OPEN_QT1 --> FAULT_LOCKOUT : Timeout apertura\n[FAULT_CODE=101]
+
+START_GD1_DELAY --> START_GD1 : T_START_GD_DELAY vence
+
+START_GD1 --> WAIT_GD1_READY : DO_GD1_RUN enviado
+
+WAIT_GD1_READY --> CLOSE_QG1 : GD_READY OR GD_RUNNING
+
+WAIT_GD1_READY --> START_GD2_DELAY : Timeout AND ENABLE_QG2\n[GD1 no disponible]
+WAIT_GD1_READY --> FAULT_LOCKOUT : Timeout AND NOT ENABLE_QG2\n[FAULT_CODE=102]
+
+CLOSE_QG1 --> ON_GD1 : QG1_CLOSED=TRUE\n(posicion DI confirmada)
+CLOSE_QG1 --> FAULT_LOCKOUT : Timeout cierre\n[FAULT_CODE=103]
+
+ON_GD1 --> GRID_RETURN_DETECTED : GRID_OK\n(PM5350P C02 OK\nOR DI respaldo)
+ON_GD1 --> FAULT_LOCKOUT : QG1_FAULT OR NOT QG1_REMOTE\n[FAULT_CODE=112/113]
+ON_GD1 --> OPEN_GD_FOR_SWITCH : GD_ALARM AND ENABLE_QG2
+
+' ===========================================================================
+' CAMINO DE RETORNO A RED
+' ===========================================================================
+
+GRID_RETURN_DETECTED --> WAIT_GRID_STABLE : Inicio filtro T_GRID_STABLE
+GRID_RETURN_DETECTED --> ON_GD1 : RED falla nuevamente\n(falsa deteccion)
+
+WAIT_GRID_STABLE --> OPEN_ACTIVE_GD : T_GRID_STABLE vence\nRED confirmada estable
+WAIT_GRID_STABLE --> ON_GD1 : RED falla durante espera
+
+OPEN_ACTIVE_GD --> CLOSE_QT1 : GD_CLOSED=FALSE\n(QG1/QG2 abiertos, DI)
+OPEN_ACTIVE_GD --> FAULT_LOCKOUT : Timeout apertura\n[FAULT_CODE=104]
+
+CLOSE_QT1 --> GD_COOLDOWN : QT1_CLOSED=TRUE\n(posicion DI confirmada)
+CLOSE_QT1 --> FAULT_LOCKOUT : Timeout cierre\n[FAULT_CODE=105]
+
+GD_COOLDOWN --> NORMAL_ON_GRID : T_GD_COOLDOWN vence
+
+' ===========================================================================
+' CAMINO GD2 (ENABLE_QG2=TRUE)
+' ===========================================================================
+
+START_GD2_DELAY --> START_GD2 : T_START_GD_DELAY vence
+
+START_GD2 --> WAIT_GD2_READY : DO_GD2_RUN enviado
+
+WAIT_GD2_READY --> CLOSE_QG2 : GD2_READY OR GD2_RUNNING
+WAIT_GD2_READY --> FAULT_LOCKOUT : Timeout\n[FAULT_CODE=108]
+
+CLOSE_QG2 --> ON_GD2 : QG2_CLOSED=TRUE\n(posicion DI confirmada)
+CLOSE_QG2 --> FAULT_LOCKOUT : Timeout\n[FAULT_CODE=109]
+
+ON_GD2 --> GRID_RETURN_DETECTED : GRID_OK
+ON_GD2 --> FAULT_LOCKOUT : QG2_FAULT\n[FAULT_CODE=114]
+
+OPEN_GD_FOR_SWITCH --> START_GD2_DELAY : QG1_CLOSED=FALSE\n(listo para GD2)
+
+' ===========================================================================
+' AUTO-RECUPERACION DESDE FAULT_LOCKOUT
+' ===========================================================================
+
+FAULT_LOCKOUT --> CLOSE_QT1 : tonFaultAutoRecover.Q\n(GRID_OK sostenido)\nY ENABLE_AUTO_RETURN
+
+FAULT_LOCKOUT --> NORMAL_ON_GRID : RESET_FAULT (manual)\nY QT1_CLOSED=TRUE
+
+' ===========================================================================
+' NOTAS TECNICAS
+' ===========================================================================
+note top of NORMAL_ON_GRID
+  <b>GRID_OK evaluacion V4:</b>
+  PRIMARIO: PM5350P C02 (Modbus)
+    V_L1L2/L2L3/L3L1 dentro de [V_MIN_PCT..V_MAX_PCT]
+    FREQ dentro de [FREQ_MIN..FREQ_MAX]
+    GRID_MEASUREMENT_OK=TRUE
+  RESPALDO DI: si GRID_MEAS_OK=FALSE
+    NOT BUSBAR_UV_OV_DI AND NOT QT1_UV_OV_DI
+end note
+
+note right of FAULT_LOCKOUT
+  <b>Codigos de falla:</b>
+  101: QT1 no abre (timeout DI)
+  102: GD1 no listo (timeout DI)
+  103: QG1 no cierra (timeout DI)
+  104: QGx no abre (retorno)
+  105: QT1 no cierra (retorno)
+  108: GD2 no listo
+  109: QG2 no cierra
+  110: GD1 y GD2 fallan
+  111: QT1 no en REMOTE
+  112: QG1 no en REMOTE
+  113: QG1 falla electrica
+  114: QG2 falla electrica
+end note
+
+note bottom of ON_GD1
+  <b>Pulse DO (V4):</b>
+  Todos los CMD de apertura/cierre son pulsos
+  de T_CMD_PULSE = 300ms via %Q0.0..%Q0.7
+  Confirmación posicion por DI correspondiente
+  Timeout = T_CMD_CONFIRM (2s por defecto)
+end note
+
+legend right
+  |= Color |= Significado |
+  |<#C8E6C9> Verde | Normal / RED |
+  |<#FFF9C4> Amarillo | Transferencia en curso |
+  |<#B3E5FC> Azul | Operando con Grupo Diesel |
+  |<#E1BEE7> Violeta | GD2 (ENABLE_QG2=TRUE) |
+  |<#FFCDD2> Rojo | Falla / Bloqueo |
+endlegend
+
+@enduml

@@ -1,446 +1,413 @@
 ﻿ORGANIZATION_BLOCK "Main"
-TITLE = "Main Program Sweep (Cycle)"
+TITLE = "Main Program Sweep (Cycle) — V4.0"
 { S7_Optimized_Access := 'TRUE' }
+// ============================================================================
+// OB1: Main  V4.0  — TGBT SCMTA
+// ============================================================================
+// CAMBIO ALCANCE V4:
+//   - New DI mapping: QT1/QG1/QG2 REMOTE/CLOSE/FAULT/UV_OV + GD signals + Q22
+//   - New DO mapping: pulse OPEN/CLOSE per breaker (%Q0.0-0.7) + GD RUN (%Q1.0-1.1)
+//   - Eliminados: 07_FB_MTZ_DRIVER_DB_QT1/QG1/QG2
+//   - Agregado: 06_FB_MODBUS_MANAGER (solo PM5350P, 7 dispositivos, solo lectura)
+//   - Pulse expander: CMD_xx -> DO pulse mantenido T_CMD_PULSE (300ms)
+//     IMPORTANTE: implementar con TON instances en un DB auxiliar
+//   - Mantenido: 03_FB_SHED (ENABLE=FALSE en DB_PARAMS)
+// ============================================================================
 VERSION : 0.1
 
 BEGIN
-    
+
     // ========================================================================
-    // NETWORK 1: NORMALIZACIN ENTRADAS/SALIDAS
+    // NETWORK 1: NORMALIZACION ENTRADAS/SALIDAS  (01_FB_IO_NORMALIZE)
     // ========================================================================
-    // Convierte seales fsicas DI -> seales lgicas
-    // Output: MODE_AUTO, *_REMOTE_ALLOWED, REQ_MAN_*, GD_READY/RUNNING/ALARM
-    
     "01_FB_IO_NORMALIZE_DB"(
-        // Inputs - Mapeo DI fsicas (EJEMPLO - ajustar segn hardware real)
-        DI_SYS_AUTO := %I0.0,
-        DI_QT1_REMOTE_SEL := %I0.1,
-        DI_QT1_PB_OPEN := %I0.2,
-        DI_QT1_PB_CLOSE := %I0.3,
-        DI_QG1_REMOTE_SEL := %I0.4,
-        DI_QG1_PB_OPEN := %I0.5,
-        DI_QG1_PB_CLOSE := %I0.6,
-        DI_QG2_REMOTE_SEL := %I1.0,
-        DI_QG2_PB_OPEN := %I1.1,
-        DI_QG2_PB_CLOSE := %I1.2,
-        DI_GD_READY := %I1.3,
-        DI_GD_RUNNING := %I1.4,
-        DI_GD_ALARM := %I1.5,
-        DI_GD2_READY := %I1.6,
-        DI_GD2_RUNNING := %I1.7,
-        DI_GD2_ALARM := %I2.1,
-        
-        // Feeders pulsadores Open/Close (TODO: mapear segn hardware)
-        // Solo tipo a (Q3.1-Q3.3, Q5.2, Q22) tienen pulsadores fsicos
-        // DI_FEEDER_PB_OPEN[1] := %I3.0,   // Q3.1
-        // DI_FEEDER_PB_OPEN[2] := %I3.1,   // Q3.2
-        // DI_FEEDER_PB_OPEN[3] := %I3.2,   // Q3.3
-        // DI_FEEDER_PB_OPEN[12] := %I3.3,  // Q5.2
-        // DI_FEEDER_PB_OPEN[18] := %I3.4,  // Q22
-        // DI_FEEDER_PB_CLOSE[1] := %I4.0,
-        // DI_FEEDER_PB_CLOSE[2] := %I4.1,
-        // DI_FEEDER_PB_CLOSE[3] := %I4.2,
-        // DI_FEEDER_PB_CLOSE[12] := %I4.3,
-        // DI_FEEDER_PB_CLOSE[18] := %I4.4,
-        // Por ahora se pueden comentar o dejar sin conectar
-        
-        // Outputs -> DATA_BUFF (Global DB)
-        MODE_AUTO => "DATA_BUFF".MODE_AUTO,
-        MODE_MANUAL => "DATA_BUFF".MODE_MANUAL,
-        QT1_REMOTE_ALLOWED => "DATA_BUFF".QT1_REMOTE_ALLOWED,
-        QG1_REMOTE_ALLOWED => "DATA_BUFF".QG1_REMOTE_ALLOWED,
-        QG2_REMOTE_ALLOWED => "DATA_BUFF".QG2_REMOTE_ALLOWED,
-        REQ_MAN_QT1_OPEN => "DATA_BUFF".REQ_MAN_QT1_OPEN,
-        REQ_MAN_QT1_CLOSE => "DATA_BUFF".REQ_MAN_QT1_CLOSE,
-        REQ_MAN_QG1_OPEN => "DATA_BUFF".REQ_MAN_QG1_OPEN,
-        REQ_MAN_QG1_CLOSE => "DATA_BUFF".REQ_MAN_QG1_CLOSE,
-        REQ_MAN_QG2_OPEN => "DATA_BUFF".REQ_MAN_QG2_OPEN,
-        REQ_MAN_QG2_CLOSE => "DATA_BUFF".REQ_MAN_QG2_CLOSE,
-        REQ_MAN_FEEDER_OPEN => "DATA_BUFF".REQ_MAN_FEEDER_OPEN,
-        REQ_MAN_FEEDER_CLOSE => "DATA_BUFF".REQ_MAN_FEEDER_CLOSE,
-        GD_READY => "DATA_BUFF".GD_READY,
-        GD_RUNNING => "DATA_BUFF".GD_RUNNING,
-        GD_ALARM => "DATA_BUFF".GD_ALARM,
-        GD2_READY => "DATA_BUFF".GD2_READY,
-        GD2_RUNNING => "DATA_BUFF".GD2_RUNNING,
-        GD2_ALARM => "DATA_BUFF".GD2_ALARM,
-        DIAG_MODE_VALID => "DATA_BUFF".DIAG_MODE_VALID
+        // ---- Selector AUTO/MANUAL del sistema ----
+        DI_SYS_AUTO       := "DATA_BUFF".MODE_AUTO,  // TODO: asignar DI fisica si existe
+
+        // ---- QT1 (CPU %I0.0–%I0.3) ----
+        DI_QT1_REMOTE     := %I0.0,
+        DI_QT1_CLOSE      := %I0.1,
+        DI_QT1_FAULT      := %I0.2,
+        DI_QT1_UV_OV      := %I0.3,
+
+        DI_BUSBAR_UV_OV   := %I0.4,
+
+        // ---- QG1 (CPU %I0.5–%I1.0) ----
+        DI_QG1_REMOTE     := %I0.5,
+        DI_QG1_CLOSE      := %I0.6,
+        DI_QG1_FAULT      := %I0.7,
+        DI_QG1_UV_OV      := %I1.0,
+
+        // ---- QG2 (CPU %I1.1–%I1.4) ----
+        DI_QG2_REMOTE     := %I1.1,
+        DI_QG2_CLOSE      := %I1.2,
+        DI_QG2_FAULT      := %I1.3,
+        DI_QG2_UV_OV      := %I1.4,
+
+        // ---- GD1 (CPU %I1.5, EXP %I8.0–%I8.1) ----
+        DI_GD1_READY      := %I1.5,
+        DI_GD1_RUNNING    := %I8.0,
+        DI_GD1_ALARM      := %I8.1,
+
+        // ---- GD2 (EXP %I8.2–%I8.4) ----
+        DI_GD2_READY      := %I8.2,
+        DI_GD2_RUNNING    := %I8.3,
+        DI_GD2_ALARM      := %I8.4,
+
+        // ---- Q22 (EXP %I8.5) ----
+        DI_Q22_REMOTE     := %I8.5,
+
+        // ---- Outputs -> DATA_BUFF ----
+        MODE_AUTO         => "DATA_BUFF".MODE_AUTO,
+        MODE_MANUAL       => "DATA_BUFF".MODE_MANUAL,
+        DIAG_MODE_VALID   => "DATA_BUFF".DIAG_MODE_VALID,
+
+        QT1_CLOSED        => "DATA_BUFF".QT1_CLOSED,
+        QT1_OPEN          => "DATA_BUFF".QT1_OPEN,
+        QT1_FAULT         => "DATA_BUFF".QT1_FAULT,
+        QT1_REMOTE        => "DATA_BUFF".QT1_REMOTE,
+        QT1_UV_OV_DI      => "DATA_BUFF".QT1_UV_OV_DI,
+
+        BUSBAR_UV_OV_DI   => "DATA_BUFF".BUSBAR_UV_OV_DI,
+
+        QG1_CLOSED        => "DATA_BUFF".QG1_CLOSED,
+        QG1_OPEN          => "DATA_BUFF".QG1_OPEN,
+        QG1_FAULT         => "DATA_BUFF".QG1_FAULT,
+        QG1_REMOTE        => "DATA_BUFF".QG1_REMOTE,
+        QG1_UV_OV_DI      => "DATA_BUFF".QG1_UV_OV_DI,
+
+        QG2_CLOSED        => "DATA_BUFF".QG2_CLOSED,
+        QG2_OPEN          => "DATA_BUFF".QG2_OPEN,
+        QG2_FAULT         => "DATA_BUFF".QG2_FAULT,
+        QG2_REMOTE        => "DATA_BUFF".QG2_REMOTE,
+        QG2_UV_OV_DI      => "DATA_BUFF".QG2_UV_OV_DI,
+
+        GD_READY          => "DATA_BUFF".GD_READY,
+        GD_RUNNING        => "DATA_BUFF".GD_RUNNING,
+        GD_ALARM          => "DATA_BUFF".GD_ALARM,
+
+        GD2_READY         => "DATA_BUFF".GD2_READY,
+        GD2_RUNNING       => "DATA_BUFF".GD2_RUNNING,
+        GD2_ALARM         => "DATA_BUFF".GD2_ALARM,
+
+        Q22_REMOTE        => "DATA_BUFF".Q22_REMOTE_ALLOWED
     );
-    
-    
+
+
     // ========================================================================
-    // NETWORK 2: MQUINA DE ESTADOS SCMTA (Transferencia Automtica)
+    // NETWORK 2: MAQUINA DE ESTADOS SCMTA  (02_FB_SCMTA)
     // ========================================================================
-    // Input: MODE_AUTO, estados interruptores, mediciones red, GD_READY
-    // Output: REQ_SCMTA_*, DO_GD_START/STOP, flags estado (IS_ON_GRID, IS_ON_GD, etc.)
-    
     "02_FB_SCMTA_DB"(
-        // Control
-        ENABLE := "DB_PARAMS".ENABLE_SCMTA,
-        MODE_AUTO := "DATA_BUFF".MODE_AUTO,
-        RESET_FAULT := %I2.0,  // TODO: mapear botn reset fsico o HMI
-        
-        // Estados interruptores (de drivers Modbus)
-        QT1_STATE := "DATA_BUFF".QT1_STATE,
-        QG1_STATE := "DATA_BUFF".QG1_STATE,
-        QG2_STATE := "DATA_BUFF".QG2_STATE,
-        
-        // Mediciones RED (de PM5350 va Modbus)
-        GRID_V_L1L2 := "DATA_BUFF".GRID_V_L1L2,
-        GRID_V_L2L3 := "DATA_BUFF".GRID_V_L2L3,
-        GRID_V_L3L1 := "DATA_BUFF".GRID_V_L3L1,
-        GRID_FREQ := "DATA_BUFF".GRID_FREQ,
-        GRID_MEASUREMENT_OK := "DATA_BUFF".GRID_MEASUREMENT_OK,
-        
-        // Seales GD1 (primario)
-        GD_READY := "DATA_BUFF".GD_READY,
-        GD_RUNNING := "DATA_BUFF".GD_RUNNING,
-        GD_ALARM := "DATA_BUFF".GD_ALARM,
-        
-        // Seales GD2 (backup/redundante)
-        GD2_READY := "DATA_BUFF".GD2_READY,
-        GD2_RUNNING := "DATA_BUFF".GD2_RUNNING,
-        GD2_ALARM := "DATA_BUFF".GD2_ALARM,
-        
-        // Parmetros configurables (de DB_PARAMS)
-        V_NOM := "DB_PARAMS".V_NOM,
-        V_MIN_PCT := "DB_PARAMS".V_MIN_PCT,
-        V_MAX_PCT := "DB_PARAMS".V_MAX_PCT,
-        FREQ_NOM := "DB_PARAMS".FREQ_NOM,
-        FREQ_MIN := "DB_PARAMS".FREQ_MIN,
-        FREQ_MAX := "DB_PARAMS".FREQ_MAX,
-        T_OPEN_QT1 := "DB_PARAMS".T_OPEN_QT1,
-        T_START_GD_DELAY := "DB_PARAMS".T_START_GD_DELAY,
-        T_GD_READY_TIMEOUT := "DB_PARAMS".T_GD_READY_TIMEOUT,
-        T_GD_STABILIZATION := "DB_PARAMS".T_GD_STABILIZATION,
-        T_CLOSE_QG1 := "DB_PARAMS".T_CLOSE_QG1,
-        T_CLOSE_QG2 := "DB_PARAMS".T_CLOSE_QG2,
-        T_GRID_STABLE := "DB_PARAMS".T_GRID_STABLE,
-        T_OPEN_QG1 := "DB_PARAMS".T_OPEN_QG1,
-        T_OPEN_QG2 := "DB_PARAMS".T_OPEN_QG2,
-        T_CLOSE_QT1 := "DB_PARAMS".T_CLOSE_QT1,
-        T_GD_COOLDOWN := "DB_PARAMS".T_GD_COOLDOWN,
-        T_GRID_FAIL_FILTER := "DB_PARAMS".T_GRID_FAIL_FILTER,
-        
+        ENABLE               := "DB_PARAMS".ENABLE_SCMTA,
+        MODE_AUTO            := "DATA_BUFF".MODE_AUTO,
+        ENABLE_QG2           := "DB_PARAMS".ENABLE_QG2,
+        ENABLE_AUTO_RETURN   := TRUE,
+        RESET_FAULT          := "DATA_BUFF".RESET_FAULT,
+
+        // Posicion/estado interruptores por DI
+        QT1_CLOSED           := "DATA_BUFF".QT1_CLOSED,
+        QT1_FAULT            := "DATA_BUFF".QT1_FAULT,
+        QT1_REMOTE           := "DATA_BUFF".QT1_REMOTE,
+        QT1_UV_OV_DI         := "DATA_BUFF".QT1_UV_OV_DI,
+
+        QG1_CLOSED           := "DATA_BUFF".QG1_CLOSED,
+        QG1_FAULT            := "DATA_BUFF".QG1_FAULT,
+        QG1_REMOTE           := "DATA_BUFF".QG1_REMOTE,
+
+        QG2_CLOSED           := "DATA_BUFF".QG2_CLOSED,
+        QG2_FAULT            := "DATA_BUFF".QG2_FAULT,
+        QG2_REMOTE           := "DATA_BUFF".QG2_REMOTE,
+        Q22_CLOSED           := FALSE,       // TODO: cablear DI_Q22_CLOSE cuando disponible
+
+        // Mediciones RED (PM5350P C02, indice 1)
+        GRID_V_L1L2          := "DATA_BUFF".GRID_V_L1L2,
+        GRID_V_L2L3          := "DATA_BUFF".GRID_V_L2L3,
+        GRID_V_L3L1          := "DATA_BUFF".GRID_V_L3L1,
+        GRID_FREQ            := "DATA_BUFF".GRID_FREQ,
+        GRID_MEASUREMENT_OK  := "DATA_BUFF".GRID_MEASUREMENT_OK,
+        GRID_PHASE_LOSS      := "DATA_BUFF".GRID_PHASE_LOSS,
+        GRID_ALM_UV          := "DATA_BUFF".GRID_ALM_UV,
+        GRID_ALM_OV          := "DATA_BUFF".GRID_ALM_OV,
+
+        // GD signals
+        GD_READY             := "DATA_BUFF".GD_READY,
+        GD_RUNNING           := "DATA_BUFF".GD_RUNNING,
+        GD_ALARM             := "DATA_BUFF".GD_ALARM,
+        GD2_READY            := "DATA_BUFF".GD2_READY,
+        GD2_RUNNING          := "DATA_BUFF".GD2_RUNNING,
+        GD2_ALARM            := "DATA_BUFF".GD2_ALARM,
+
+        // Parametros (de DB_PARAMS)
+        V_NOM                := "DB_PARAMS".V_NOM,
+        V_MIN_PCT            := "DB_PARAMS".V_MIN_PCT,
+        V_MAX_PCT            := "DB_PARAMS".V_MAX_PCT,
+        FREQ_NOM             := "DB_PARAMS".FREQ_NOM,
+        FREQ_MIN             := "DB_PARAMS".FREQ_MIN,
+        FREQ_MAX             := "DB_PARAMS".FREQ_MAX,
+        T_OPEN_QT1           := "DB_PARAMS".T_OPEN_QT1,
+        T_START_GD_DELAY     := "DB_PARAMS".T_START_GD_DELAY,
+        T_GD_READY_TIMEOUT   := "DB_PARAMS".T_GD_READY_TIMEOUT,
+        T_GD_STABILIZATION   := "DB_PARAMS".T_GD_STABILIZATION,
+        T_CLOSE_QG1          := "DB_PARAMS".T_CLOSE_QG1,
+        T_CLOSE_QG2          := "DB_PARAMS".T_CLOSE_QG2,
+        T_GRID_STABLE        := "DB_PARAMS".T_GRID_STABLE,
+        T_OPEN_QG1           := "DB_PARAMS".T_OPEN_QG1,
+        T_OPEN_QG2           := "DB_PARAMS".T_OPEN_QG2,
+        T_CLOSE_QT1          := "DB_PARAMS".T_CLOSE_QT1,
+        T_GD_COOLDOWN        := "DB_PARAMS".T_GD_COOLDOWN,
+        T_GRID_FAIL_FILTER   := "DB_PARAMS".T_GRID_FAIL_FILTER,
+
         // Outputs -> DATA_BUFF
-        STATE => "DATA_BUFF".SCMTA_STATE,
-        STATE_NAME => "DATA_BUFF".SCMTA_STATE_NAME,
-        REQ_SCMTA_OPEN_QT1 => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QT1,
-        REQ_SCMTA_CLOSE_QT1 => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QT1,
-        REQ_SCMTA_OPEN_QG1 => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG1,
-        REQ_SCMTA_CLOSE_QG1 => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG1,
-        REQ_SCMTA_OPEN_QG2 => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG2,
-        REQ_SCMTA_CLOSE_QG2 => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG2,
-        DO_GD_START => %Q0.0,
-        DO_GD_STOP => %Q0.1,
-        DO_GD2_START => %Q0.2,
-        DO_GD2_STOP => %Q0.3,
-        IS_ON_GRID => "DATA_BUFF".IS_ON_GRID,
-        IS_ON_GD => "DATA_BUFF".IS_ON_GD,
-        IS_ON_GD1 => "DATA_BUFF".IS_ON_GD1,
-        IS_ON_GD2 => "DATA_BUFF".IS_ON_GD2,
-        ACTIVE_GD => "DATA_BUFF".ACTIVE_GD,
-        IS_IN_TRANSFER => "DATA_BUFF".IS_IN_TRANSFER,
-        IS_FAULT => "DATA_BUFF".IS_FAULT,
-        TRANSFER_TO_GD => "DATA_BUFF".TRANSFER_TO_GD,
-        GRID_OK => "DATA_BUFF".GRID_OK,
-        GRID_FAIL => "DATA_BUFF".GRID_FAIL,
-        FAULT_CODE => "DATA_BUFF".FAULT_CODE,
-        ELAPSED_TIME => "DATA_BUFF".ELAPSED_TIME,
+        STATE                => "DATA_BUFF".SCMTA_STATE,
+        STATE_NAME           => "DATA_BUFF".SCMTA_STATE_NAME,
+        REQ_SCMTA_OPEN_QT1   => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QT1,
+        REQ_SCMTA_CLOSE_QT1  => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QT1,
+        REQ_SCMTA_OPEN_QG1   => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG1,
+        REQ_SCMTA_CLOSE_QG1  => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG1,
+        REQ_SCMTA_OPEN_QG2   => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG2,
+        REQ_SCMTA_CLOSE_QG2  => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG2,
+        REQ_SCMTA_OPEN_Q22   => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_Q22,
+        REQ_SCMTA_CLOSE_Q22  => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_Q22,
+        DO_GD_START          => %Q1.0,
+        DO_GD_STOP           => "DATA_BUFF".GD_STOP_REQ,
+        DO_GD2_START         => %Q1.1,
+        DO_GD2_STOP          => "DATA_BUFF".GD2_STOP_REQ,
+        IS_ON_GRID           => "DATA_BUFF".IS_ON_GRID,
+        IS_ON_GD             => "DATA_BUFF".IS_ON_GD,
+        IS_ON_GD1            => "DATA_BUFF".IS_ON_GD1,
+        IS_ON_GD2            => "DATA_BUFF".IS_ON_GD2,
+        ACTIVE_GD            => "DATA_BUFF".ACTIVE_GD,
+        IS_IN_TRANSFER       => "DATA_BUFF".IS_IN_TRANSFER,
+        IS_FAULT             => "DATA_BUFF".IS_FAULT,
+        TRANSFER_TO_GD       => "DATA_BUFF".TRANSFER_TO_GD,
+        GRID_OK              => "DATA_BUFF".GRID_OK,
+        GRID_FAIL            => "DATA_BUFF".GRID_FAIL,
+        FAULT_CODE           => "DATA_BUFF".FAULT_CODE,
+        ELAPSED_TIME         => "DATA_BUFF".ELAPSED_TIME,
         DIAG_LAST_TRANSFER_TIME => "DATA_BUFF".DIAG_LAST_TRANSFER_TIME,
-        GD1_AVAILABLE => "DATA_BUFF".GD1_AVAILABLE,
-        GD2_AVAILABLE => "DATA_BUFF".GD2_AVAILABLE
+        GD1_AVAILABLE        => "DATA_BUFF".GD1_AVAILABLE,
+        GD2_AVAILABLE        => "DATA_BUFF".GD2_AVAILABLE
     );
-    
-    
+
+    // GD STOP: reset Q1.0/Q1.1 cuando SCMTA pide parar
+    IF "DATA_BUFF".GD_STOP_REQ  THEN %Q1.0 := FALSE; END_IF;
+    IF "DATA_BUFF".GD2_STOP_REQ THEN %Q1.1 := FALSE; END_IF;
+
+
     // ========================================================================
-    // NETWORK 3: DESLASTRE Y REENGANCHE
+    // NETWORK 3: DESLASTRE (03_FB_SHED) —  ENABLE_SHED=FALSE en V4
     // ========================================================================
-    // Input: IS_ON_GD, GD_LoadPct, TR_LoadPct, arrays SHED_ORDER/ENABLE
-    // Output: REQ_SHED_OPEN/CLOSE[1..19]
-    
     "03_FB_SHED_DB"(
-        // Control
-        ENABLE := "DB_PARAMS".ENABLE_SHED,
-        MODE_AUTO := "DATA_BUFF".MODE_AUTO,
-        IS_ON_GD := "DATA_BUFF".IS_ON_GD,
-        IS_ON_GRID := "DATA_BUFF".IS_ON_GRID,
-        IS_IN_TRANSFER := "DATA_BUFF".IS_IN_TRANSFER,
-        TRANSFER_TO_GD := "DATA_BUFF".TRANSFER_TO_GD,
-        
-        // Mediciones
-        GD_LoadPct := "DATA_BUFF".GD_LoadPct,
-        TR_LoadPct := "DATA_BUFF".TR_LoadPct,
-        
-        // Parmetros deslastre GD (de DB_PARAMS)
-        GD_SHED_ON := "DB_PARAMS".GD_SHED_ON,
-        GD_SHED_OFF := "DB_PARAMS".GD_SHED_OFF,
-        
-        // Parmetros deslastre RED (de DB_PARAMS)
-        GRID_SHED_ON := "DB_PARAMS".GRID_SHED_ON,
-        GRID_SHED_OFF := "DB_PARAMS".GRID_SHED_OFF,
-        
-        // Parmetros tiempos (de DB_PARAMS)
-        T_SHED_STEP := "DB_PARAMS".T_SHED_STEP,
-        T_RECONNECT_STEP := "DB_PARAMS".T_RECONNECT_STEP,
-        T_LOAD_FILTER := "DB_PARAMS".T_LOAD_FILTER,
-        T_LOAD_CHECK_DELAY := "DB_PARAMS".T_LOAD_CHECK_DELAY,
-        
-        // Arrays configurables
-        SHED_ORDER := "DB_PARAMS".SHED_ORDER,
-        RECONNECT_ORDER := "DB_PARAMS".RECONNECT_ORDER,
-        FEEDER_ESSENTIAL := "DB_PARAMS".FEEDER_ESSENTIAL,
-        SHED_ENABLE := "DB_PARAMS".SHED_ENABLE,
-        
-        // Estados feeders
-        FEEDER_STATE := "DATA_BUFF".FEEDER_STATE,
-        
-        // Outputs -> 03_FB_SHED_DB / DATA_BUFF
-        REQ_SHED_OPEN => "03_FB_SHED_DB".REQ_SHED_OPEN,
-        REQ_SHED_CLOSE => "03_FB_SHED_DB".REQ_SHED_CLOSE,
-        SHED_ACTIVE => "DATA_BUFF".SHED_ACTIVE,
-        SHED_STEP => "DATA_BUFF".SHED_STEP,
-        RECONNECT_ACTIVE => "DATA_BUFF".RECONNECT_ACTIVE,
-        RECONNECT_STEP => "DATA_BUFF".RECONNECT_STEP,
-        SHED_MODE => "DATA_BUFF".SHED_MODE,
-        FEEDERS_SHED => "DATA_BUFF".FEEDERS_SHED,
-        FEEDERS_ESSENTIAL_COUNT => "DATA_BUFF".FEEDERS_ESSENTIAL_COUNT,
-        FEEDERS_NON_ESSENTIAL_COUNT => "DATA_BUFF".FEEDERS_NON_ESSENTIAL_COUNT,
-        DIAG_LOAD_OVER_LIMIT => "DATA_BUFF".DIAG_LOAD_OVER_LIMIT,
-        DIAG_GD_LOAD_OK => "DATA_BUFF".DIAG_GD_LOAD_OK,
-        DIAG_GRID_LOAD_OK => "DATA_BUFF".DIAG_GRID_LOAD_OK
+        ENABLE              := "DB_PARAMS".ENABLE_SHED,  // FALSE en V4
+        MODE_AUTO           := "DATA_BUFF".MODE_AUTO,
+        IS_ON_GD            := "DATA_BUFF".IS_ON_GD,
+        IS_ON_GRID          := "DATA_BUFF".IS_ON_GRID,
+        IS_IN_TRANSFER      := "DATA_BUFF".IS_IN_TRANSFER,
+        TRANSFER_TO_GD      := "DATA_BUFF".TRANSFER_TO_GD,
+        GD_LoadPct          := 0.0,
+        TR_LoadPct          := 0.0,
+        GD_SHED_ON          := "DB_PARAMS".GD_SHED_ON,
+        GD_SHED_OFF         := "DB_PARAMS".GD_SHED_OFF,
+        GRID_SHED_ON        := "DB_PARAMS".GRID_SHED_ON,
+        GRID_SHED_OFF       := "DB_PARAMS".GRID_SHED_OFF,
+        T_SHED_STEP         := "DB_PARAMS".T_SHED_STEP,
+        T_RECONNECT_STEP    := "DB_PARAMS".T_RECONNECT_STEP,
+        T_LOAD_FILTER       := "DB_PARAMS".T_LOAD_FILTER,
+        T_LOAD_CHECK_DELAY  := "DB_PARAMS".T_LOAD_CHECK_DELAY,
+        SHED_ORDER          := "DB_PARAMS".SHED_ORDER,
+        RECONNECT_ORDER     := "DB_PARAMS".RECONNECT_ORDER,
+        FEEDER_ESSENTIAL    := "DB_PARAMS".FEEDER_ESSENTIAL,
+        SHED_ENABLE         := "DB_PARAMS".SHED_ENABLE,
+        FEEDER_STATE        := "DB_PARAMS".SHED_ORDER,  // placeholder: sin feeders en V4
+        SHED_ACTIVE         => "DATA_BUFF".SHED_ACTIVE
     );
-    
-    
+
+
     // ========================================================================
-    // NETWORK 4: RBITRO DE COMANDOS (Enclavamiento + Priorizacin)
+    // NETWORK 4: ARBITRO DE COMANDOS  (04_FB_CMD_ARBITER)
     // ========================================================================
-    // Input: REQ_SCMTA_*, REQ_SHED_*, REQ_MAN_*, permisos LOCAL/REMOTO
-    // Output: CMD_* (comandos finales para drivers Modbus)
-    
     "04_FB_CMD_ARBITER_DB"(
-        // Requests SCMTA (Prioridad 1)
-        REQ_SCMTA_OPEN_QT1 := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QT1,
+        REQ_SCMTA_OPEN_QT1  := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QT1,
         REQ_SCMTA_CLOSE_QT1 := "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QT1,
-        REQ_SCMTA_OPEN_QG1 := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG1,
+        REQ_SCMTA_OPEN_QG1  := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG1,
         REQ_SCMTA_CLOSE_QG1 := "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG1,
-        REQ_SCMTA_OPEN_QG2 := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG2,
+        REQ_SCMTA_OPEN_QG2  := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_QG2,
         REQ_SCMTA_CLOSE_QG2 := "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG2,
-        
-        // Requests SHED (Prioridad 2)
-        REQ_SHED_OPEN := "03_FB_SHED_DB".REQ_SHED_OPEN,
-        REQ_SHED_CLOSE := "03_FB_SHED_DB".REQ_SHED_CLOSE,
-        
-        // Requests MANUAL (Prioridad 3)
-        REQ_MAN_QT1_OPEN := "DATA_BUFF".REQ_MAN_QT1_OPEN,
-        REQ_MAN_QT1_CLOSE := "DATA_BUFF".REQ_MAN_QT1_CLOSE,
-        REQ_MAN_QG1_OPEN := "DATA_BUFF".REQ_MAN_QG1_OPEN,
-        REQ_MAN_QG1_CLOSE := "DATA_BUFF".REQ_MAN_QG1_CLOSE,
-        REQ_MAN_QG2_OPEN := "DATA_BUFF".REQ_MAN_QG2_OPEN,
-        REQ_MAN_QG2_CLOSE := "DATA_BUFF".REQ_MAN_QG2_CLOSE,
-        REQ_MAN_FEEDER_OPEN := "DATA_BUFF".REQ_MAN_FEEDER_OPEN,
-        REQ_MAN_FEEDER_CLOSE := "DATA_BUFF".REQ_MAN_FEEDER_CLOSE,
-        
-        // Modo y permisos
-        MODE_AUTO := "DATA_BUFF".MODE_AUTO,
-        MODE_MANUAL := "DATA_BUFF".MODE_MANUAL,
-        QT1_REMOTE_ALLOWED := "DATA_BUFF".QT1_REMOTE_ALLOWED,
-        QG1_REMOTE_ALLOWED := "DATA_BUFF".QG1_REMOTE_ALLOWED,
-        QG2_REMOTE_ALLOWED := "DATA_BUFF".QG2_REMOTE_ALLOWED,
-        
-        // Estados interruptores
-        QT1_STATE := "DATA_BUFF".QT1_STATE,
-        QG1_STATE := "DATA_BUFF".QG1_STATE,
-        QG2_STATE := "DATA_BUFF".QG2_STATE,
-        FEEDER_STATE := "DATA_BUFF".FEEDER_STATE,
-        
-        // Outputs -> 04_FB_CMD_ARBITER_DB (comandos finales)
-        CMD_OPEN_QT1 => "04_FB_CMD_ARBITER_DB".CMD_OPEN_QT1,
-        CMD_CLOSE_QT1 => "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QT1,
-        CMD_OPEN_QG1 => "04_FB_CMD_ARBITER_DB".CMD_OPEN_QG1,
-        CMD_CLOSE_QG1 => "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QG1,
-        CMD_OPEN_QG2 => "04_FB_CMD_ARBITER_DB".CMD_OPEN_QG2,
-        CMD_CLOSE_QG2 => "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QG2,
-        CMD_OPEN_FEEDER => "04_FB_CMD_ARBITER_DB".CMD_OPEN_FEEDER,
-        CMD_CLOSE_FEEDER => "04_FB_CMD_ARBITER_DB".CMD_CLOSE_FEEDER,
-        
-        // Bloqueos y alarmas
-        BLOCK_LOCAL => "DATA_BUFF".BLOCK_LOCAL,
-        BLOCK_INTERLOCK => "DATA_BUFF".BLOCK_INTERLOCK,
-        BLOCK_CONFLICT => "DATA_BUFF".BLOCK_CONFLICT,
+        REQ_SCMTA_OPEN_Q22  := "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_Q22,
+        REQ_SCMTA_CLOSE_Q22 := "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_Q22,
+        REQ_MAN_QT1_OPEN    := "DATA_BUFF".REQ_MAN_QT1_OPEN,
+        REQ_MAN_QT1_CLOSE   := "DATA_BUFF".REQ_MAN_QT1_CLOSE,
+        REQ_MAN_QG1_OPEN    := "DATA_BUFF".REQ_MAN_QG1_OPEN,
+        REQ_MAN_QG1_CLOSE   := "DATA_BUFF".REQ_MAN_QG1_CLOSE,
+        REQ_MAN_QG2_OPEN    := "DATA_BUFF".REQ_MAN_QG2_OPEN,
+        REQ_MAN_QG2_CLOSE   := "DATA_BUFF".REQ_MAN_QG2_CLOSE,
+        REQ_MAN_Q22_OPEN    := "DATA_BUFF".REQ_MAN_Q22_OPEN,
+        REQ_MAN_Q22_CLOSE   := "DATA_BUFF".REQ_MAN_Q22_CLOSE,
+        MODE_AUTO           := "DATA_BUFF".MODE_AUTO,
+        MODE_MANUAL         := "DATA_BUFF".MODE_MANUAL,
+        QT1_CLOSED          := "DATA_BUFF".QT1_CLOSED,
+        QG1_CLOSED          := "DATA_BUFF".QG1_CLOSED,
+        QG2_CLOSED          := "DATA_BUFF".QG2_CLOSED,
+        QT1_REMOTE          := "DATA_BUFF".QT1_REMOTE,
+        QG1_REMOTE          := "DATA_BUFF".QG1_REMOTE,
+        QG2_REMOTE          := "DATA_BUFF".QG2_REMOTE,
+        Q22_REMOTE          := "DATA_BUFF".Q22_REMOTE_ALLOWED,
+        BLOCK_LOCAL         => "DATA_BUFF".BLOCK_LOCAL,
+        BLOCK_INTERLOCK     => "DATA_BUFF".BLOCK_INTERLOCK,
+        BLOCK_CONFLICT      => "DATA_BUFF".BLOCK_CONFLICT,
         ALM_INTERLOCK_VIOLATION => "DATA_BUFF".ALM_INTERLOCK_VIOLATION
     );
-    
-    
+
+
     // ========================================================================
-    // NETWORK 5: GESTIN DE SALIDAS (Pilotos, Alarmas, HMI)
+    // NETWORK 5: PULSE EXPANDER — CMD -> DO pulso T_CMD_PULSE (300 ms)
     // ========================================================================
-    // Input: Estados SCMTA, alarmas, deslastre
-    // Output: DO pilotos, bocina, baliza, seales HMI
-    
+    // 12_FB_PULSE_EXPANDER convierte cada CMD (1 scan) en un pulso sostenido
+    // de T_CMD_PULSE (300 ms) sobre las salidas fisicas %Q0.0..%Q0.7.
+    // Internamente usa 8 pares R_TRIG + TON con latch.
+    // Los DO se activan via OUT_x => %Q0.x en la llamada de abajo.
+    //
+    // %Q0.0 = DO_QT1_CLOSE_CMD   (pulse CERRAR QT1)
+    // %Q0.1 = DO_QT1_OPEN_CMD    (pulse ABRIR QT1)
+    // %Q0.2 = DO_QG1_CLOSE_CMD   (pulse CERRAR QG1)
+    // %Q0.3 = DO_QG1_OPEN_CMD    (pulse ABRIR QG1)
+    // %Q0.4 = DO_QG2_CLOSE_CMD   (pulse CERRAR QG2)
+    // %Q0.5 = DO_QG2_OPEN_CMD    (pulse ABRIR QG2)
+    // %Q0.6 = DO_Q22_CLOSE_CMD   (pulse CERRAR Q22)
+    // %Q0.7 = DO_Q22_OPEN_CMD    (pulse ABRIR Q22)
+
+    "12_PULSE_EXPANDER_DB"(
+        T_PULSE  := "DB_PARAMS".T_CMD_PULSE,
+        TRIG_1   := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QT1,
+        TRIG_2   := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QT1,
+        TRIG_3   := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QG1,
+        TRIG_4   := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QG1,
+        TRIG_5   := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QG2,
+        TRIG_6   := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QG2,
+        TRIG_7   := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_Q22,
+        TRIG_8   := "04_FB_CMD_ARBITER_DB".CMD_OPEN_Q22,
+        OUT_1    => %Q0.0,
+        OUT_2    => %Q0.1,
+        OUT_3    => %Q0.2,
+        OUT_4    => %Q0.3,
+        OUT_5    => %Q0.4,
+        OUT_6    => %Q0.5,
+        OUT_7    => %Q0.6,
+        OUT_8    => %Q0.7
+    );
+
+
+    // ========================================================================
+    // NETWORK 6: GESTOR MODBUS PM5350P  (06_FB_MODBUS_MANAGER)
+    // ========================================================================
+    "06_FB_MODBUS_MANAGER_DB"(
+        ENABLE         := "DB_PARAMS".ENABLE_SCMTA,
+        SLAVE_C02      := "DB_PARAMS".SLAVE_ID_PM5350_C02,
+        SLAVE_C01_GD1  := "DB_PARAMS".SLAVE_ID_PM5350_C01_GD1,
+        SLAVE_C01_GD2  := "DB_PARAMS".SLAVE_ID_PM5350_C01_GD2,
+        SLAVE_C03      := "DB_PARAMS".SLAVE_ID_PM5350_C03,
+        SLAVE_C04      := "DB_PARAMS".SLAVE_ID_PM5350_C04,
+        SLAVE_C05      := "DB_PARAMS".SLAVE_ID_PM5350_C05,
+        SLAVE_C06      := "DB_PARAMS".SLAVE_ID_PM5350_C06,
+        T_POLL_CYCLE   := T#1s,
+        T_PAUSE_BETWEEN := T#200ms,
+        // Outputs: mediciones PM5350P -> DATA_BUFF
+        // Indice 1 = C02/RED, 2 = C01-GD1, 3 = C01-GD2, 4..7 = C03-C06
+        COMM_OK        => "DATA_BUFF".MODBUS_COMM_OK,
+        GRID_MEAS_OK   => "DATA_BUFF".GRID_MEASUREMENT_OK,
+        ACTIVE_DEVICE  => "DATA_BUFF".MODBUS_ACTIVE_DEVICE
+        // PM_COMM_OK es Array[1..7] of Bool — se copia manualmente abajo
+    );
+    // PM_COMM_OK[1] = medidor C02/RED; TRUE si tiene lectura valida reciente
+    "DATA_BUFF".PM_COMM_OK := "06_FB_MODBUS_MANAGER_DB".PM_COMM_OK[1];
+
+    // Copiar mediciones red (C02 = indice 1) a variables de nombres en DATA_BUFF
+    "DATA_BUFF".GRID_V_L1L2 := "06_FB_MODBUS_MANAGER_DB".PM_V_L1L2[1];
+    "DATA_BUFF".GRID_V_L2L3 := "06_FB_MODBUS_MANAGER_DB".PM_V_L2L3[1];
+    "DATA_BUFF".GRID_V_L3L1 := "06_FB_MODBUS_MANAGER_DB".PM_V_L3L1[1];
+    "DATA_BUFF".GRID_FREQ    := "06_FB_MODBUS_MANAGER_DB".PM_FREQ[1];
+    "DATA_BUFF".GRID_ALM_UV  := "06_FB_MODBUS_MANAGER_DB".PM_ALARM[1];
+    "DATA_BUFF".GRID_ALM_OV  := "06_FB_MODBUS_MANAGER_DB".PM_ALARM[1];
+
+    // Copiar mediciones GD1 (C01-GD1 = indice 2)
+    "DATA_BUFF".GD1_V_L1L2  := "06_FB_MODBUS_MANAGER_DB".PM_V_L1L2[2];
+    "DATA_BUFF".GD1_P_TOTAL := "06_FB_MODBUS_MANAGER_DB".PM_P_TOTAL[2];
+
+    // Copiar mediciones GD2 (C01-GD2 = indice 3)
+    "DATA_BUFF".GD2_V_L1L2  := "06_FB_MODBUS_MANAGER_DB".PM_V_L1L2[3];
+    "DATA_BUFF".GD2_P_TOTAL := "06_FB_MODBUS_MANAGER_DB".PM_P_TOTAL[3];
+
+
+    // ========================================================================
+    // NETWORK 7: GESTION DE SALIDAS PILOTOS Y HMI  (05_FB_OUTPUTS)
+    // ========================================================================
     "05_FB_OUTPUTS_DB"(
-        // Estados sistema
-        IS_ON_GRID := "DATA_BUFF".IS_ON_GRID,
-        IS_ON_GD := "DATA_BUFF".IS_ON_GD,
+        IS_ON_GRID     := "DATA_BUFF".IS_ON_GRID,
+        IS_ON_GD       := "DATA_BUFF".IS_ON_GD,
         IS_IN_TRANSFER := "DATA_BUFF".IS_IN_TRANSFER,
-        IS_FAULT := "DATA_BUFF".IS_FAULT,
-        STATE := "DATA_BUFF".SCMTA_STATE,
-        STATE_NAME := "DATA_BUFF".SCMTA_STATE_NAME,
-        FAULT_CODE := "DATA_BUFF".FAULT_CODE,
-        
-        // Estados interruptores fuente
-        QT1_STATE := "DATA_BUFF".QT1_STATE,
-        QG1_STATE := "DATA_BUFF".QG1_STATE,
-        QG2_STATE := "DATA_BUFF".QG2_STATE,
-        QT1_TRIPPED := "DATA_BUFF".QT1_TRIPPED,
-        QG1_TRIPPED := "DATA_BUFF".QG1_TRIPPED,
-        QG2_TRIPPED := "DATA_BUFF".QG2_TRIPPED,
-        QT1_READY := "DATA_BUFF".QT1_READY,
-        QG1_READY := "DATA_BUFF".QG1_READY,
-        QG2_READY := "DATA_BUFF".QG2_READY,
-        
-        // Feeders
-        FEEDER_STATE := "DATA_BUFF".FEEDER_STATE,
-        FEEDER_TRIPPED := "DATA_BUFF".FEEDER_TRIPPED,
-        FEEDER_ALARM := "DATA_BUFF".FEEDER_ALARM,
-        
-        // Alarmas
+        IS_FAULT       := "DATA_BUFF".IS_FAULT,
+        STATE          := "DATA_BUFF".SCMTA_STATE,
+        STATE_NAME     := "DATA_BUFF".SCMTA_STATE_NAME,
+        FAULT_CODE     := "DATA_BUFF".FAULT_CODE,
+        QT1_CLOSED     := "DATA_BUFF".QT1_CLOSED,
+        QT1_FAULT      := "DATA_BUFF".QT1_FAULT,
+        QG1_CLOSED     := "DATA_BUFF".QG1_CLOSED,
+        QG1_FAULT      := "DATA_BUFF".QG1_FAULT,
+        QG2_CLOSED     := "DATA_BUFF".QG2_CLOSED,
+        QG2_FAULT      := "DATA_BUFF".QG2_FAULT,
+        Q22_CLOSED     := %I8.5,    // TODO: agregar DI_Q22_CLOSE al IO_NORMALIZE
+        Q22_FAULT      := FALSE,
         ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
         BLOCK_INTERLOCK := "DATA_BUFF".BLOCK_INTERLOCK,
-        GRID_FAIL := "DATA_BUFF".GRID_FAIL,
-        GD_ALARM := "DATA_BUFF".GD_ALARM,
-        GD2_ALARM := "DATA_BUFF".GD2_ALARM,
-        
-        // Deslastre
-        SHED_ACTIVE := "DATA_BUFF".SHED_ACTIVE,
-        FEEDERS_SHED := "DATA_BUFF".FEEDERS_SHED,
-        
-        // Control
-        ACK_ALARM := %I2.1,  // TODO: mapear botn ACK fsico o HMI
-        
-        // Outputs -> DO fsicas SISTEMA (EJEMPLO - ajustar %Q segn hardware)
-        DO_PILOT_ON_GRID => %Q1.0,
-        DO_PILOT_ON_GD => %Q1.1,
-        DO_PILOT_FAULT => %Q1.2,
-        DO_PILOT_SHED => %Q1.3,
-        
-        // Outputs -> DO fsicas INTERRUPTORES QT1 (4 pilotos)
-        DO_PILOT_QT1_OPEN => %Q1.4,         // LED QT1 ABIERTO (verde)
-        DO_PILOT_QT1_CLOSED => %Q1.5,       // LED QT1 CERRADO (rojo)
-        DO_PILOT_QT1_FAULT => %Q1.6,        // LED QT1 FALLA (mbar)
-        DO_PILOT_QT1_CHARGING => %Q1.7,     // LED QT1 LISTO (blanco) -- Modbus PF
-        
-        // Outputs -> DO fsicas INTERRUPTORES QG1 (4 pilotos)
-        DO_PILOT_QG1_OPEN => %Q2.0,
-        DO_PILOT_QG1_CLOSED => %Q2.1,
-        DO_PILOT_QG1_FAULT => %Q2.2,
-        DO_PILOT_QG1_CHARGING => %Q2.3,
-        
-        // Outputs -> DO fsicas INTERRUPTORES QG2 (4 pilotos)
-        DO_PILOT_QG2_OPEN => %Q2.4,
-        DO_PILOT_QG2_CLOSED => %Q2.5,
-        DO_PILOT_QG2_FAULT => %Q2.6,
-        DO_PILOT_QG2_CHARGING => %Q2.7,
-        
-        // Outputs -> DO fsicas FEEDERS (19  3 pilotos)
-        // TODO: mapear %Q segn mdulos de expansin reales
-        // DO_PILOT_FEEDER_FAULT => ...,
-        // DO_PILOT_FEEDER_CLOSED => ...,
-        // DO_PILOT_FEEDER_OPEN => ...,
-        
-        // Outputs -> DO ALARMAS
-        DO_ALARM_BEACON => %Q3.0,
-        
-        // Outputs HMI generales
-        HMI_ALARM_ACTIVE => "DATA_BUFF".HMI_ALARM_ACTIVE,
-        HMI_ALARM_TEXT => "DATA_BUFF".HMI_ALARM_TEXT,
-        
-        // Outputs HMI FEEDERS -> DATA_BUFF
-        HMI_FEEDER_OPEN => "DATA_BUFF".HMI_FEEDER_OPEN,
-        HMI_FEEDER_CLOSED => "DATA_BUFF".HMI_FEEDER_CLOSED,
-        HMI_FEEDER_TRIPPED => "DATA_BUFF".HMI_FEEDER_TRIPPED,
-        HMI_FEEDER_ALARM => "DATA_BUFF".HMI_FEEDER_ALARM
+        GRID_FAIL      := "DATA_BUFF".GRID_FAIL,
+        GD_ALARM       := "DATA_BUFF".GD_ALARM,
+        GD2_ALARM      := "DATA_BUFF".GD2_ALARM,
+        ACK_ALARM      := "DATA_BUFF".ACK_ALARM,
+        // Outputs piloto sistema
+        DO_PILOT_ON_GRID   => "DATA_BUFF".PILOT_ON_GRID,
+        DO_PILOT_ON_GD     => "DATA_BUFF".PILOT_ON_GD,
+        DO_PILOT_FAULT     => "DATA_BUFF".PILOT_FAULT,
+        // Pilotos interruptores (mapear a expansion DO spare o alarmas)
+        DO_PILOT_QT1_OPEN   => "DATA_BUFF".PILOT_QT1_OPEN,
+        DO_PILOT_QT1_CLOSED => "DATA_BUFF".PILOT_QT1_CLOSED,
+        DO_PILOT_QT1_FAULT  => "DATA_BUFF".PILOT_QT1_FAULT,
+        DO_PILOT_QG1_OPEN   => "DATA_BUFF".PILOT_QG1_OPEN,
+        DO_PILOT_QG1_CLOSED => "DATA_BUFF".PILOT_QG1_CLOSED,
+        DO_PILOT_QG1_FAULT  => "DATA_BUFF".PILOT_QG1_FAULT,
+        DO_PILOT_QG2_OPEN   => "DATA_BUFF".PILOT_QG2_OPEN,
+        DO_PILOT_QG2_CLOSED => "DATA_BUFF".PILOT_QG2_CLOSED,
+        DO_PILOT_QG2_FAULT  => "DATA_BUFF".PILOT_QG2_FAULT,
+        DO_PILOT_Q22_OPEN   => "DATA_BUFF".PILOT_Q22_OPEN,
+        DO_PILOT_Q22_CLOSED => "DATA_BUFF".PILOT_Q22_CLOSED,
+        DO_PILOT_Q22_FAULT  => "DATA_BUFF".PILOT_Q22_FAULT,
+        DO_ALARM_BEACON    => "DATA_BUFF".PILOT_FAULT,  // reutilizar bit de falla para baliza
+        HMI_STATUS_TEXT    => "DATA_BUFF".SCMTA_STATE_NAME,
+        HMI_ALARM_ACTIVE   => "DATA_BUFF".HMI_ALARM_ACTIVE,
+        HMI_ALARM_TEXT     => "DATA_BUFF".HMI_ALARM_TEXT
     );
-    
-    
+
+
     // ========================================================================
-    // NETWORK 6: DRIVERS MODBUS MTZ (QT1, QG1, QG2)
+    // NETWORK 8: CALCULOS AUXILIARES DE CARGA
     // ========================================================================
-    
-    // Driver QT1 (Interruptor RED)
-    "07_FB_MTZ_DRIVER_DB_QT1"(
-        ENABLE := TRUE,
-        CMD_OPEN := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QT1,
-        CMD_CLOSE := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QT1,
-        CMD_RESET := FALSE,
-        SLAVE_ID := "DB_PARAMS".SLAVE_ID_QT1,
-        PASSWORD := "DB_PARAMS".PASSWORD_MTZ_QT1,
-        T_POLL_TIMEOUT := "DB_PARAMS".T_MODBUS_POLL_TIMEOUT,
-        T_CONFIRM_TIMEOUT := "DB_PARAMS".T_MODBUS_CONFIRM_TIMEOUT,
-        
-        CB_STATE => "DATA_BUFF".QT1_STATE,
-        CB_TRIPPED => "DATA_BUFF".QT1_TRIPPED,
-        CB_READY => "DATA_BUFF".QT1_READY
-    );
-    
-    // Driver QG1 (Interruptor GD01)
-    "07_FB_MTZ_DRIVER_DB_QG1"(
-        ENABLE := TRUE,
-        CMD_OPEN := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QG1,
-        CMD_CLOSE := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QG1,
-        CMD_RESET := FALSE,
-        SLAVE_ID := "DB_PARAMS".SLAVE_ID_QG1,
-        PASSWORD := "DB_PARAMS".PASSWORD_MTZ_QG1,
-        T_POLL_TIMEOUT := "DB_PARAMS".T_MODBUS_POLL_TIMEOUT,
-        T_CONFIRM_TIMEOUT := "DB_PARAMS".T_MODBUS_CONFIRM_TIMEOUT,
-        
-        CB_STATE => "DATA_BUFF".QG1_STATE,
-        CB_TRIPPED => "DATA_BUFF".QG1_TRIPPED,
-        CB_READY => "DATA_BUFF".QG1_READY
-    );
-    
-    // Driver QG2 (Interruptor GD02)
-    "07_FB_MTZ_DRIVER_DB_QG2"(
-        ENABLE := TRUE,
-        CMD_OPEN := "04_FB_CMD_ARBITER_DB".CMD_OPEN_QG2,
-        CMD_CLOSE := "04_FB_CMD_ARBITER_DB".CMD_CLOSE_QG2,
-        CMD_RESET := FALSE,
-        SLAVE_ID := "DB_PARAMS".SLAVE_ID_QG2,
-        PASSWORD := "DB_PARAMS".PASSWORD_MTZ_QG2,
-        T_POLL_TIMEOUT := "DB_PARAMS".T_MODBUS_POLL_TIMEOUT,
-        T_CONFIRM_TIMEOUT := "DB_PARAMS".T_MODBUS_CONFIRM_TIMEOUT,
-        
-        CB_STATE => "DATA_BUFF".QG2_STATE,
-        CB_TRIPPED => "DATA_BUFF".QG2_TRIPPED,
-        CB_READY => "DATA_BUFF".QG2_READY
-    );
-    
-    
-    // ========================================================================
-    // NETWORK 7: CLCULOS AUXILIARES
-    // ========================================================================
-    
-    // Clculo GD_LoadPct (carga GD en porcentaje)
-    // LoadPct = (P_TOTAL / P_NOMINAL) * 100
-    IF "DB_PARAMS".GD_POWER_NOMINAL > 0.0 THEN
-        "DATA_BUFF".GD_LoadPct := 
-            ("DATA_BUFF".GD_P_TOTAL / "DB_PARAMS".GD_POWER_NOMINAL) * 100.0;
+    // NOTA UNIDADES: PM5350P registro 3060 (Active Power Total) entrega FLOAT32
+    //   directamente en kW (fuente: PM51xx_PM53xx_PMC Register List).
+    //   GD1_POWER_NOMINAL tambien esta en kW → division directa, SIN /1000.
+
+    // Carga GD1 en porcentaje
+    IF "DB_PARAMS".GD1_POWER_NOMINAL > 0.0 THEN
+        "DATA_BUFF".GD_LoadPct :=
+            ("DATA_BUFF".GD1_P_TOTAL / "DB_PARAMS".GD1_POWER_NOMINAL) * 100.0;
     ELSE
         "DATA_BUFF".GD_LoadPct := 0.0;
     END_IF;
-    
-    // Clculo TR_LoadPct (carga transformador en porcentaje)
-    IF "DB_PARAMS".TR_POWER_NOMINAL > 0.0 THEN
-        "DATA_BUFF".TR_LoadPct := 
-            ("DATA_BUFF".TR_P_TOTAL / "DB_PARAMS".TR_POWER_NOMINAL) * 100.0;
+
+    // Carga GD2 en porcentaje
+    IF "DB_PARAMS".GD2_POWER_NOMINAL > 0.0 THEN
+        "DATA_BUFF".TR_LoadPct :=
+            ("DATA_BUFF".GD2_P_TOTAL / "DB_PARAMS".GD2_POWER_NOMINAL) * 100.0;
     ELSE
         "DATA_BUFF".TR_LoadPct := 0.0;
     END_IF;
-    
-    // Contador Uptime (tiempo desde inicio PLC)
-    // TODO: implementar con timer acumulativo
-    
-    // Incrementar contador transferencias al entrar en estado ON_GD
-    // TODO: detectar flanco IS_ON_GD y incrementar TRANSFER_COUNT
-    
+
 END_ORGANIZATION_BLOCK

@@ -1,141 +1,134 @@
 ﻿FUNCTION_BLOCK "01_FB_IO_NORMALIZE"
 { S7_Optimized_Access := 'TRUE' }
+// ============================================================================
+// FB: 01_FB_IO_NORMALIZE  -- Normalizacion E/S Digitales  V4.0
+// ============================================================================
+// CAMBIO ALCANCE V4: Eliminados pushbuttons y arrays feeder.
+// Control interruptores via HMI/SCMTA unicamente.
+// Modbus solo PM5350P (lectura). OPEN = NOT CLOSED (sin DI separada).
+// ============================================================================
 VERSION : 0.1
-   VAR_INPUT 
-      DI_SYS_AUTO : Bool;   // TRUE es AUTO
-      DI_QT1_REMOTE_SEL : Bool;
-      DI_QT1_PB_OPEN : Bool;
-      DI_QT1_PB_CLOSE : Bool;
-      DI_QG1_REMOTE_SEL : Bool;
-      DI_QG1_PB_OPEN : Bool;
-      DI_QG1_PB_CLOSE : Bool;
-      DI_QG2_REMOTE_SEL : Bool;
-      DI_QG2_PB_OPEN : Bool;
-      DI_QG2_PB_CLOSE : Bool;
-      DI_GD_READY : Bool;
-      DI_GD_RUNNING : Bool;
-      DI_GD2_READY : Bool;
-      DI_GD_ALARM : Bool;
-      DI_GD2_RUNNING : Bool;
-      DI_GD2_ALARM : Bool;
-      DI_FEEDER_PB_OPEN : Array[1..19] of Bool;
-      DI_FEEDER_PB_CLOSE : Array[1..19] of Bool;
+   VAR_INPUT
+      DI_SYS_AUTO       : Bool;   // TRUE = AUTO (fisico o bit DB HMI)
+
+      // QT1 (interruptor RED)
+      DI_QT1_REMOTE     : Bool;   // %I0.0 selector REMOTO
+      DI_QT1_CLOSE      : Bool;   // %I0.1 posicion CERRADO
+      DI_QT1_FAULT      : Bool;   // %I0.2 falla/disparado
+      DI_QT1_UV_OV      : Bool;   // %I0.3 UV/OV backup DO PM5350P C02
+
+      DI_BUSBAR_UV_OV   : Bool;   // %I0.4 UV/OV busbar (indicador)
+
+      // QG1 (interruptor GD1)
+      DI_QG1_REMOTE     : Bool;   // %I0.5 selector REMOTO
+      DI_QG1_CLOSE      : Bool;   // %I0.6 posicion CERRADO
+      DI_QG1_FAULT      : Bool;   // %I0.7 falla/disparado
+      DI_QG1_UV_OV      : Bool;   // %I1.0 UV/OV backup DO PM5350P C01-GD1
+
+      // QG2 (interruptor GD2 -- ENABLE_QG2=FALSE en V4)
+      DI_QG2_REMOTE     : Bool;   // %I1.1 selector REMOTO
+      DI_QG2_CLOSE      : Bool;   // %I1.2 posicion CERRADO
+      DI_QG2_FAULT      : Bool;   // %I1.3 falla/disparado
+      DI_QG2_UV_OV      : Bool;   // %I1.4 UV/OV backup DO PM5350P C01-GD2
+
+      // GD1
+      DI_GD1_READY      : Bool;   // %I1.5
+      DI_GD1_RUNNING    : Bool;   // %I8.0
+      DI_GD1_ALARM      : Bool;   // %I8.1
+
+      // GD2
+      DI_GD2_READY      : Bool;   // %I8.2
+      DI_GD2_RUNNING    : Bool;   // %I8.3
+      DI_GD2_ALARM      : Bool;   // %I8.4
+
+      // Q22 (C06)
+      DI_Q22_REMOTE     : Bool;   // %I8.5
    END_VAR
 
-   VAR_OUTPUT 
-      MODE_AUTO : Bool;
-      MODE_MANUAL : Bool;
-      QT1_REMOTE_ALLOWED : Bool;
-      QG1_REMOTE_ALLOWED : Bool;
-      QG2_REMOTE_ALLOWED : Bool;
-      REQ_MAN_QT1_OPEN : Bool;
-      REQ_MAN_QT1_CLOSE : Bool;
-      REQ_MAN_QG1_OPEN : Bool;
-      REQ_MAN_QG1_CLOSE : Bool;
-      REQ_MAN_QG2_OPEN : Bool;
-      REQ_MAN_QG2_CLOSE : Bool;
-      REQ_MAN_FEEDER_OPEN : Array[1..19] of Bool;
-      REQ_MAN_FEEDER_CLOSE : Array[1..19] of Bool;
-      GD_READY : Bool;
-      GD_RUNNING : Bool;
-      GD_ALARM : Bool;
-      GD2_READY : Bool;
-      GD2_RUNNING : Bool;
-      GD2_ALARM : Bool;
-      DIAG_MODE_VALID : Bool;
+   VAR_OUTPUT
+      MODE_AUTO         : Bool;
+      MODE_MANUAL       : Bool;
+      DIAG_MODE_VALID   : Bool;
+
+      QT1_CLOSED        : Bool;
+      QT1_OPEN          : Bool;
+      QT1_FAULT         : Bool;
+      QT1_REMOTE        : Bool;
+      QT1_UV_OV_DI      : Bool;
+
+      BUSBAR_UV_OV_DI   : Bool;
+
+      QG1_CLOSED        : Bool;
+      QG1_OPEN          : Bool;
+      QG1_FAULT         : Bool;
+      QG1_REMOTE        : Bool;
+      QG1_UV_OV_DI      : Bool;
+
+      QG2_CLOSED        : Bool;
+      QG2_OPEN          : Bool;
+      QG2_FAULT         : Bool;
+      QG2_REMOTE        : Bool;
+      QG2_UV_OV_DI      : Bool;
+
+      GD_READY          : Bool;
+      GD_RUNNING        : Bool;
+      GD_ALARM          : Bool;
+
+      GD2_READY         : Bool;
+      GD2_RUNNING       : Bool;
+      GD2_ALARM         : Bool;
+
+      Q22_REMOTE        : Bool;
    END_VAR
 
-   VAR 
-      memQT1_PB_Open : Bool;
-      memQT1_PB_Close : Bool;
-      memQG1_PB_Open : Bool;
-      memQG1_PB_Close : Bool;
-      memQG2_PB_Open : Bool;
-      memQG2_PB_Close : Bool;
-      memFeeder_PB_Open { S7_SetPoint := 'True'} : Array[1..19] of Bool;
-      memFeeder_PB_Close { S7_SetPoint := 'True'} : Array[1..19] of Bool;
-   END_VAR
-
-   VAR_TEMP 
-      i : Int;
-   END_VAR
-
-   VAR CONSTANT 
-      DEBOUNCE_TIME : Time := T#50ms;
+   VAR_TEMP
+      dummy : Bool;
    END_VAR
 
 
 BEGIN
-	    // ========================================================================
-	    // NETWORK 1: NORMALIZACIÓN MODO AUTO/MANUAL
-	    // ========================================================================
-	    // Lógica fail-safe: si señal indefinida, default a MANUAL
-	    #MODE_AUTO := #DI_SYS_AUTO;
-	    #MODE_MANUAL := NOT #DI_SYS_AUTO;
-	    #DIAG_MODE_VALID := TRUE;  // TODO: agregar validación si hay señal redundante
-	    
-	    
-	    // ========================================================================
-	    // NETWORK 2: NORMALIZACIÓN LOCAL/REMOTO
-	    // ========================================================================
-	    // TRUE = Selector en posición REMOTO → PLC puede comandar
-	    // FALSE = Selector en posición LOCAL → PLC SOLO monitorea
-	    #QT1_REMOTE_ALLOWED := #DI_QT1_REMOTE_SEL;
-	    #QG1_REMOTE_ALLOWED := #DI_QG1_REMOTE_SEL;
-	    #QG2_REMOTE_ALLOWED := #DI_QG2_REMOTE_SEL;
-	    
-	    
-	    // ========================================================================
-	    // NETWORK 3: DETECCIÓN DE FLANCO POSITIVO (R_TRIG) → REQUESTS MANUALES
-	    // Filtro de rebotes: hardware (6.4ms en CPU onboard y SM 1223) - no se necesita TON en SCL
-	    // ========================================================================
-	    // Generamos PULSOS de 1 scan al detectar flanco ascendente 0→1
-	    
-	    // QT1 Open: flanco 0→1
-	    #REQ_MAN_QT1_OPEN := #DI_QT1_PB_OPEN AND NOT #memQT1_PB_Open;
-	    #memQT1_PB_Open := #DI_QT1_PB_OPEN;
-	    
-	    // QT1 Close
-	    #REQ_MAN_QT1_CLOSE := #DI_QT1_PB_CLOSE AND NOT #memQT1_PB_Close;
-	    #memQT1_PB_Close := #DI_QT1_PB_CLOSE;
-	    
-	    // QG1 Open
-	    #REQ_MAN_QG1_OPEN := #DI_QG1_PB_OPEN AND NOT #memQG1_PB_Open;
-	    #memQG1_PB_Open := #DI_QG1_PB_OPEN;
-	    
-	    // QG1 Close
-	    #REQ_MAN_QG1_CLOSE := #DI_QG1_PB_CLOSE AND NOT #memQG1_PB_Close;
-	    #memQG1_PB_Close := #DI_QG1_PB_CLOSE;
-	    
-	    // QG2 Open
-	    #REQ_MAN_QG2_OPEN := #DI_QG2_PB_OPEN AND NOT #memQG2_PB_Open;
-	    #memQG2_PB_Open := #DI_QG2_PB_OPEN;
-	    
-	    // QG2 Close
-	    #REQ_MAN_QG2_CLOSE := #DI_QG2_PB_CLOSE AND NOT #memQG2_PB_Close;
-	    #memQG2_PB_Close := #DI_QG2_PB_CLOSE;
-	    
-	    // FEEDERS (19) - Detección de flanco con FOR loop
-	    FOR #i := 1 TO 19 DO
-	        #REQ_MAN_FEEDER_OPEN[#i] := #DI_FEEDER_PB_OPEN[#i] AND NOT #memFeeder_PB_Open[#i];
-	        #memFeeder_PB_Open[#i] := #DI_FEEDER_PB_OPEN[#i];
-	        #REQ_MAN_FEEDER_CLOSE[#i] := #DI_FEEDER_PB_CLOSE[#i] AND NOT #memFeeder_PB_Close[#i];
-	        #memFeeder_PB_Close[#i] := #DI_FEEDER_PB_CLOSE[#i];
-	    END_FOR;
-	    
-	    
-	    // ========================================================================
-	    // NETWORK 5: NORMALIZACIÓN SEÑALES GD (PASSTHROUGH)
-	    // ========================================================================
-	    // GD1 (primario)
-	    #GD_READY := #DI_GD_READY;
-	    #GD_RUNNING := #DI_GD_RUNNING;
-	    #GD_ALARM := #DI_GD_ALARM;
-	    
-	    // GD2 (backup/redundante)
-	    #GD2_READY := #DI_GD2_READY;
-	    #GD2_RUNNING := #DI_GD2_RUNNING;
-	    #GD2_ALARM := #DI_GD2_ALARM;
-	    
+    // NETWORK 1: MODO AUTO / MANUAL
+    #MODE_AUTO       := #DI_SYS_AUTO;
+    #MODE_MANUAL     := NOT #DI_SYS_AUTO;
+    #DIAG_MODE_VALID := TRUE;
+
+    // NETWORK 2: QT1 (RED)
+    #QT1_CLOSED   := #DI_QT1_CLOSE;
+    #QT1_OPEN     := NOT #DI_QT1_CLOSE;
+    #QT1_FAULT    := #DI_QT1_FAULT;
+    #QT1_REMOTE   := #DI_QT1_REMOTE;
+    #QT1_UV_OV_DI := #DI_QT1_UV_OV;
+
+    // NETWORK 3: BUSBAR
+    #BUSBAR_UV_OV_DI := #DI_BUSBAR_UV_OV;
+
+    // NETWORK 4: QG1 (GD1)
+    #QG1_CLOSED   := #DI_QG1_CLOSE;
+    #QG1_OPEN     := NOT #DI_QG1_CLOSE;
+    #QG1_FAULT    := #DI_QG1_FAULT;
+    #QG1_REMOTE   := #DI_QG1_REMOTE;
+    #QG1_UV_OV_DI := #DI_QG1_UV_OV;
+
+    // NETWORK 5: QG2 (GD2) -- ENABLE_QG2=FALSE en V4
+    #QG2_CLOSED   := #DI_QG2_CLOSE;
+    #QG2_OPEN     := NOT #DI_QG2_CLOSE;
+    #QG2_FAULT    := #DI_QG2_FAULT;
+    #QG2_REMOTE   := #DI_QG2_REMOTE;
+    #QG2_UV_OV_DI := #DI_QG2_UV_OV;
+
+    // NETWORK 6: GD1
+    #GD_READY   := #DI_GD1_READY;
+    #GD_RUNNING := #DI_GD1_RUNNING;
+    #GD_ALARM   := #DI_GD1_ALARM;
+
+    // NETWORK 7: GD2
+    #GD2_READY   := #DI_GD2_READY;
+    #GD2_RUNNING := #DI_GD2_RUNNING;
+    #GD2_ALARM   := #DI_GD2_ALARM;
+
+    // NETWORK 8: Q22 REMOTO (%I8.5)
+    #Q22_REMOTE := #DI_Q22_REMOTE;
+
 END_FUNCTION_BLOCK
+
 

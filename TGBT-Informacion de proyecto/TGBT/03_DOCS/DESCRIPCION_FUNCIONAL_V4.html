@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TGBT SCMTA — Descripción Funcional V4.0</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
+
+  /* ---- PORTADA ---- */
+  .cover {
+    page-break-after: always;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 60px 40px;
+    background: linear-gradient(160deg, #0a2a5e 0%, #1a4a8e 60%, #2a6abf 100%);
+    color: #fff;
+  }
+  .cover .logo-bar {
+    font-size: 10pt;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #a0c4ff;
+    margin-bottom: 40px;
+  }
+  .cover h1 {
+    font-size: 32pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .cover h2 {
+    font-size: 16pt;
+    font-weight: 400;
+    color: #c8e0ff;
+    margin-bottom: 50px;
+  }
+  .cover .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    padding: 8px 24px;
+    font-size: 13pt;
+    font-weight: 600;
+    letter-spacing: 2px;
+    margin-bottom: 60px;
+  }
+  .cover-table {
+    margin-top: 40px;
+    border-collapse: collapse;
+    width: 440px;
+    font-size: 10pt;
+    color: #ffffff;
+  }
+  .cover-table td {
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.25);
+  }
+  .cover-table td:first-child { font-weight: 700; text-align: right; color: #90caff; padding-right: 20px; }
+  .cover-table td:last-child { text-align: left; color: #ffffff; }
+
+  /* ---- INLINE CODE ---- */
+  code { background: #eef2fa; color: #0a2a5e; border-radius: 3px; padding: 1px 5px; font-size: 9.5pt; font-family: 'Consolas', 'Courier New', monospace; }
+  td code, th code { background: #e4eaf8; }
+  /* ---- LISTAS ---- */
+  ul li, ol li { margin-bottom: 3px; }
+  /* ---- CONTENIDO ---- */
+  .content { max-width: 900px; margin: 0 auto; padding: 50px 50px; }
+
+  h1.sec { font-size: 18pt; color: #0a2a5e; border-bottom: 3px solid #0a2a5e; padding-bottom: 6px; margin: 40px 0 18px 0; page-break-before: always; }
+  h1.sec:first-of-type { page-break-before: avoid; }
+  h2.sub { font-size: 13pt; color: #1a4a8e; border-left: 4px solid #1a4a8e; padding-left: 10px; margin: 28px 0 12px 0; }
+  h3.sub2 { font-size: 11pt; color: #2a6abf; margin: 20px 0 8px 0; }
+
+  p { line-height: 1.7; margin-bottom: 10px; }
+
+  /* ---- TABLAS ---- */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 20px 0; font-size: 10pt; }
+  th { background: #0a2a5e; color: #fff; padding: 9px 12px; text-align: left; font-weight: 600; }
+  td { padding: 8px 12px; border-bottom: 1px solid #dde3ee; vertical-align: top; }
+  tr:nth-child(even) td { background: #f4f7fc; }
+  tr:hover td { background: #e8eef8; }
+
+  /* ---- CHIPS / BADGES ---- */
+  .chip { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 9pt; font-weight: 600; margin: 1px; }
+  .chip-blue   { background: #dce8f8; color: #0a2a5e; }
+  .chip-green  { background: #d4f0e0; color: #145a2a; }
+  .chip-orange { background: #fde8cc; color: #7a3800; }
+  .chip-red    { background: #fad8d8; color: #7a1010; }
+  .chip-gray   { background: #e8e8e8; color: #444; }
+
+  /* ---- CALLOUTS ---- */
+  .callout { border-left: 4px solid #2a6abf; background: #f0f5fd; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; font-size: 10pt; }
+  .callout.warn { border-color: #d07000; background: #fef6e8; }
+  .callout.ok   { border-color: #1a7a40; background: #edfaf2; }
+
+  /* ---- SECUENCIA ---- */
+  .seq { counter-reset: seqctr; padding: 0; list-style: none; }
+  .seq li { counter-increment: seqctr; display: flex; align-items: flex-start; margin-bottom: 10px; font-size: 10pt; }
+  .seq li::before {
+    content: counter(seqctr);
+    min-width: 26px; height: 26px;
+    background: #0a2a5e; color: #fff;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 9pt; font-weight: 700; margin-right: 12px; flex-shrink: 0; margin-top: 1px;
+  }
+
+  /* ---- MERMAID ---- */
+  .mermaid-wrap { background: #f8fafd; border: 1px solid #ccd6ee; border-radius: 8px; padding: 24px; margin: 20px 0; overflow-x: auto; }
+  .mermaid { display: flex; justify-content: center; }
+
+  /* ---- FOOTERS ---- */
+  .doc-footer { margin-top: 60px; padding-top: 14px; border-top: 1px solid #ccd6ee; font-size: 9pt; color: #888; display: flex; justify-content: space-between; }
+
+  /* ---- PRINT ---- */
+  @media print {
+    body { font-size: 10pt; }
+    .cover { min-height: 100vh; background: #0a2a5e !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h1.sec { page-break-before: always; }
+    h1.sec:first-of-type { page-break-before: auto; }
+    .mermaid-wrap { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     PORTADA
+═══════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <!-- INDGRADE logo -->
+  <div style="margin-bottom:32px;">
+    <img src="indgrade-dark.svg" alt="INDGRADE" style="height:70px; width:auto;" />
+  </div>
+  <div class="logo-bar">Automatización Industrial · Proyecto IND-26-PTE-15</div>
+  <h1>TGBT — SCMTA</h1>
+  <h2>Sistema de Conmutación y Monitoreo<br>de Tablero General de Baja Tensión</h2>
+  <div class="badge">DESCRIPCIÓN FUNCIONAL</div>
+  <table class="cover-table">
+    <tr><td>Versión</td><td>4.0</td></tr>
+    <tr><td>Fecha</td><td>4 de marzo de 2026</td></tr>
+    <tr><td>Plataforma</td><td>Siemens TIA Portal V18 · S7-1215C</td></tr>
+    <tr><td>Lenguaje</td><td>SCL (Structured Control Language)</td></tr>
+    <tr><td>Estado</td><td>Desarrollo — compilado sin errores</td></tr>
+    <tr><td>Repositorio</td><td>mariandamblena/Proyectos-PLC-TGBT</td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     CONTENIDO
+═══════════════════════════════════════════════════════════ -->
+<div class="content">
+
+<!-- ─────────────────────────── 1. INTRODUCCIÓN ─────────────────────────── -->
+<h1 class="sec">1. Introducción</h1>
+
+<p>El sistema <strong>SCMTA</strong> (Sistema de Conmutación, Monitoreo y Transferencia Automática) es el programa de control residente en el PLC del Tablero General de Baja Tensión (TGBT). Su función principal es gestionar la transferencia automática entre la fuente de red eléctrica y los grupos electrógenos de emergencia, garantizando la continuidad de suministro a cargas críticas.</p>
+
+<p>Este documento describe la versión <strong>4.0</strong>, resultado de un cambio de alcance respecto a versiones anteriores: se eliminó la comunicación Modbus con los interruptores de potencia (MTZ), adoptando en su lugar el control por entradas/salidas digitales directas. La comunicación Modbus queda reservada exclusivamente para los medidores de calidad de energía <strong>PM5350P de Schneider Electric</strong>.</p>
+
+<div class="callout ok">
+  <strong>Cambio principal V4:</strong> Los interruptores QT1, QG1, QG2 y Q22 son comandados mediante pulsos de salida digital (DO) de 300 ms que replican los pulsadores físicos del tablero. La confirmación de posición se realiza por entradas digitales (DI) dedicadas.
+</div>
+
+<!-- ─────────────────────────── 2. HARDWARE ─────────────────────────── -->
+<h1 class="sec">2. Arquitectura de Hardware</h1>
+
+<h2 class="sub">2.1 Componentes principales</h2>
+<table>
+  <tr><th>Componente</th><th>Modelo</th><th>Función</th></tr>
+  <tr><td>CPU</td><td>Siemens S7-1215C DC/DC/Rly</td><td>PLC principal — 14 DI / 10 DO integradas</td></tr>
+  <tr><td>Módulo expansión</td><td>SM 1223 8DI/8DO</td><td>Señales GD1/GD2 + Q22</td></tr>
+  <tr><td>Módulo comunicación</td><td>CM 1241 RS-485</td><td>Modbus RTU hacia medidores PM5350P</td></tr>
+  <tr><td>Medidores</td><td>7× Schneider PM5350P</td><td>Monitoreo calidad eléctrica (V, kW, Hz)</td></tr>
+</table>
+
+<h2 class="sub">2.2 Mapa de E/S digitales</h2>
+<table>
+  <tr><th>Dirección TIA</th><th>Señal</th><th>Descripción</th></tr>
+  <tr><td><code>%I0.0</code></td><td>QT1_REMOTE</td><td>QT1 en modo remoto</td></tr>
+  <tr><td><code>%I0.1</code></td><td>QT1_CLOSED</td><td>Posición QT1 cerrado</td></tr>
+  <tr><td><code>%I0.2</code></td><td>QT1_FAULT</td><td>Falla QT1</td></tr>
+  <tr><td><code>%I0.3</code></td><td>QT1_UV_OV_DI</td><td>Alarma UV/OV desde PM5350P C02 (backup Modbus)</td></tr>
+  <tr><td><code>%I0.4</code></td><td>BUSBAR_UV_OV</td><td>Indicador tensión barra</td></tr>
+  <tr><td><code>%I0.5</code></td><td>QG1_REMOTE</td><td>QG1 en modo remoto</td></tr>
+  <tr><td><code>%I0.6</code></td><td>QG1_CLOSED</td><td>Posición QG1 cerrado</td></tr>
+  <tr><td><code>%I0.7</code></td><td>QG1_FAULT</td><td>Falla QG1</td></tr>
+  <tr><td><code>%I1.0</code></td><td>QG1_UV_OV_DI</td><td>Alarma UV/OV QG1</td></tr>
+  <tr><td><code>%I1.1</code></td><td>QG2_REMOTE</td><td>QG2 en modo remoto</td></tr>
+  <tr><td><code>%I1.2</code></td><td>QG2_CLOSED</td><td>Posición QG2 cerrado</td></tr>
+  <tr><td><code>%I1.3</code></td><td>QG2_FAULT</td><td>Falla QG2</td></tr>
+  <tr><td><code>%I1.4</code></td><td>QG2_UV_OV_DI</td><td>Alarma UV/OV QG2</td></tr>
+  <tr><td><code>%I1.5</code></td><td>GD1_READY</td><td>GD1 listo para arrancar</td></tr>
+  <tr><td><code>%I8.0</code></td><td>GD1_RUNNING</td><td>GD1 en marcha</td></tr>
+  <tr><td><code>%I8.1</code></td><td>GD1_ALARM</td><td>Alarma GD1</td></tr>
+  <tr><td><code>%I8.2</code></td><td>GD2_READY</td><td>GD2 listo</td></tr>
+  <tr><td><code>%I8.3</code></td><td>GD2_RUNNING</td><td>GD2 en marcha</td></tr>
+  <tr><td><code>%I8.4</code></td><td>GD2_ALARM</td><td>Alarma GD2</td></tr>
+  <tr><td><code>%I8.5</code></td><td>Q22_REMOTE</td><td>Q22 en modo remoto</td></tr>
+  <tr><td><code>%Q0.0</code></td><td>DO_QT1_CLOSE_CMD</td><td>Pulso cierre QT1 (300 ms)</td></tr>
+  <tr><td><code>%Q0.1</code></td><td>DO_QT1_OPEN_CMD</td><td>Pulso apertura QT1 (300 ms)</td></tr>
+  <tr><td><code>%Q0.2</code></td><td>DO_QG1_CLOSE_CMD</td><td>Pulso cierre QG1 (300 ms)</td></tr>
+  <tr><td><code>%Q0.3</code></td><td>DO_QG1_OPEN_CMD</td><td>Pulso apertura QG1 (300 ms)</td></tr>
+  <tr><td><code>%Q0.4</code></td><td>DO_QG2_CLOSE_CMD</td><td>Pulso cierre QG2 (300 ms)</td></tr>
+  <tr><td><code>%Q0.5</code></td><td>DO_QG2_OPEN_CMD</td><td>Pulso apertura QG2 (300 ms)</td></tr>
+  <tr><td><code>%Q0.6</code></td><td>DO_Q22_CLOSE_CMD</td><td>Pulso cierre Q22 (300 ms)</td></tr>
+  <tr><td><code>%Q0.7</code></td><td>DO_Q22_OPEN_CMD</td><td>Pulso apertura Q22 (300 ms)</td></tr>
+  <tr><td><code>%Q1.0</code></td><td>DO_GD1_RUN</td><td>Arranque GD1 (sostenido)</td></tr>
+  <tr><td><code>%Q1.1</code></td><td>DO_GD2_RUN</td><td>Arranque GD2 (sostenido)</td></tr>
+</table>
+
+<h2 class="sub">2.3 Medidores PM5350P — Registros Modbus relevantes</h2>
+<p>Lectura única: <strong>FC03, DATA_ADDR = 3000, DATA_LEN = 120</strong> (cubre registros 3000..3119). Todos los valores son <strong>FLOAT32</strong> (2 registros Modbus = 32 bits IEEE 754), sin factor de escala.</p>
+<table>
+  <tr><th>Registro Modbus</th><th>Variable</th><th>Tipo</th><th>Unidad</th><th>Offset rxBuffer</th></tr>
+  <tr><td>3020</td><td>Tensión A-B (V L1-L2)</td><td>FLOAT32</td><td>V</td><td>[20..21]</td></tr>
+  <tr><td>3022</td><td>Tensión B-C (V L2-L3)</td><td>FLOAT32</td><td>V</td><td>[22..23]</td></tr>
+  <tr><td>3024</td><td>Tensión C-A (V L3-L1)</td><td>FLOAT32</td><td>V</td><td>[24..25]</td></tr>
+  <tr><td>3060</td><td>Potencia activa total</td><td>FLOAT32</td><td><strong>kW</strong></td><td>[60..61]</td></tr>
+  <tr><td>3110</td><td>Frecuencia</td><td>FLOAT32</td><td>Hz</td><td>[110..111]</td></tr>
+</table>
+<p style="font-size:9pt;color:#555;">Fuente: <em>PM51xx_PM53xx_PMC Register List v2011/v2021 R01 — Schneider Electric</em></p>
+
+<!-- ─────────────────────────── 3. ARQUITECTURA SOFTWARE ─────────────────────────── -->
+<h1 class="sec">3. Arquitectura del Software</h1>
+
+<h2 class="sub">3.1 Bloques de programa</h2>
+<table>
+  <tr><th>Bloque TIA</th><th>Número</th><th>Tipo</th><th>Función</th></tr>
+  <tr><td><code>Main</code></td><td>OB1</td><td>OB</td><td>Ciclo principal: llama todos los FBs en orden</td></tr>
+  <tr><td><code>01_FB_IO_NORMALIZE</code></td><td>FB1</td><td>FB</td><td>Normaliza todas las DI físicas → DATA_BUFF; calcula señales derivadas (QT1_OPEN, etc.)</td></tr>
+  <tr><td><code>02_FB_SCMTA</code></td><td>FB2</td><td>FB</td><td>Máquina de estados de transferencia automática — 22 estados</td></tr>
+  <tr><td><code>03_FB_SHED</code></td><td>FB3</td><td>FB</td><td>Deslastre automático de carga — <span class="chip chip-orange">DESHABILITADO V4</span></td></tr>
+  <tr><td><code>04_FB_CMD_ARBITER</code></td><td>FB4</td><td>FB</td><td>Árbitro de comandos: prioriza SCMTA/Manual, aplica enclavamientos y bloqueos LOCAL</td></tr>
+  <tr><td><code>05_FB_OUTPUTS</code></td><td>FB5</td><td>FB</td><td>Actualiza pilotos HMI y salidas indicadoras</td></tr>
+  <tr><td><code>06_FB_MODBUS_MANAGER</code></td><td>FB6</td><td>FB</td><td>Polling round-robin 7× PM5350P — máquina de estados Modbus, parseo FLOAT32</td></tr>
+  <tr><td><code>12_FB_PULSE_EXPANDER</code></td><td>FB7</td><td>FB</td><td>Convierte pulsos 1-scan en pulsos DO de 300 ms (8 canales — R_TRIG + TON + latch)</td></tr>
+  <tr><td><code>DB_PARAMS</code></td><td>DB1</td><td>DB Global</td><td>Todos los parámetros configurables (tiempos, umbrales, Slave IDs, potencias nominales)</td></tr>
+  <tr><td><code>DATA_BUFF</code></td><td>DB2</td><td>DB Global</td><td>Buffer de estado global compartido entre todos los FBs</td></tr>
+</table>
+
+<h2 class="sub">3.2 Flujo de ejecución en OB1</h2>
+<ol class="seq">
+  <li><strong>IO_NORMALIZE</strong> — lee DI físicas, normaliza y publica en DATA_BUFF</li>
+  <li><strong>SCMTA</strong> — evalúa calidad de red, ejecuta máquina de estados, emite REQ_SCMTA_*</li>
+  <li><strong>SHED</strong> — deslastre (inhabilitado)</li>
+  <li><strong>CMD_ARBITER</strong> — recibe REQ_SCMTA_* y REQ_MAN_*, aplica enclavamientos, genera CMD_*</li>
+  <li><strong>PULSE_EXPANDER</strong> — convierte CMD_* (1 scan) → pulso DO de 300 ms en %Q0.0..%Q0.7</li>
+  <li><strong>MODBUS_MANAGER</strong> — gestiona poll Modbus; copia mediciones a DATA_BUFF</li>
+  <li><strong>OUTPUTS</strong> — actualiza pilotos HMI</li>
+  <li><strong>Cálculos auxiliares</strong> — %GD_LoadPct, %TR_LoadPct</li>
+</ol>
+
+<!-- ─────────────────────────── 4. DESCRIPCIÓN FUNCIONAL ─────────────────────────── -->
+<h1 class="sec">4. Descripción Funcional</h1>
+
+<h2 class="sub">4.1 Detección de calidad de red</h2>
+<p>La fuente primaria es el medidor <strong>PM5350P C02</strong> (tablero de red / QT1). Se evalúan:</p>
+<ul style="margin-left:20px;line-height:2">
+  <li>Tensión V L1-L2, L2-L3, C-A dentro de rango [V_MIN_PCT … V_MAX_PCT] de V_NOM (380 V)</li>
+  <li>Frecuencia dentro de rango [FREQ_MIN … FREQ_MAX] (49–51 Hz)</li>
+  <li>Ausencia de alarmas UV/OV/pérdida de fase del propio PM5350P</li>
+</ul>
+<p>Si la comunicación Modbus no está disponible, se utiliza como <strong>fallback</strong> la entrada digital <code>%I0.3</code> (QT1_UV_OV_DI).</p>
+<p>La detección de falla aplica un filtro de <strong>2 segundos</strong> (T_GRID_FAIL_FILTER) para evitar transferencias por perturbaciones transitorias.</p>
+
+<h2 class="sub">4.2 Transferencia RED → Grupo Electrógeno</h2>
+<p>Se ejecuta automáticamente en modo AUTO cuando se confirma falla de red:</p>
+<ol class="seq">
+  <li>Enviar pulso de <strong>apertura QT1</strong> → esperar confirmación por DI (QT1_CLOSED = FALSE)</li>
+  <li>Enviar pulso de <strong>apertura Q22</strong> → esperar confirmación o timeout 3s</li>
+  <li>Esperar <em>T_START_GD_DELAY</em> (3s) antes de arrancar generador</li>
+  <li>Activar <strong>DO_GD1_RUN</strong> (%Q1.0) — señal sostenida de arranque GD1</li>
+  <li>Esperar GD_READY + GD_RUNNING + estabilización de tensión (<em>T_GD_STABILIZATION</em> = 5s)</li>
+  <li>Enviar pulso de <strong>cierre QG1</strong> → esperar confirmación por DI (QG1_CLOSED = TRUE)</li>
+  <li>Sistema operando en <strong>GD1</strong></li>
+</ol>
+<div class="callout warn">
+  Si GD1 no está disponible (alarma activa), el sistema intenta automáticamente con <strong>GD2</strong>, siempre que <code>ENABLE_QG2 = TRUE</code>. Si ambos generadores fallan, se pasa a FAULT_LOCKOUT.
+</div>
+
+<h2 class="sub">4.3 Retorno RED → Generador</h2>
+<p>Con <code>ENABLE_AUTO_RETURN = TRUE</code>, el retorno se ejecuta cuando la red recupera calidad:</p>
+<ol class="seq">
+  <li>Detectar GRID_OK y esperar <em>T_GRID_STABLE</em> = <strong>120 segundos</strong> de estabilidad continua</li>
+  <li>Enviar pulso de <strong>apertura QGx</strong> (QG1 o QG2 según GD activo) → esperar DI</li>
+  <li>Enviar pulso de <strong>cierre QT1</strong> → esperar DI QT1_CLOSED = TRUE</li>
+  <li>Enviar pulso de <strong>cierre Q22</strong> → esperar confirmación o timeout 3s</li>
+  <li>Período de <strong>cooldown GD</strong> (<em>T_GD_COOLDOWN</em> = 60s) — GD se detiene, sistema en RED</li>
+  <li>Estado <strong>NORMAL_ON_GRID</strong></li>
+</ol>
+
+<h2 class="sub">4.4 Manejo de Q22</h2>
+<p>Q22 es un interruptor de derivación/acometida que <strong>no debe estar cerrado durante operación en generador</strong>:</p>
+<ul style="margin-left:20px;line-height:2">
+  <li><strong>Ida a GD:</strong> se abre Q22 inmediatamente después de abrir QT1, antes de arrancar el generador</li>
+  <li><strong>Vuelta a RED:</strong> se cierra Q22 después de cerrar QT1, antes del cooldown</li>
+  <li>Si no hay DI de posición cableada (situación actual), el sistema envía el pulso y continúa tras el timeout de 3s</li>
+</ul>
+
+<h2 class="sub">4.5 Enclavamientos eléctricos</h2>
+<p>El FB_CMD_ARBITER implementa enclavamiento de fuente única en hardware lógico:</p>
+<table>
+  <tr><th>Comando</th><th>Condición para permitir</th></tr>
+  <tr><td>Cerrar QT1</td><td>QG1_CLOSED = FALSE <strong>Y</strong> QG2_CLOSED = FALSE</td></tr>
+  <tr><td>Cerrar QG1</td><td>QT1_CLOSED = FALSE <strong>Y</strong> QG2_CLOSED = FALSE</td></tr>
+  <tr><td>Cerrar QG2</td><td>QT1_CLOSED = FALSE <strong>Y</strong> QG1_CLOSED = FALSE</td></tr>
+  <tr><td>Abrir cualquiera</td><td>Siempre permitido (si en modo REMOTE)</td></tr>
+  <tr><td>Cualquier comando</td><td>Interruptor debe estar en modo REMOTE (DI = TRUE)</td></tr>
+</table>
+
+<h2 class="sub">4.6 Monitoreo Modbus (PM5350P)</h2>
+<p>El FB_MODBUS_MANAGER realiza un polling round-robin de los 7 medidores (Slave ID 10–16), con una sola lectura de 120 registros FLOAT32 por dispositivo. El ciclo de poll completo es de 1 segundo por dispositivo.</p>
+<table>
+  <tr><th>Índice</th><th>Slave ID</th><th>Tablero</th><th>Uso en SCMTA</th></tr>
+  <tr><td>1</td><td>10</td><td>C02 / QT1</td><td><span class="chip chip-blue">Fuente principal detección falla RED</span></td></tr>
+  <tr><td>2</td><td>11</td><td>C01 GD1 / QG1</td><td>Monitoreo potencia GD1, cálculo %carga</td></tr>
+  <tr><td>3</td><td>12</td><td>C01 GD2 / QG2</td><td>Monitoreo potencia GD2</td></tr>
+  <tr><td>4–7</td><td>13–16</td><td>C03, C04, C05, C06</td><td>Monitoreo feeders (solo lectura)</td></tr>
+</table>
+
+<h2 class="sub">4.7 Modos de operación</h2>
+<table>
+  <tr><th>Modo</th><th>Descripción</th></tr>
+  <tr><td><span class="chip chip-blue">AUTO</span></td><td>SCMTA toma decisiones automáticamente. Los comandos manuales quedan bloqueados.</td></tr>
+  <tr><td><span class="chip chip-orange">MANUAL</span></td><td>El operador controla cada interruptor individualmente desde HMI. SCMTA no actúa.</td></tr>
+  <tr><td><span class="chip chip-gray">NINGUNO</span></td><td>Todos los comandos bloqueados (estado de configuración/mantenimiento).</td></tr>
+</table>
+
+<!-- ─────────────────────────── 5. MÁQUINA DE ESTADOS ─────────────────────────── -->
+<h1 class="sec">5. Máquina de Estados SCMTA</h1>
+
+<h2 class="sub">5.1 Tabla de estados</h2>
+<table>
+  <tr><th>#</th><th>Estado</th><th>Descripción</th></tr>
+  <tr><td>0</td><td>INIT</td><td>Inicialización — determina estado actual del sistema en base a DI</td></tr>
+  <tr><td>1</td><td>NORMAL_ON_GRID</td><td>Operación normal en red eléctrica</td></tr>
+  <tr><td>2</td><td>GRID_FAIL_DETECTED</td><td>Falla detectada — emite pulso apertura QT1</td></tr>
+  <tr><td>21</td><td>OPEN_Q22</td><td>Espera apertura Q22 antes de arrancar GD</td></tr>
+  <tr><td>4</td><td>START_GD1_DELAY</td><td>Demora antes de arrancar GD1</td></tr>
+  <tr><td>5</td><td>START_GD1</td><td>Verifica disponibilidad GD1 y activa DO_GD1_RUN</td></tr>
+  <tr><td>6</td><td>WAIT_GD1_READY</td><td>Espera confirmación GD1 READY + RUNNING + estabilización</td></tr>
+  <tr><td>7</td><td>CLOSE_QG1</td><td>Emite pulso cierre QG1 y espera confirmación DI</td></tr>
+  <tr><td>8</td><td>ON_GD1</td><td>Operación en GD1 — monitorea retorno de red y alarmas</td></tr>
+  <tr><td>15</td><td>START_GD2_DELAY</td><td>Demora antes de arrancar GD2 (fallback)</td></tr>
+  <tr><td>16</td><td>START_GD2</td><td>Activa DO_GD2_RUN</td></tr>
+  <tr><td>17</td><td>WAIT_GD2_READY</td><td>Espera GD2 READY + RUNNING + estabilización</td></tr>
+  <tr><td>18</td><td>CLOSE_QG2</td><td>Emite pulso cierre QG2 y espera confirmación DI</td></tr>
+  <tr><td>19</td><td>ON_GD2</td><td>Operación en GD2</td></tr>
+  <tr><td>20</td><td>OPEN_GD_FOR_SWITCH</td><td>Abre QG1 para cambiar a GD2 por alarma GD1</td></tr>
+  <tr><td>9</td><td>GRID_RETURN_DETECTED</td><td>Red recuperada — verifica que se mantiene estable</td></tr>
+  <tr><td>10</td><td>WAIT_GRID_STABLE</td><td>Cuenta T_GRID_STABLE = 120s de red estable</td></tr>
+  <tr><td>11</td><td>OPEN_ACTIVE_GD</td><td>Abre QGx antes de reconectar red</td></tr>
+  <tr><td>12</td><td>CLOSE_QT1</td><td>Emite pulso cierre QT1 y espera confirmación DI</td></tr>
+  <tr><td>22</td><td>CLOSE_Q22</td><td>Cierra Q22 tras reconectar red</td></tr>
+  <tr><td>13</td><td>GD_COOLDOWN</td><td>Período de enfriamiento GD (60s) mientras opera en RED</td></tr>
+  <tr><td>14</td><td>FAULT_LOCKOUT</td><td>Falla definitiva — espera reset manual o auto-recovery por red</td></tr>
+</table>
+
+<h2 class="sub">5.2 Diagrama de estados</h2>
+<div class="mermaid-wrap">
+<div class="mermaid">
+stateDiagram-v2
+    direction TB
+    [*] --> INIT
+
+    INIT --> NORMAL_ON_GRID : GRID_OK AND QT1_CLOSED
+    INIT --> ON_GD1 : QG1_CLOSED AND GD_RUNNING
+    INIT --> ON_GD2 : ENABLE_QG2 AND QG2_CLOSED AND GD2_RUNNING
+
+    NORMAL_ON_GRID --> GRID_FAIL_DETECTED : MODE_AUTO AND GRID_FAIL
+    NORMAL_ON_GRID --> FAULT_LOCKOUT : QT1_FAULT
+
+    GRID_FAIL_DETECTED --> OPEN_Q22 : NOT QT1_CLOSED (DI)
+    GRID_FAIL_DETECTED --> FAULT_LOCKOUT : NOT QT1_REMOTE / timeout
+
+    OPEN_Q22 --> START_GD1_DELAY : NOT Q22_CLOSED / timeout T_OPEN_Q22
+
+    START_GD1_DELAY --> START_GD1 : timer T_START_GD_DELAY
+
+    START_GD1 --> WAIT_GD1_READY : GD1 disponible
+    START_GD1 --> START_GD2_DELAY : GD1 no disponible AND ENABLE_QG2
+    START_GD1 --> FAULT_LOCKOUT : ambos GD no disponibles
+
+    WAIT_GD1_READY --> CLOSE_QG1 : GD_READY AND GD_RUNNING + T_GD_STABILIZATION
+    WAIT_GD1_READY --> START_GD2_DELAY : GD_ALARM AND GD2 disponible
+    WAIT_GD1_READY --> FAULT_LOCKOUT : GD_ALARM sin GD2 / timeout
+
+    CLOSE_QG1 --> ON_GD1 : QG1_CLOSED (DI)
+    CLOSE_QG1 --> FAULT_LOCKOUT : NOT QG1_REMOTE / timeout
+
+    ON_GD1 --> GRID_RETURN_DETECTED : ENABLE_AUTO_RETURN AND GRID_OK
+    ON_GD1 --> OPEN_GD_FOR_SWITCH : GD_ALARM AND GD2 disponible
+    ON_GD1 --> FAULT_LOCKOUT : GD_ALARM sin GD2 / QG1_FAULT
+
+    state GD2_PATH {
+        START_GD2_DELAY --> START_GD2 : timer
+        START_GD2 --> WAIT_GD2_READY
+        WAIT_GD2_READY --> CLOSE_QG2 : GD2_READY AND GD2_RUNNING
+        CLOSE_QG2 --> ON_GD2 : QG2_CLOSED (DI)
+    }
+
+    ON_GD2 --> GRID_RETURN_DETECTED : GRID_OK
+    ON_GD2 --> FAULT_LOCKOUT : GD2_ALARM / QG2_FAULT
+
+    OPEN_GD_FOR_SWITCH --> START_GD2_DELAY : NOT QG1_CLOSED
+    OPEN_GD_FOR_SWITCH --> FAULT_LOCKOUT : timeout
+
+    GRID_RETURN_DETECTED --> WAIT_GRID_STABLE : GRID_OK persiste
+    GRID_RETURN_DETECTED --> ON_GD1 : NOT GRID_OK
+
+    WAIT_GRID_STABLE --> OPEN_ACTIVE_GD : timer T_GRID_STABLE (120s)
+    WAIT_GRID_STABLE --> ON_GD1 : NOT GRID_OK
+
+    OPEN_ACTIVE_GD --> CLOSE_QT1 : NOT QGx_CLOSED (DI)
+    OPEN_ACTIVE_GD --> FAULT_LOCKOUT : NOT REMOTE / timeout
+
+    CLOSE_QT1 --> CLOSE_Q22 : QT1_CLOSED (DI)
+    CLOSE_QT1 --> FAULT_LOCKOUT : NOT QT1_REMOTE / timeout
+
+    CLOSE_Q22 --> GD_COOLDOWN : Q22_CLOSED / timeout T_CLOSE_Q22
+
+    GD_COOLDOWN --> NORMAL_ON_GRID : timer T_GD_COOLDOWN (60s)
+    GD_COOLDOWN --> GRID_FAIL_DETECTED : GRID_FAIL AND MODE_AUTO
+
+    FAULT_LOCKOUT --> CLOSE_Q22 : GRID_OK + QT1 ya cerrado
+    FAULT_LOCKOUT --> CLOSE_QT1 : GRID_OK + QT1 abierto
+    FAULT_LOCKOUT --> INIT : RESET_FAULT manual
+</div>
+</div>
+
+<h2 class="sub">5.3 Códigos de falla (FAULT_CODE)</h2>
+<table>
+  <tr><th>Código</th><th>Descripción</th></tr>
+  <tr><td>101</td><td>Timeout apertura QT1</td></tr>
+  <tr><td>102</td><td>GD1 no respondió en T_GD_READY_TIMEOUT</td></tr>
+  <tr><td>103</td><td>Timeout cierre QG1</td></tr>
+  <tr><td>104</td><td>Timeout apertura QG1</td></tr>
+  <tr><td>105</td><td>Timeout cierre QT1</td></tr>
+  <tr><td>106</td><td>Alarma GD1 activa durante operación</td></tr>
+  <tr><td>107</td><td>Violación de enclavamiento (dos fuentes cerradas simultáneamente)</td></tr>
+  <tr><td>111</td><td>QT1 no está en modo REMOTE</td></tr>
+  <tr><td>112</td><td>QG1 no está en modo REMOTE</td></tr>
+  <tr><td>202</td><td>GD2 no respondió en T_GD_READY_TIMEOUT</td></tr>
+  <tr><td>203</td><td>Timeout cierre QG2</td></tr>
+  <tr><td>204</td><td>Timeout apertura QG2</td></tr>
+  <tr><td>206</td><td>Alarma GD2 activa durante operación</td></tr>
+  <tr><td>209</td><td>Ambos generadores no disponibles</td></tr>
+  <tr><td>210</td><td>Timeout apertura interruptor GD durante cambio GD1→GD2</td></tr>
+  <tr><td>211</td><td>Timeout apertura Q22</td></tr>
+</table>
+
+<!-- ─────────────────────────── 6. PARÁMETROS ─────────────────────────── -->
+<h1 class="sec">6. Parámetros de Configuración</h1>
+<p>Todos los parámetros se modifican en <code>DB_PARAMS [DB1]</code> en TIA Portal, sin necesidad de recompilar el programa.</p>
+<table>
+  <tr><th>Parámetro</th><th>Valor por defecto</th><th>Descripción</th></tr>
+  <tr><td>V_NOM</td><td>380.0 V</td><td>Tensión nominal línea-línea</td></tr>
+  <tr><td>V_MIN_PCT</td><td>85.0 %</td><td>Umbral mínimo de tensión</td></tr>
+  <tr><td>V_MAX_PCT</td><td>110.0 %</td><td>Umbral máximo de tensión</td></tr>
+  <tr><td>FREQ_MIN / FREQ_MAX</td><td>49.0 / 51.0 Hz</td><td>Rango de frecuencia aceptable</td></tr>
+  <tr><td>T_GRID_FAIL_FILTER</td><td>2 s</td><td>Filtro anti-rebote falla de red</td></tr>
+  <tr><td>T_GRID_STABLE</td><td>120 s</td><td>Tiempo de estabilidad antes de retorno a RED</td></tr>
+  <tr><td>T_OPEN_QT1</td><td>3 s</td><td>Timeout confirmación apertura QT1</td></tr>
+  <tr><td>T_START_GD_DELAY</td><td>3 s</td><td>Demora antes de arrancar generador</td></tr>
+  <tr><td>T_GD_READY_TIMEOUT</td><td>30 s</td><td>Tiempo máximo espera GD listo</td></tr>
+  <tr><td>T_GD_STABILIZATION</td><td>5 s</td><td>Estabilización tensión GD antes de cerrar QGx</td></tr>
+  <tr><td>T_CLOSE_QG1 / T_CLOSE_QG2</td><td>3 s</td><td>Timeout confirmación cierre QGx</td></tr>
+  <tr><td>T_OPEN_QG1 / T_OPEN_QG2</td><td>3 s</td><td>Timeout confirmación apertura QGx</td></tr>
+  <tr><td>T_CLOSE_QT1</td><td>3 s</td><td>Timeout confirmación cierre QT1</td></tr>
+  <tr><td>T_GD_COOLDOWN</td><td>60 s</td><td>Período de enfriamiento GD tras retorno a RED</td></tr>
+  <tr><td>T_CMD_PULSE</td><td>300 ms</td><td>Duración pulso DO de comando</td></tr>
+  <tr><td>GD1_POWER_NOMINAL</td><td>1000.0 kW <span class="chip chip-orange">PLACEHOLDER</span></td><td>Potencia nominal GD1 — ajustar con placa</td></tr>
+  <tr><td>GD2_POWER_NOMINAL</td><td>1000.0 kW <span class="chip chip-orange">PLACEHOLDER</span></td><td>Potencia nominal GD2 — ajustar con placa</td></tr>
+  <tr><td>ENABLE_QG2</td><td>FALSE</td><td>Habilitar cuando GD2 esté físicamente instalado</td></tr>
+  <tr><td>ENABLE_SHED</td><td>FALSE</td><td>Deslastre automático — deshabilitado etapa V4</td></tr>
+  <tr><td>ENABLE_AUTO_RETURN</td><td>TRUE</td><td>Retorno automático a RED cuando estabiliza</td></tr>
+</table>
+
+<!-- ─────────────────────────── 7. PENDIENTE ─────────────────────────── -->
+<h1 class="sec">7. Pendiente de Implementación</h1>
+
+<table>
+  <tr><th>#</th><th>Ítem</th><th>Archivo a modificar</th><th>Estado</th></tr>
+  <tr>
+    <td>1</td>
+    <td>Conectar DI de posición Q22 (<code>Q22_CLOSED</code>). Actualmente fijo en FALSE — el sistema envía el pulso y sigue por timeout.</td>
+    <td><code>10_OB1_MAIN.scl</code> línea Q22_CLOSED</td>
+    <td><span class="chip chip-orange">Pendiente</span></td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Ajustar <code>GD1_POWER_NOMINAL</code> y <code>GD2_POWER_NOMINAL</code> con valores de placa de los generadores reales.</td>
+    <td><code>09_DB_PARAMS.scl</code></td>
+    <td><span class="chip chip-orange">Pendiente</span></td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Implementar llamada real al bloque <code>MB_MASTER</code> (CM 1241) en TIA Portal. Actualmente el FB_MODBUS_MANAGER tiene la llamada comentada como stub.</td>
+    <td><code>06_FB_MODBUS_MANAGER.scl</code></td>
+    <td><span class="chip chip-orange">Pendiente</span></td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Activar <code>ENABLE_QG2 := TRUE</code> en DB_PARAMS cuando GD2 esté físicamente instalado y cableado.</td>
+    <td><code>09_DB_PARAMS.scl</code></td>
+    <td><span class="chip chip-gray">Cuando corresponda</span></td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Verificar Slave IDs Modbus (10–16) contra cableado físico del panel RS-485.</td>
+    <td><code>09_DB_PARAMS.scl</code></td>
+    <td><span class="chip chip-orange">Pendiente comisionamiento</span></td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Habilitar deslastre automático (<code>ENABLE_SHED := TRUE</code>) y configurar orden de feeders en etapa 2 del proyecto.</td>
+    <td><code>09_DB_PARAMS.scl</code> + <code>03_FB_SHED.scl</code></td>
+    <td><span class="chip chip-gray">Etapa 2</span></td>
+  </tr>
+</table>
+
+<!-- ─────────────────────────── PIE ─────────────────────────── -->
+<div class="doc-footer">
+  <span>TGBT SCMTA — Descripción Funcional V4.0</span>
+  <span>Proyecto IND-26-PTE-15 · Marzo 2026</span>
+</div>
+
+</div><!-- /content -->
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    themeVariables: {
+      primaryColor: '#dce8f8',
+      primaryTextColor: '#0a2a5e',
+      primaryBorderColor: '#1a4a8e',
+      lineColor: '#1a4a8e',
+      secondaryColor: '#f4f7fc',
+      tertiaryColor: '#ffffff',
+      fontFamily: 'Segoe UI, Arial, sans-serif',
+      fontSize: '12px'
+    },
+    stateDiagram: { useMaxWidth: true }
+  });
+</script>
+</body>
+</html>

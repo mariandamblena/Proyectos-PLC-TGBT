@@ -1,296 +1,293 @@
 ﻿FUNCTION_BLOCK "06_FB_MODBUS_MANAGER"
 { S7_Optimized_Access := 'TRUE' }
+// ============================================================================
+// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V4.0
+// ============================================================================
+// CAMBIO ALCANCE V4:
+//   - Solo comunicacion con 7 PM5350P (lectura de mediciones)
+//   - Eliminados: CMD escribir a MTZ/feeders
+//   - Polling round-robin: lectura voltajes, frecuencia, potencia, alarmas
+//   - Slave IDs: C02=10 C01-GD1=11 C01-GD2=12 C03=13 C04=14 C05=15 C06=16
+// ============================================================================
+// NOTA: Las llamadas a MB_MASTER (CM 1241) estan STUBBED como marcadores TODO.
+//       El scaffold de la maquina de estados esta listo para conectar el
+//       bloque MB_CLIENT o MB_MASTER una vez definida la instancia en TIA.
+// ============================================================================
 VERSION : 0.1
-   VAR_INPUT 
-      ENABLE : Bool := true;
-      CMD_OPEN_QT1 : Bool;
-      CMD_CLOSE_QT1 : Bool;
-      CMD_OPEN_QG1 : Bool;
-      CMD_CLOSE_QG1 : Bool;
-      CMD_OPEN_QG2 : Bool;
-      CMD_CLOSE_QG2 : Bool;
-      CMD_OPEN_FEEDER : Array[1..19] of Bool;
-      CMD_CLOSE_FEEDER : Array[1..19] of Bool;
-      T_POLL_CYCLE : Time := T#1s;
-      T_REQ_HOLD : Time := T#2s;
-      T_PAUSE_BETWEEN : Time := T#500ms;
-      T_RETRY_DELAY : Time := T#3s;
-      MAX_RETRIES : Int := 3;
+   VAR_INPUT
+      ENABLE         : Bool := TRUE;
+      // Slave IDs de los 7 medidores (configurable desde DB_PARAMS)
+      SLAVE_C02      : Int := 10;   // RED / QT1
+      SLAVE_C01_GD1  : Int := 11;   // GD1 / QG1
+      SLAVE_C01_GD2  : Int := 12;   // GD2 / QG2
+      SLAVE_C03      : Int := 13;
+      SLAVE_C04      : Int := 14;
+      SLAVE_C05      : Int := 15;
+      SLAVE_C06      : Int := 16;   // Q22
+      // Timings de polling
+      T_POLL_CYCLE      : Time := T#1s;
+      T_PAUSE_BETWEEN   : Time := T#200ms;
+      T_RETRY_DELAY     : Time := T#3s;
+      MAX_RETRIES       : Int  := 3;
    END_VAR
 
-   VAR_OUTPUT 
-      COMM_OK : Bool;
-      COMM_ERRORS : Int;
-      ACTIVE_DEVICE : String[20];
-      BUSY : Bool;
-      ERROR : Bool;
+   VAR_OUTPUT
+      // Mediciones por tablero (indice 1..7 segun orden arriba)
+      PM_V_L1L2      : Array[1..7] of Real;
+      PM_V_L2L3      : Array[1..7] of Real;
+      PM_V_L3L1      : Array[1..7] of Real;
+      PM_FREQ        : Array[1..7] of Real;
+      PM_P_TOTAL     : Array[1..7] of Real;
+      PM_ALARM       : Array[1..7] of Bool;
+      PM_COMM_OK     : Array[1..7] of Bool;
+      // Estado global
+      COMM_OK        : Bool;
+      GRID_MEAS_OK   : Bool;   // TRUE cuando C02 tiene lectura valida reciente
+      ACTIVE_DEVICE  : String[20];
+      BUSY           : Bool;
+      ERROR          : Bool;
+      COMM_ERRORS    : Int;
    END_VAR
 
-   VAR 
-      Step : Int;
-      pollIndex : Int;
-      reqFlag : Bool;
-      tonReqHold {InstructionName := 'TON_TIME'; LibVersion := '1.0'; S7_SetPoint := 'False'} : TON_TIME;
-      tonPauseBetween {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      tonRetryDelay {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      tonPollCycle {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      reqHoldActive { S7_SetPoint := 'True'} : Bool;
-      pauseActive : Bool;
-      retryDelayActive : Bool;
-      pollCycleActive : Bool;
-      cmdPending : Bool;
-      cmdPendingFeeder : Bool;
-      retryCount : Int;
+   VAR
+      Step              : Int;
+      pollIndex         : Int;
+      retryCount        : Int;
+      reqFlag           : Bool;
+      reqHoldActive     : Bool;
+      pauseActive       : Bool;
+      retryDelayActive  : Bool;
+      pollCycleActive   : Bool;
+      currentSlaveID    : Int;
+      tonReqHold        {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      tonPauseBetween   {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      tonRetryDelay     {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      tonPollCycle      {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      // Buffer de recepcion PM5350P: 120 registros desde 3000..3119
+      // Una sola lectura MB_MASTER DATA_ADDR=3000, DATA_LEN=120.
+      // Todos los valores son FLOAT32 (2 regs cada uno), sin escala.
+      rxBuffer          : Array[0..119] of Int;
+      // Timestamp de ultima lectura valida del medidor de red (C02, index 1)
+      gridLastOkScan    : DInt;
    END_VAR
 
-   VAR_TEMP 
-      tmpIdx : Int;
-      tmpHasFdrCmd : Bool;
-   END_VAR
-
-   VAR CONSTANT 
-      N_DEVICES : Int := 22;
-      N_FEEDERS : Int := 19;
-      ST_IDLE : Int := 0;
-      ST_PREPARE_READ : Int := 1;
-      ST_REQ_HOLD_READ : Int := 2;
-      ST_EVAL_READ : Int := 3;
-      ST_PAUSE_AFTER_READ : Int := 4;
-      ST_PREPARE_WRITE : Int := 10;
-      ST_REQ_HOLD_WRITE : Int := 11;
-      ST_EVAL_WRITE : Int := 12;
-      ST_PAUSE_AFTER_WRITE : Int := 13;
-      ST_RETRY_READ : Int := 98;
-      ST_RETRY_WRITE : Int := 97;
-      ST_ERROR : Int := 99;
+   VAR CONSTANT
+      N_DEVICES   : Int := 7;
+      ST_IDLE     : Int := 0;
+      ST_PREPARE  : Int := 1;
+      ST_WAIT_ACK : Int := 2;
+      ST_EVAL     : Int := 3;
+      ST_PAUSE    : Int := 4;
+      ST_RETRY    : Int := 98;
+      ST_ERROR    : Int := 99;
    END_VAR
 
 
 BEGIN
-	    // ========================================================================
-	    // SECCIÓN 1: TEMPORIZADORES - SIEMPRE ejecutados cada ciclo
-	    // (Fuera de toda lógica condicional para garantizar reseteo correcto)
-	    // ========================================================================
-	    #tonReqHold(IN := #reqHoldActive,
-	                PT := #T_REQ_HOLD);
-	    #tonPauseBetween(IN := #pauseActive,
-	                     PT := #T_PAUSE_BETWEEN);
-	    #tonRetryDelay(IN := #retryDelayActive,
-	                   PT := #T_RETRY_DELAY);
-	    #tonPollCycle(IN := #pollCycleActive,
-	                  PT := #T_POLL_CYCLE);
-	    
-	    
-	    // ========================================================================
-	    // SECCIÓN 2: DETECCIÓN COMANDOS PENDIENTES
-	    // ========================================================================
-	    #cmdPending := #CMD_OPEN_QT1 OR #CMD_CLOSE_QT1 OR
-	    #CMD_OPEN_QG1 OR #CMD_CLOSE_QG1 OR
-	    #CMD_OPEN_QG2 OR #CMD_CLOSE_QG2;
-	    
-	    // Detección comandos feeders
-	    #tmpHasFdrCmd := FALSE;
-	    FOR #tmpIdx := 1 TO #N_FEEDERS DO
-	        IF #CMD_OPEN_FEEDER[#tmpIdx] OR #CMD_CLOSE_FEEDER[#tmpIdx] THEN
-	            #tmpHasFdrCmd := TRUE;
-	        END_IF;
-	    END_FOR;
-	    #cmdPendingFeeder := #tmpHasFdrCmd;
-	    
-	    
-	    // ========================================================================
-	    // SECCIÓN 3: PROTECCIÓN - sin habilitación no operar
-	    // ========================================================================
-	    IF NOT #ENABLE THEN
-	        #Step := #ST_IDLE;
-	        #reqFlag := FALSE;
-	        #reqHoldActive := FALSE;
-	        #pauseActive := FALSE;
-	        #retryDelayActive := FALSE;
-	        #pollCycleActive := FALSE;
-	        #BUSY := FALSE;
-	        #COMM_OK := FALSE;
-	        #ERROR := FALSE;
-	    ELSE
-	        // ====================================================================
-	        // SECCIÓN 4: MÁQUINA DE ESTADOS MODBUS
-	        // ====================================================================
-	        CASE #Step OF
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 0: IDLE - Esperando polling o comando
-	                // ----------------------------------------------------------------
-	            #ST_IDLE:
-	                #BUSY := FALSE;
-	                #ERROR := FALSE;
-	                #retryCount := 0;
-	                #reqFlag := FALSE;
-	                #reqHoldActive := FALSE;
-	                
-	                // Prioridad: escrituras (comandos) > lecturas (polling)
-	                IF #cmdPending OR #cmdPendingFeeder THEN
-	                    #ACTIVE_DEVICE := 'CMD_EXEC';
-	                    #Step := #ST_PREPARE_WRITE;
-	                ELSE
-	                    // Iniciar ciclo polling
-	                    #pollCycleActive := TRUE;
-	                    IF #tonPollCycle.Q THEN
-	                        #pollCycleActive := FALSE;
-	                        
-	                        // Avanzar índice de polling
-	                        #pollIndex := #pollIndex + 1;
-	                        IF #pollIndex > #N_DEVICES THEN
-	                            #pollIndex := 1;
-	                        END_IF;
-	                        
-	                        // Asignar dispositivo activo
-	                        CASE #pollIndex OF
-	                            1:
-	                                #ACTIVE_DEVICE := 'QT1';
-	                            2:
-	                                #ACTIVE_DEVICE := 'QG1';
-	                            3:
-	                                #ACTIVE_DEVICE := 'QG2';
-	                            ELSE
-	                                #ACTIVE_DEVICE := 'FEEDER';
-	                        END_CASE;
-	                        
-	                        #Step := #ST_PREPARE_READ;
-	                    END_IF;
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 1: PREPARAR LECTURA
-	                // ----------------------------------------------------------------
-	            #ST_PREPARE_READ:
-	                #BUSY := TRUE;
-	                #reqFlag := TRUE;
-	                #reqHoldActive := TRUE;
-	                #Step := #ST_REQ_HOLD_READ;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 2: MANTENER REQ DURANTE 2 SEGUNDOS (lectura)
-	                // ----------------------------------------------------------------
-	            #ST_REQ_HOLD_READ:
-	                #reqFlag := TRUE;           // Mantener REQ activo
-	                IF #tonReqHold.Q THEN
-	                    // 2 segundos cumplidos, soltar REQ
-	                    #reqFlag := FALSE;
-	                    #reqHoldActive := FALSE;
-	                    #Step := #ST_EVAL_READ;
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 3: EVALUAR RESULTADO LECTURA
-	                // ----------------------------------------------------------------
-	            #ST_EVAL_READ:
-	                #reqFlag := FALSE;
-	                // TODO: Evaluar MB_MASTER.DONE / MB_MASTER.ERROR
-	                // Por ahora asumir éxito (se completará con drivers reales)
-	                #COMM_OK := TRUE;
-	                #pauseActive := TRUE;
-	                #Step := #ST_PAUSE_AFTER_READ;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 4: PAUSA DESPUÉS DE LECTURA
-	                // ----------------------------------------------------------------
-	            #ST_PAUSE_AFTER_READ:
-	                IF #tonPauseBetween.Q THEN
-	                    #pauseActive := FALSE;
-	                    #BUSY := FALSE;
-	                    #Step := #ST_IDLE;
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 10: PREPARAR ESCRITURA (comando)
-	                // ----------------------------------------------------------------
-	            #ST_PREPARE_WRITE:
-	                #BUSY := TRUE;
-	                #reqFlag := TRUE;
-	                #reqHoldActive := TRUE;
-	                #Step := #ST_REQ_HOLD_WRITE;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 11: MANTENER REQ DURANTE 2 SEGUNDOS (escritura)
-	                // ----------------------------------------------------------------
-	            #ST_REQ_HOLD_WRITE:
-	                #reqFlag := TRUE;           // Mantener REQ activo
-	                IF #tonReqHold.Q THEN
-	                    // 2 segundos cumplidos, soltar REQ
-	                    #reqFlag := FALSE;
-	                    #reqHoldActive := FALSE;
-	                    #Step := #ST_EVAL_WRITE;
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 12: EVALUAR RESULTADO ESCRITURA
-	                // ----------------------------------------------------------------
-	            #ST_EVAL_WRITE:
-	                #reqFlag := FALSE;
-	                // TODO: Evaluar MB_MASTER.DONE / MB_MASTER.ERROR
-	                // Por ahora asumir éxito (se completará con drivers reales)
-	                #COMM_OK := TRUE;
-	                #pauseActive := TRUE;
-	                #Step := #ST_PAUSE_AFTER_WRITE;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 13: PAUSA DESPUÉS DE ESCRITURA
-	                // ----------------------------------------------------------------
-	            #ST_PAUSE_AFTER_WRITE:
-	                IF #tonPauseBetween.Q THEN
-	                    #pauseActive := FALSE;
-	                    #BUSY := FALSE;
-	                    #Step := #ST_IDLE;  // Volver a IDLE (siguiente polling o comando)
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 97: REINTENTO ESCRITURA
-	                // ----------------------------------------------------------------
-	            #ST_RETRY_WRITE:
-	                IF #tonRetryDelay.Q THEN
-	                    #retryDelayActive := FALSE;
-	                    #Step := #ST_PREPARE_WRITE;
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 98: REINTENTO LECTURA
-	                // ----------------------------------------------------------------
-	            #ST_RETRY_READ:
-	                IF #tonRetryDelay.Q THEN
-	                    #retryDelayActive := FALSE;
-	                    #Step := #ST_PREPARE_READ;
-	                END_IF;
-	                
-	                // ----------------------------------------------------------------
-	                // ESTADO 99: ERROR DEFINITIVO
-	                // ----------------------------------------------------------------
-	            #ST_ERROR:
-	                #BUSY := FALSE;
-	                #ERROR := TRUE;
-	                #COMM_OK := FALSE;
-	                #reqFlag := FALSE;
-	                #reqHoldActive := FALSE;
-	                // Esperar deshabilitación/habilitación para reset
-	                IF NOT #ENABLE THEN
-	                    #Step := #ST_IDLE;
-	                END_IF;
-	                
-	        END_CASE;
-	    END_IF;
-	    
-	    
-	    // ========================================================================
-	    // SECCIÓN 5: MB_MASTER - LLAMAR SIEMPRE (fuera de toda lógica)
-	    // ========================================================================
-	    // TODO: Descomentar cuando se implemente la conexión real con CM 1241
-	    // #MB_MASTER_Instance(
-	    //     REQ     := #reqFlag,
-	    //     MB_ADDR := #currentSlaveAddr,
-	    //     MODE    := #currentMode,
-	    //     DATA_ADDR := #currentDataAddr,
-	    //     DATA_LEN := #currentDataLen,
-	    //     DATA_PTR := #currentDataPtr
-	    // );
-	    
-END_FUNCTION_BLOCK
+    // ========================================================================
+    // TEMPORIZADORES — ejecutar siempre en cada ciclo de scan
+    // ========================================================================
+    #tonReqHold(IN      := #reqHoldActive,    PT := T#2s);
+    #tonPauseBetween(IN := #pauseActive,      PT := #T_PAUSE_BETWEEN);
+    #tonRetryDelay(IN   := #retryDelayActive, PT := #T_RETRY_DELAY);
+    #tonPollCycle(IN    := #pollCycleActive,  PT := #T_POLL_CYCLE);
 
+
+    // ========================================================================
+    // PROTECCION: si ENABLE=FALSE detener todo
+    // ========================================================================
+    IF NOT #ENABLE THEN
+        #Step            := #ST_IDLE;
+        #reqFlag         := FALSE;
+        #reqHoldActive   := FALSE;
+        #pauseActive     := FALSE;
+        #retryDelayActive := FALSE;
+        #pollCycleActive := FALSE;
+        #BUSY            := FALSE;
+        #COMM_OK         := FALSE;
+        #GRID_MEAS_OK    := FALSE;
+        #ERROR           := FALSE;
+    ELSE
+
+        // ====================================================================
+        // MAQUINA DE ESTADOS — polling round-robin 7 PM5350P (solo lectura)
+        // ====================================================================
+        CASE #Step OF
+
+            // ----------------------------------------------------------------
+            // IDLE: esperar ciclo de polling
+            // ----------------------------------------------------------------
+            #ST_IDLE:
+                #BUSY  := FALSE;
+                #ERROR := FALSE;
+                #retryCount := 0;
+                #reqFlag := FALSE;
+                #reqHoldActive := FALSE;
+                #pollCycleActive := TRUE;
+
+                IF #tonPollCycle.Q THEN
+                    #pollCycleActive := FALSE;
+
+                    // Avanzar indice round-robin 1..7
+                    #pollIndex := #pollIndex + 1;
+                    IF #pollIndex > #N_DEVICES THEN
+                        #pollIndex := 1;
+                    END_IF;
+
+                    // Asignar SlaveID activo segun indice
+                    CASE #pollIndex OF
+                        1: #currentSlaveID := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+                        2: #currentSlaveID := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+                        3: #currentSlaveID := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
+                        4: #currentSlaveID := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
+                        5: #currentSlaveID := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
+                        6: #currentSlaveID := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
+                        7: #currentSlaveID := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
+                    ELSE
+                        #currentSlaveID := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
+                    END_CASE;
+
+                    #Step := #ST_PREPARE;
+                END_IF;
+
+
+            // ----------------------------------------------------------------
+            // PREPARE: activar REQ al MB_MASTER
+            // ----------------------------------------------------------------
+            #ST_PREPARE:
+                #BUSY          := TRUE;
+                #reqFlag       := TRUE;
+                #reqHoldActive := TRUE;
+                #Step          := #ST_WAIT_ACK;
+
+
+            // ----------------------------------------------------------------
+            // WAIT_ACK: mantener REQ hasta timeout (2 s)
+            // TODO: reemplazar temporizador por MB_MASTER.DONE / ERROR
+            // ----------------------------------------------------------------
+            #ST_WAIT_ACK:
+                #reqFlag := TRUE;
+                IF #tonReqHold.Q THEN
+                    #reqFlag       := FALSE;
+                    #reqHoldActive := FALSE;
+                    #Step          := #ST_EVAL;
+                END_IF;
+
+
+            // ----------------------------------------------------------------
+            // EVAL: parsear rxBuffer (120 registros desde 3000)
+            // ----------------------------------------------------------------
+            // Fuente: PM51xx_PM53xx_PMC Register List (Schneider)
+            // Todos los registros son FLOAT32 (2 regs = 32 bits IEEE 754)
+            // sin escalado adicional. Big-endian: high word en offset N, low en N+1.
+            // Mapa de offsets (base = reg 3000, offset = reg - 3000):
+            //   +20  reg 3020  Voltage A-B (V_L1L2)  FLOAT32  [V]
+            //   +22  reg 3022  Voltage B-C (V_L2L3)  FLOAT32  [V]
+            //   +24  reg 3024  Voltage C-A (V_L3L1)  FLOAT32  [V]
+            //   +60  reg 3060  Active Power Total    FLOAT32  [kW]  <-- ya en kW, sin /1000
+            //   +110 reg 3110  Frequency             FLOAT32  [Hz]  <-- ya en Hz, sin x0.01
+            // ----------------------------------------------------------------
+            #ST_EVAL:
+                #reqFlag := FALSE;
+                // Voltajes FLOAT32 [V] (big-endian: high word primero)
+                #PM_V_L1L2[#pollIndex] := DWORD_TO_REAL(
+                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[20])), N := 16)
+                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[21])));
+                #PM_V_L2L3[#pollIndex] := DWORD_TO_REAL(
+                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[22])), N := 16)
+                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[23])));
+                #PM_V_L3L1[#pollIndex] := DWORD_TO_REAL(
+                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[24])), N := 16)
+                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[25])));
+                // Potencia activa total FLOAT32 [kW] — offset +60 (reg 3060)
+                // P_TOTAL llega directamente en kW; OB1 NO divide por 1000.
+                #PM_P_TOTAL[#pollIndex] := DWORD_TO_REAL(
+                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[60])), N := 16)
+                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[61])));
+                // Frecuencia FLOAT32 [Hz] — offset +110 (reg 3110)
+                #PM_FREQ[#pollIndex] := DWORD_TO_REAL(
+                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[110])), N := 16)
+                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[111])));
+
+                #PM_COMM_OK[#pollIndex] := TRUE;
+                #COMM_OK                := TRUE;
+                // Marcar grid valido si es el medidor C02 (indice 1)
+                IF #pollIndex = 1 THEN
+                    #GRID_MEAS_OK := TRUE;
+                END_IF;
+                #pauseActive := TRUE;
+                #Step        := #ST_PAUSE;
+
+
+            // ----------------------------------------------------------------
+            // PAUSE: breve espera entre lecturas
+            // ----------------------------------------------------------------
+            #ST_PAUSE:
+                IF #tonPauseBetween.Q THEN
+                    #pauseActive := FALSE;
+                    #BUSY        := FALSE;
+                    #Step        := #ST_IDLE;
+                END_IF;
+
+
+            // ----------------------------------------------------------------
+            // RETRY: espera antes de reintentar
+            // ----------------------------------------------------------------
+            #ST_RETRY:
+                IF #tonRetryDelay.Q THEN
+                    #retryDelayActive := FALSE;
+                    #Step             := #ST_PREPARE;
+                END_IF;
+
+
+            // ----------------------------------------------------------------
+            // ERROR: fallo definitivo en el dispositivo activo
+            // ----------------------------------------------------------------
+            #ST_ERROR:
+                #BUSY                      := FALSE;
+                #ERROR                     := TRUE;
+                #PM_COMM_OK[#pollIndex]    := FALSE;
+                IF #pollIndex = 1 THEN
+                    #GRID_MEAS_OK := FALSE;
+                END_IF;
+                #reqFlag       := FALSE;
+                #reqHoldActive := FALSE;
+                // Continuar con el siguiente dispositivo tras el proximo ciclo
+                #pauseActive := TRUE;
+                #Step        := #ST_PAUSE;
+
+        END_CASE;
+
+    END_IF;
+
+
+    // ========================================================================
+    // LLAMADA MB_MASTER (CM 1241) -- STUB, descomentar al implementar
+    // ========================================================================
+    // Una sola lectura de 120 registros desde 3000..3119 cubre todas las
+    // variables necesarias. El buffer rxBuffer[0..119] se parsea en ST_EVAL.
+    //
+    // Fuente: PM51xx_PM53xx_PMC Register List — todos FLOAT32, sin escala.
+    // Mapa de offsets (offset = registro - 3000):
+    //   rxBuffer[20..21]   = reg 3020  V_L1L2 (Voltage A-B) [FLOAT32, V]
+    //   rxBuffer[22..23]   = reg 3022  V_L2L3 (Voltage B-C) [FLOAT32, V]
+    //   rxBuffer[24..25]   = reg 3024  V_L3L1 (Voltage C-A) [FLOAT32, V]
+    //   rxBuffer[60..61]   = reg 3060  P_total (Active Power Total) [FLOAT32, kW]
+    //   rxBuffer[110..111] = reg 3110  Frequency [FLOAT32, Hz]
+    //
+    // Nota: alarmas (reg 3200+) quedan fuera de este rango.
+    // Agregar segunda lectura DATA_ADDR=3200, DATA_LEN=10 si se requieren.
+    //
+    // El bloque MB_MASTER debe llamarse SIEMPRE (fuera de IF/CASE).
+    // DATA_PTR apunta a #rxBuffer usando VARIANT o P# segun version TIA.
+    //
+    // #MB_MASTER_Inst(
+    //     REQ         := #reqFlag,
+    //     MB_ADDR     := INT_TO_UINT(#currentSlaveID),
+    //     MODE        := 0,              // 0 = Read Holding Registers (FC03)
+    //     DATA_ADDR   := 3000,           // Registro inicial — cubre 3000..3119
+    //     DATA_LEN    := 120,            // 120 registros de 16 bits = 240 bytes
+    //     DATA_PTR    := #rxBuffer       // Buffer de recepcion declarado en VAR
+    // );
+
+END_FUNCTION_BLOCK

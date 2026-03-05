@@ -1,11 +1,36 @@
 ﻿// =============================================================================
-// INSTANCE DATA BLOCKS - Importar DESPUES de los FBs y ANTES del Main (OB1)
+// INSTANCE DATA BLOCKS — V4.0  TGBT SCMTA
+// Importar DESPUES de los FBs y ANTES del Main (OB1)
 // Orden de importacion en TIA Portal V18:
 //   1. DATA_BUFF (DB global) + DB_PARAMS
 //   2. FBs (01-07)
 //   3. Este archivo (Instance DBs)
 //   4. Main (OB1)
+//
+// CAMBIO V4:
+//   - ELIMINADOS: 07_FB_MTZ_DRIVER_DB_QT1/QG1/QG2 (sin Modbus a interruptores)
+//   - AGREGADOS:  01_FB_IO_NORMALIZE_DB, 02_FB_SCMTA_DB, 06_FB_MODBUS_MANAGER_DB
 // =============================================================================
+
+DATA_BLOCK "01_FB_IO_NORMALIZE_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"01_FB_IO_NORMALIZE"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "02_FB_SCMTA_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"02_FB_SCMTA"
+
+BEGIN
+
+END_DATA_BLOCK
 
 DATA_BLOCK "03_FB_SHED_DB"
 { S7_Optimized_Access := 'TRUE' }
@@ -37,32 +62,25 @@ BEGIN
 
 END_DATA_BLOCK
 
-DATA_BLOCK "07_FB_MTZ_DRIVER_DB_QT1"
+DATA_BLOCK "06_FB_MODBUS_MANAGER_DB"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 NON_RETAIN
-"07_FB_MTZ_DRIVER"
+"06_FB_MODBUS_MANAGER"
 
 BEGIN
 
 END_DATA_BLOCK
 
-DATA_BLOCK "07_FB_MTZ_DRIVER_DB_QG1"
+DATA_BLOCK "12_PULSE_EXPANDER_DB"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 NON_RETAIN
-"07_FB_MTZ_DRIVER"
+"12_FB_PULSE_EXPANDER"
 
 BEGIN
 
 END_DATA_BLOCK
 
-DATA_BLOCK "07_FB_MTZ_DRIVER_DB_QG2"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-NON_RETAIN
-"07_FB_MTZ_DRIVER"
-
-BEGIN
-
-END_DATA_BLOCK
+// NOTE: 07_FB_MTZ_DRIVER no se instancia en V4 (sin Modbus a interruptores)
+// El archivo 07_FB_MTZ_DRIVER.scl se conserva como referencia historica.

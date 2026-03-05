@@ -1,70 +1,92 @@
 ﻿DATA_BLOCK "DB_PARAMS"
+// ============================================================
+// Versión: 4.0  Fecha: 2026-03-03
+// Cambio de alcance V4:
+//   - Sin Modbus MTZ (eliminados SLAVE_ID_QTx, passwords)
+//   - Modbus solo PM5350P (7 dispositivos)
+//   - Control QT1/QG1/QG2/Q22 por E/S digitales
+//   - ENABLE_QG2: FALSE mientras QG2 no está instalado
+//   - ENABLE_SHED: FALSE en esta etapa (deslastre manual)
+//   - T_CMD_PULSE: duración del pulso DO de comando
+// ============================================================
 { S7_Optimized_Access := 'FALSE' }
 VERSION : 0.1
 NON_RETAIN
    STRUCT 
-      // PARAMETROS TENSION/FRECUENCIA RED
-      V_NOM : Real := 380.0;
-      V_MIN_PCT : Real := 85.0;
-      V_MAX_PCT : Real := 110.0;
+      // ---- PARAMETROS TENSION/FRECUENCIA RED ----
+      V_NOM : Real := 380.0;       // Tensión nominal línea-línea [V]
+      V_MIN_PCT : Real := 85.0;    // Umbral subtensión [% de V_NOM]
+      V_MAX_PCT : Real := 110.0;   // Umbral sobretensión [% de V_NOM]
       FREQ_NOM : Real := 50.0;
       FREQ_MIN : Real := 49.0;
       FREQ_MAX : Real := 51.0;
-      // TIEMPOS TRANSFERENCIA RED->GD
-      T_OPEN_QT1 : Time := T#2s;
-      T_START_GD_DELAY : Time := T#3s;
-      T_GD_READY_TIMEOUT : Time := T#30s;
-      T_GD_STABILIZATION : Time := T#5s;
-      T_CLOSE_QG1 : Time := T#2s;
-      T_CLOSE_QG2 : Time := T#2s;
-      T_GRID_FAIL_FILTER : Time := T#2s;
-      // TIEMPOS RETORNO GD->RED
-      T_GRID_STABLE : Time := T#120s;
-      T_OPEN_QG1 : Time := T#2s;
-      T_OPEN_QG2 : Time := T#2s;
-      T_CLOSE_QT1 : Time := T#2s;
-      T_GD_COOLDOWN : Time := T#60s;
-      // PARAMETROS DESLASTRE GD
+      T_GRID_FAIL_FILTER : Time := T#2s;   // Filtro confirmación falla red
+      T_GRID_STABLE : Time := T#120s;      // Tiempo de red estable antes de retorno
+
+      // ---- TIEMPOS DE TRANSFERENCIA RED->GD ----
+      T_OPEN_QT1 : Time := T#3s;          // Tiempo máx esperado para confirmar apertura QT1
+      T_START_GD_DELAY : Time := T#3s;    // Demora antes de arrancar generador
+      T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD listo
+      T_GD_STABILIZATION : Time := T#5s;  // Estabilización tensión GD antes de cerrar QGx
+      T_CLOSE_QG1 : Time := T#3s;         // Tiempo máx para confirmar cierre QG1
+      T_CLOSE_QG2 : Time := T#3s;         // Tiempo máx para confirmar cierre QG2
+
+      // ---- TIEMPOS DE RETORNO GD->RED ----
+      T_OPEN_QG1 : Time := T#3s;          // Tiempo máx para confirmar apertura QG1
+      T_OPEN_QG2 : Time := T#3s;
+      T_CLOSE_QT1 : Time := T#3s;         // Tiempo máx para confirmar cierre QT1
+      T_GD_COOLDOWN : Time := T#60s;      // Enfriamiento GD tras apagado
+
+      // ---- PULSO DE COMANDO DO (V4) ----
+      // Los DO de comando replican pulsadores físicos en puerta de tablero
+      T_CMD_PULSE : Time := T#300ms;      // Duración pulso DO (ajustar según MTZ)
+      T_CMD_CONFIRM : Time := T#2s;       // Tiempo máx para recibir confirmación DI tras pulso
+
+      // ---- PARAMETROS DESLASTRE (conservados, deshabilitado en V4) ----
       GD_SHED_ON : Real := 90.0;
       GD_SHED_OFF : Real := 70.0;
-      // PARAMETROS DESLASTRE RED
       GRID_SHED_ON : Real := 85.0;
       GRID_SHED_OFF : Real := 70.0;
-      // TIEMPOS DESLASTRE
       T_SHED_STEP : Time := T#5s;
       T_RECONNECT_STEP : Time := T#5s;
       T_LOAD_FILTER : Time := T#2s;
       T_LOAD_CHECK_DELAY : Time := T#3s;
-      // ARRAYS DESLASTRE
       SHED_ORDER : Array[1..19] of Int := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
       RECONNECT_ORDER : Array[1..19] of Int := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-      FEEDER_ESSENTIAL : Array[1..19] of Bool := [FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE];
-      SHED_ENABLE : Array[1..19] of Bool := [TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE];
-      // CONFIGURACION MODBUS
-      SLAVE_ID_QT1 : Byte := 1;
-      SLAVE_ID_QG1 : Byte := 2;
-      SLAVE_ID_QG2 : Byte := 3;
-      SLAVE_ID_PM5350_GRID : Byte := 10;
-      SLAVE_ID_PM5350_GD : Byte := 11;
-      SLAVE_ID_PM5350_TR : Byte := 12;
-      SLAVE_ID_FEEDER : Array[1..19] of Byte := [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38];
-      PASSWORD_MTZ_QT1 : String[4] := '3333';
-      PASSWORD_MTZ_QG1 : String[4] := '3333';
-      PASSWORD_MTZ_QG2 : String[4] := '3333';
-      PASSWORD_NSX : String[4] := '3333';
-      T_MODBUS_POLL_TIMEOUT : Time := T#5s;
-      T_MODBUS_CONFIRM_TIMEOUT : Time := T#2s;
+      FEEDER_ESSENTIAL : Array[1..19] of Bool := [19(FALSE)];
+      SHED_ENABLE : Array[1..19] of Bool := [19(FALSE)]; // Todos FALSE en V4
+
+      // ---- CONFIGURACION MODBUS PM5350P (7 dispositivos) ----
+      // Tablero C02 (QT1 / fuente red)
+      SLAVE_ID_PM5350_C02 : Byte := 10;
+      // Tablero C01 GD1
+      SLAVE_ID_PM5350_C01_GD1 : Byte := 11;
+      // Tablero C01 GD2
+      SLAVE_ID_PM5350_C01_GD2 : Byte := 12;
+      // Tableros de feeders (solo monitoreo)
+      SLAVE_ID_PM5350_C03 : Byte := 13;
+      SLAVE_ID_PM5350_C04 : Byte := 14;
+      SLAVE_ID_PM5350_C05 : Byte := 15;
+      SLAVE_ID_PM5350_C06 : Byte := 16;
+      // Timeout Modbus
+      T_MODBUS_POLL_TIMEOUT : Time := T#3s;
       T_POLL_CYCLE : Time := T#1s;
-      // CALIBRACION GD
-      GD_POWER_NOMINAL : Real := 1000.0;
-      GD_CURRENT_NOMINAL : Real := 1520.0;
-      // CALIBRACION TRANSFORMADOR
-      TR_POWER_NOMINAL : Real := 1000.0;
-      TR_CURRENT_NOMINAL : Real := 1520.0;
-      // FLAGS DE SISTEMA
+
+      // ---- CALIBRACION POTENCIA NOMINAL ----
+      // UNIDADES: PM5350P registro 3060 (Active Power Total) entrega FLOAT32 en kW.
+      //   (Fuente: PM51xx_PM53xx_PMC Register List — Data Type FLOAT32, Units kW)
+      //   Los parametros abajo estan en kW → comparacion directa, sin conversion.
+      //   OB1 NETWORK 8 NO divide por 1000 (el medidor ya entrega kW directamente).
+      //   Ajustar segun placa del generador instalado.
+      GD1_POWER_NOMINAL : Real := 1000.0;  // [kW] — valor placeholder; ajustar segun placa GD1
+      GD2_POWER_NOMINAL : Real := 1000.0;  // [kW] — valor placeholder; ajustar segun placa GD2
+      TR_POWER_NOMINAL : Real := 1000.0;   // [kVA] — ajustar segun placa transformador
+
+      // ---- FLAGS DE SISTEMA ----
       ENABLE_SCMTA : Bool := TRUE;
-      ENABLE_SHED : Bool := TRUE;
-      ENABLE_AUTO_RETURN : Bool := TRUE;
+      ENABLE_SHED : Bool := FALSE;        // FALSE en V4 (etapa 1: sin deslastre automático)
+      ENABLE_AUTO_RETURN : Bool := TRUE;  // Retorno automático a RED cuando estabiliza
+      ENABLE_QG2 : Bool := FALSE;         // FALSE: QG2 no instalado aún — cambiar a TRUE cuando corresponda
    END_STRUCT;
 
 

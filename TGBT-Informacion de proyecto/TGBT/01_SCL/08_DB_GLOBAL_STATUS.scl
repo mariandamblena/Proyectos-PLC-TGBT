@@ -1,44 +1,72 @@
 ﻿DATA_BLOCK "DATA_BUFF"
+// ============================================================
+// Versión: 4.0  Fecha: 2026-03-03
+// Control QT1/QG1/QG2/Q22 por E/S digitales (sin Modbus MTZ)
+// Modbus solo PM5350P — 7 dispositivos
+// ============================================================
 { S7_Optimized_Access := 'FALSE' }
 VERSION : 0.1
 NON_RETAIN
    STRUCT 
+      // ---- MODO Y PERMISOS ----
       MODE_AUTO : Bool;
       MODE_MANUAL : Bool;
       DIAG_MODE_VALID : Bool;
       QT1_REMOTE_ALLOWED : Bool;
       QG1_REMOTE_ALLOWED : Bool;
       QG2_REMOTE_ALLOWED : Bool;
+      Q22_REMOTE_ALLOWED : Bool;
       REQ_MAN_QT1_OPEN : Bool;
       REQ_MAN_QT1_CLOSE : Bool;
       REQ_MAN_QG1_OPEN : Bool;
       REQ_MAN_QG1_CLOSE : Bool;
       REQ_MAN_QG2_OPEN : Bool;
       REQ_MAN_QG2_CLOSE : Bool;
-      REQ_MAN_FEEDER_OPEN : Array[1..19] of Bool;
-      REQ_MAN_FEEDER_CLOSE : Array[1..19] of Bool;
-      GD_READY : Bool;
-      GD_RUNNING : Bool;
-      GD_ALARM : Bool;
+      REQ_MAN_Q22_OPEN : Bool;
+      REQ_MAN_Q22_CLOSE : Bool;
+      RESET_FAULT : Bool;   // Puede venir de HMI o de pulsador físico
+      ACK_ALARM : Bool;
+
+      // ---- ESTADO INTERRUPTORES POR DI (V4) ----
+      // QT1
+      QT1_CLOSED : Bool;         // DI %I0.1
+      QT1_OPEN : Bool;           // NOT(QT1_CLOSED)
+      QT1_FAULT : Bool;          // DI %I0.2
+      QT1_REMOTE : Bool;         // DI %I0.0
+      QT1_UV_OV_DI : Bool;       // DI %I0.3 — backup alarma DO del PM5350P C02
+      // QG1
+      QG1_CLOSED : Bool;         // DI %I0.6
+      QG1_OPEN : Bool;
+      QG1_FAULT : Bool;          // DI %I0.7
+      QG1_REMOTE : Bool;         // DI %I0.5
+      QG1_UV_OV_DI : Bool;       // DI %I1.0
+      // QG2
+      QG2_CLOSED : Bool;         // DI %I1.2
+      QG2_OPEN : Bool;
+      QG2_FAULT : Bool;          // DI %I1.3
+      QG2_REMOTE : Bool;         // DI %I1.1
+      QG2_UV_OV_DI : Bool;       // DI %I1.4
+      // Q22
+      Q22_REMOTE : Bool;         // DI %I8.5
+      // Busbar indicador
+      BUSBAR_UV_OV_DI : Bool;    // DI %I0.4 — indicador, no usado en control V4
+
+      // ---- ESTADO GENERADORES ----
+      GD1_READY : Bool;
+      GD1_RUNNING : Bool;
+      GD1_ALARM : Bool;
       GD2_READY : Bool;
       GD2_RUNNING : Bool;
       GD2_ALARM : Bool;
-      QT1_STATE : Int;
-      QT1_TRIPPED : Bool;
-      QT1_READY : Bool;
-      QG1_STATE : Int;
-      QG1_TRIPPED : Bool;
-      QG1_READY : Bool;
-      QG2_STATE : Int;
-      QG2_TRIPPED : Bool;
-      QG2_READY : Bool;
-      FEEDER_STATE : Array[1..19] of Int;
-      FEEDER_TRIPPED : Array[1..19] of Bool;
-      FEEDER_READY : Array[1..19] of Bool;
-      FEEDER_ALARM : Array[1..19] of Bool;
-      FEEDER_I_L1 : Array[1..19] of Real;
-      FEEDER_I_L2 : Array[1..19] of Real;
-      FEEDER_I_L3 : Array[1..19] of Real;
+      // Alias del GD activo (GD1 o GD2 segun ACTIVE_GD)
+      GD_READY : Bool;
+      GD_RUNNING : Bool;
+      GD_ALARM : Bool;
+      // Pedidos de parada desde logica de transferencia
+      GD_STOP_REQ : Bool;
+      GD2_STOP_REQ : Bool;
+
+      // ---- MEDICIONES PM5350P C02 (RED / QT1) ----
       GRID_V_L1L2 : Real;
       GRID_V_L2L3 : Real;
       GRID_V_L3L1 : Real;
@@ -50,22 +78,48 @@ NON_RETAIN
       GRID_Q_TOTAL : Real;
       GRID_S_TOTAL : Real;
       GRID_PF : Real;
-      GRID_ENERGY : Real;
+      GRID_PHASE_LOSS : Bool;    // Alarma pérdida de fase desde PM5350P
+      GRID_ALM_UV : Bool;        // Alarma subtensión desde PM5350P
+      GRID_ALM_OV : Bool;        // Alarma sobretensión desde PM5350P
       GRID_MEASUREMENT_OK : Bool;
-      GD_V_L1L2 : Real;
-      GD_V_L2L3 : Real;
-      GD_V_L3L1 : Real;
-      GD_I_L1 : Real;
-      GD_I_L2 : Real;
-      GD_I_L3 : Real;
-      GD_FREQ : Real;
-      GD_P_TOTAL : Real;
-      GD_LoadPct : Real;
-      GD_MEASUREMENT_OK : Bool;
-      TR_I_L1 : Real;
-      TR_I_L2 : Real;
-      TR_I_L3 : Real;
-      TR_P_TOTAL : Real;
+
+      // ---- MEDICIONES PM5350P C01-GD1 ----
+      GD1_V_L1L2 : Real;
+      GD1_V_L2L3 : Real;
+      GD1_V_L3L1 : Real;
+      GD1_I_L1 : Real;
+      GD1_I_L2 : Real;
+      GD1_I_L3 : Real;
+      GD1_FREQ : Real;
+      GD1_P_TOTAL : Real;
+      GD1_LoadPct : Real;
+      GD1_MEASUREMENT_OK : Bool;
+
+      // ---- MEDICIONES PM5350P C01-GD2 ----
+      GD2_V_L1L2 : Real;
+      GD2_V_L2L3 : Real;
+      GD2_V_L3L1 : Real;
+      GD2_FREQ : Real;
+      GD2_P_TOTAL : Real;
+      GD2_LoadPct : Real;
+      GD2_MEASUREMENT_OK : Bool;
+
+      // ---- MEDICIONES PM5350P C03-C06 (monitoreo feeders) ----
+      C03_V_L1L2 : Real;
+      C03_P_TOTAL : Real;
+      C03_MEASUREMENT_OK : Bool;
+      C04_V_L1L2 : Real;
+      C04_P_TOTAL : Real;
+      C04_MEASUREMENT_OK : Bool;
+      C05_V_L1L2 : Real;
+      C05_P_TOTAL : Real;
+      C05_MEASUREMENT_OK : Bool;
+      C06_V_L1L2 : Real;
+      C06_P_TOTAL : Real;
+      C06_MEASUREMENT_OK : Bool;
+
+      // ---- PARA COMPATIBILIDAD CON FB_SHED (deshabilitado V4) ----
+      GD_LoadPct : Real;    // = GD1_LoadPct cuando operando en GD1
       TR_LoadPct : Real;
       TR_MEASUREMENT_OK : Bool;
       SCMTA_STATE : Int;
@@ -102,6 +156,22 @@ NON_RETAIN
       BLOCK_CONFLICT : Bool;
       HMI_ALARM_ACTIVE : Bool;
       HMI_ALARM_TEXT : String[100];
+      // ---- PILOTOS / INDICADORES (salidas de FB_OUTPUTS) ----
+      PILOT_ON_GRID : Bool;
+      PILOT_ON_GD : Bool;
+      PILOT_FAULT : Bool;
+      PILOT_QT1_OPEN : Bool;
+      PILOT_QT1_CLOSED : Bool;
+      PILOT_QT1_FAULT : Bool;
+      PILOT_QG1_OPEN : Bool;
+      PILOT_QG1_CLOSED : Bool;
+      PILOT_QG1_FAULT : Bool;
+      PILOT_QG2_OPEN : Bool;
+      PILOT_QG2_CLOSED : Bool;
+      PILOT_QG2_FAULT : Bool;
+      PILOT_Q22_OPEN : Bool;
+      PILOT_Q22_CLOSED : Bool;
+      PILOT_Q22_FAULT : Bool;
       HMI_FEEDER_OPEN : Array[1..19] of Bool;
       HMI_FEEDER_CLOSED : Array[1..19] of Bool;
       HMI_FEEDER_TRIPPED : Array[1..19] of Bool;
@@ -109,6 +179,10 @@ NON_RETAIN
       COMM_OK : Bool;
       COMM_ERRORS : Int;
       ACTIVE_DEVICE : String[20];
+      // Estado Modbus (PM5350P)
+      MODBUS_COMM_OK : Bool;
+      MODBUS_ACTIVE_DEVICE : String[20];
+      PM_COMM_OK : Bool;   // TRUE cuando al menos un PM tiene lectura valida
       SYSTEM_UPTIME : Time;
       TRANSFER_COUNT : Int;
       FAULT_COUNT : Int;
