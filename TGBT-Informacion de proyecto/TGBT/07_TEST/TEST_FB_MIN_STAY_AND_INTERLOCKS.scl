@@ -1,0 +1,1163 @@
+// =============================================================================
+// TEST SUITE — Tiempo Mínimo en GD + Enclavamientos Manual HMI
+// Versión: 1.0   Fecha: 2026-03-06
+// =============================================================================
+// Cubre los tres temas del pedido:
+//
+//  TEST_A: Tiempo mínimo de permanencia en GD (T_MIN_GD_STAY = 10 min)
+//          - TC_A1: Si la RED vuelve antes de T_MIN_GD_STAY, NO se inicia retorno
+//          - TC_A2: Sólo cuando se cumple T_MIN_GD_STAY y GRID_OK → retorno
+//          - TC_A3: Alarma GD NO espera T_MIN_GD_STAY (prioridad seguridad)
+//          - TC_A4: Mismo comportamiento para GD2
+//
+//  TEST_B: Enclavamientos con operación manual desde HMI (04_FB_CMD_ARBITER)
+//          - TC_B1: Modo MANUAL — CLOSE QT1 bloqueado si QG1 cerrado (interlock fuente única)
+//          - TC_B2: Modo MANUAL — CLOSE QG1 bloqueado si QT1 cerrado
+//          - TC_B3: Modo MANUAL — CLOSE QG2 bloqueado si QT1 o QG1 cerrado
+//          - TC_B4: Modo MANUAL — Open/Close bloqueado si interruptor en LOCAL
+//          - TC_B5: Modo MANUAL — Conflicto OPEN+CLOSE simultáneo bloqueado
+//          - TC_B6: Modo MANUAL — Comando libre si enclavamiento OK
+//          - TC_B7: Modo AUTO — Comandos SCMTA no bloqueados por interlock (testeado al pasar)
+//
+//  TEST_C: Integración — secuencia completa con T_MIN_GD_STAY y retorno correcto
+//          - TC_C1: RED falla → GD1 arranca → RED vuelve antes de 10 min → se bloquea
+//                   → pasa 10 min → retorno automático correcto
+//
+// Para importar en TIA Portal V18:
+//   1. Importar después de todos los FBs de producción (01-12) e instance DBs
+//   2. Agregar DB instancia en 12_TEST_INSTANCE_DBS.scl:
+//        DATA_BLOCK "TEST_MIN_STAY_DB"
+//        { S7_Optimized_Access := 'TRUE' } VERSION : 0.1 NON_RETAIN
+//        "FB_TEST_MIN_STAY_AND_INTERLOCKS"
+//        BEGIN END_DATA_BLOCK
+//   3. Descomentar llamada en 13_OB1_TEST_MAIN.scl
+//   4. Activar testEnable := TRUE en el DB, monitorear testStep / testStatus
+// =============================================================================
+
+FUNCTION_BLOCK "FB_TEST_MIN_STAY_AND_INTERLOCKS"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR_INPUT
+    testEnable  : Bool;
+    testReset   : Bool;
+END_VAR
+
+VAR_OUTPUT
+    testStep    : Int;
+    testStatus  : String[40];
+    testPassed  : Bool;
+    testFailed  : Bool;
+    failInfo    : String[80];
+END_VAR
+
+VAR
+    // ---- Unidades bajo test ----
+    scmta       : "02_FB_SCMTA";
+    arbiter     : "04_FB_CMD_ARBITER";
+
+    // ---- Control de secuencia ----
+    step        : Int;
+    subStep     : Int;
+    cycleCount  : Int;
+
+    // ---- Timer auxiliar para simular paso del tiempo ----
+    simTimer    {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    simTimerPT  : Time;
+
+    // ---- Resultados parciales por suite ----
+    suiteName   : String[20];
+    tcPassed    : Int;
+    tcFailed    : Int;
+END_VAR
+
+VAR_TEMP
+    // Entradas SCMTA
+    t_enable            : Bool;
+    t_modeAuto          : Bool;
+    t_resetFault        : Bool;
+    t_enableQG2         : Bool;
+    t_enableAutoReturn  : Bool;
+    t_qt1Closed         : Bool;
+    t_qt1Fault          : Bool;
+    t_qt1Remote         : Bool;
+    t_qg1Closed         : Bool;
+    t_qg1Fault          : Bool;
+    t_qg1Remote         : Bool;
+    t_qg2Closed         : Bool;
+    t_qg2Fault          : Bool;
+    t_qg2Remote         : Bool;
+    t_gdReady           : Bool;
+    t_gdRunning         : Bool;
+    t_gdAlarm           : Bool;
+    t_gd2Ready          : Bool;
+    t_gd2Running        : Bool;
+    t_gd2Alarm          : Bool;
+    t_gridV             : Real;
+    t_gridFreq          : Real;
+    t_gridMeasOk        : Bool;
+    t_gridPhaseLoss     : Bool;
+    t_gridAlmUV         : Bool;
+    t_gridAlmOV         : Bool;
+    t_tMinGdStay        : Time;
+    t_tGridStable       : Time;
+    t_tGridFail         : Time;
+    t_tGdStabilization  : Time;
+    // Entradas CMD_ARBITER
+    a_modeAuto          : Bool;
+    a_modeManual        : Bool;
+    a_qt1Remote         : Bool;
+    a_qg1Remote         : Bool;
+    a_qg2Remote         : Bool;
+    a_q22Remote         : Bool;
+    a_qt1Closed         : Bool;
+    a_qg1Closed         : Bool;
+    a_qg2Closed         : Bool;
+END_VAR
+
+VAR CONSTANT
+    // Estados SCMTA
+    ST_INIT             : Int := 0;
+    ST_NORMAL_ON_GRID   : Int := 1;
+    ST_GRID_FAIL        : Int := 2;
+    ST_ON_GD1           : Int := 8;
+    ST_GRID_RETURN      : Int := 9;
+    ST_WAIT_GRID_STABLE : Int := 10;
+    ST_FAULT_LOCKOUT    : Int := 14;
+    ST_ON_GD2           : Int := 19;
+
+    // Pasos de test (grupos)
+    STEP_INIT           : Int := 0;
+    STEP_A1_START       : Int := 10;   // TEST_A1: RED vuelve antes de T_MIN_GD_STAY
+    STEP_A2_START       : Int := 30;   // TEST_A2: Retorno solo cuando cumple tiempo
+    STEP_A3_START       : Int := 60;   // TEST_A3: Alarma GD no espera tiempo min
+    STEP_A4_START       : Int := 90;   // TEST_A4: GD2 también respeta tiempo min
+    STEP_B1_START       : Int := 110;  // TEST_B1: Interlock CLOSE QT1 manual
+    STEP_B2_START       : Int := 120;  // TEST_B2: Interlock CLOSE QG1 manual
+    STEP_B3_START       : Int := 130;  // TEST_B3: Interlock CLOSE QG2 manual
+    STEP_B4_START       : Int := 140;  // TEST_B4: Bloqueo LOCAL
+    STEP_B5_START       : Int := 150;  // TEST_B5: Conflicto OPEN+CLOSE
+    STEP_B6_START       : Int := 160;  // TEST_B6: Comando libre OK
+    STEP_B7_START       : Int := 170;  // TEST_B7: AUTO — SCMTA pasa interlock
+    STEP_C1_START       : Int := 180;  // TEST_C1: Integración completa
+    STEP_DONE           : Int := 999;
+END_VAR
+
+BEGIN
+
+    IF #testReset THEN
+        #step        := #STEP_INIT;
+        #subStep     := 0;
+        #cycleCount  := 0;
+        #tcPassed    := 0;
+        #tcFailed    := 0;
+        #testPassed  := FALSE;
+        #testFailed  := FALSE;
+        #failInfo    := '';
+        #simTimer(IN := FALSE, PT := T#0ms);
+        RETURN;
+    END_IF;
+
+    IF NOT #testEnable THEN RETURN; END_IF;
+
+    #testStep := #step;
+
+    // =========================================================================
+    // Valores por defecto para SCMTA (estado noop = todo FALSE/cero)
+    // =========================================================================
+    t_enable            := TRUE;
+    t_modeAuto          := TRUE;
+    t_resetFault        := FALSE;
+    t_enableQG2         := FALSE;
+    t_enableAutoReturn  := TRUE;
+    t_qt1Closed         := FALSE;
+    t_qt1Fault          := FALSE;
+    t_qt1Remote         := TRUE;
+    t_qg1Closed         := FALSE;
+    t_qg1Fault          := FALSE;
+    t_qg1Remote         := TRUE;
+    t_qg2Closed         := FALSE;
+    t_qg2Fault          := FALSE;
+    t_qg2Remote         := FALSE;
+    t_gdReady           := FALSE;
+    t_gdRunning         := FALSE;
+    t_gdAlarm           := FALSE;
+    t_gd2Ready          := FALSE;
+    t_gd2Running        := FALSE;
+    t_gd2Alarm          := FALSE;
+    t_gridV             := 380.0;
+    t_gridFreq          := 50.0;
+    t_gridMeasOk        := TRUE;
+    t_gridPhaseLoss     := FALSE;
+    t_gridAlmUV         := FALSE;
+    t_gridAlmOV         := FALSE;
+    t_tMinGdStay        := T#500ms;  // reducido para test
+    t_tGridStable       := T#200ms;
+    t_tGridFail         := T#100ms;
+    t_tGdStabilization  := T#100ms;
+
+    // Valores por defecto CMD ARBITER
+    a_modeAuto          := FALSE;
+    a_modeManual        := FALSE;
+    a_qt1Remote         := TRUE;
+    a_qg1Remote         := TRUE;
+    a_qg2Remote         := TRUE;
+    a_q22Remote         := TRUE;
+    a_qt1Closed         := FALSE;
+    a_qg1Closed         := FALSE;
+    a_qg2Closed         := FALSE;
+
+    CASE #step OF
+
+    // =========================================================================
+    // STEP 0 — Reset y arranque
+    // =========================================================================
+    #STEP_INIT:
+        #testStatus  := 'Inicializando...';
+        #testPassed  := FALSE;
+        #testFailed  := FALSE;
+        #failInfo    := '';
+        #tcPassed    := 0;
+        #tcFailed    := 0;
+        #subStep     := 0;
+        // Reset SCMTA
+        t_resetFault := TRUE;
+        #scmta(
+            ENABLE := t_enable, MODE_AUTO := t_modeAuto, RESET_FAULT := t_resetFault,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := t_tGridStable, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := t_tGridFail,
+            T_MIN_GD_STAY := t_tMinGdStay
+        );
+        #step := #STEP_A1_START;
+
+
+    // =========================================================================
+    // TEST_A1: RED vuelve ANTES de T_MIN_GD_STAY → retorno NO debe iniciarse
+    // =========================================================================
+    #STEP_A1_START:   // 10
+        #testStatus := 'A1: RED antes T_MIN_GD_STAY';
+        // Simular: QT1 cerrado, RED ok → NORMAL_ON_GRID
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := TRUE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms   // 500 ms para test
+        );
+        #step := 11;
+
+    11: // Verificar NORMAL_ON_GRID
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := TRUE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        // Debe estar en NORMAL_ON_GRID
+        IF #scmta.STATE <> #ST_NORMAL_ON_GRID THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'A1: Esperado ST_NORMAL_ON_GRID en init';
+            #testFailed := TRUE;
+        END_IF;
+        #step := 12;
+
+    12: // Llevar a ON_GD1: simular RED falla → QT1 se abre → GD1 arranca
+        // Inyectar falla de red (tensión baja)
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := TRUE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,  // Red CAIDA
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        // Timer para dejar pasar filtro de falla + delay arranque
+        #simTimer(IN := TRUE, PT := T#300ms);
+        IF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#300ms);
+            #step := 13;
+        END_IF;
+
+    13: // Confirmar que QT1 fue abierto (simular feedback DI = FALSE) + GD running
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,  // QT1 ABIERTO
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,  // GD listo
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        #simTimer(IN := TRUE, PT := T#400ms);
+        IF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#400ms);
+            #step := 14;
+        END_IF;
+
+    14: // Confirmar cierre QG1 (simular DI QG1_CLOSED=TRUE) y entrar a ON_GD1
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,  // QG1 CERRADO
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        IF #scmta.STATE = #ST_ON_GD1 THEN
+            #step := 15;
+        END_IF;
+
+    15: // Ahora RED vuelve ANTES de T_MIN_GD_STAY (100ms << 500ms)
+        // RED OK pero el timer aún no cumplió: DEBE PERMANECER EN ON_GD1
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,  // RED ok de nuevo
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        // Verificar: debe seguir en ON_GD1 (no en GRID_RETURN ni WAIT_GRID_STABLE)
+        IF #scmta.STATE <> #ST_ON_GD1 THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'A1 FALLO: Retorno iniciado antes de T_MIN_GD_STAY';
+            #testFailed := TRUE;
+        ELSE
+            #tcPassed := #tcPassed + 1;
+        END_IF;
+        #step := #STEP_A2_START;
+
+
+    // =========================================================================
+    // TEST_A2: Retorno a RED SOLO cuando T_MIN_GD_STAY se cumple
+    // Continuamos desde el estado ON_GD1 con RED ok
+    // =========================================================================
+    #STEP_A2_START:  // 30
+        #testStatus := 'A2: Retorno OK tras T_MIN_GD_STAY';
+        // Esperar que el timer de 500ms se cumpla con RED ok continua
+        #simTimer(IN := TRUE, PT := T#600ms);
+        IF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#600ms);
+            #step := 31;
+        END_IF;
+        // Seguir llamando al SCMTA con RED ok y QG1 cerrado
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+
+    31: // Verificar que ahora SE MUEVE a GRID_RETURN o más allá
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        // Ahora DEBE salir de ON_GD1 hacia la secuencia de retorno
+        IF #scmta.STATE = #ST_ON_GD1 THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'A2 FALLO: Sigue en ON_GD1 tras T_MIN_GD_STAY+RED_OK';
+            #testFailed := TRUE;
+        ELSE
+            #tcPassed := #tcPassed + 1;
+        END_IF;
+        // Reset para próximo test
+        #scmta.RESET_FAULT := TRUE;
+        #step := #STEP_A3_START;
+
+
+    // =========================================================================
+    // TEST_A3: Alarma GD en ON_GD1 → NO espera T_MIN_GD_STAY (seguridad)
+    // =========================================================================
+    #STEP_A3_START:  // 60
+        #testStatus := 'A3: Alarma GD no espera T_MIN_GD_STAY';
+        // Forzar estado ON_GD1
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := TRUE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        #step := 61;
+
+    61: // Hacer ciclos hasta llegar a ON_GD1
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        IF #scmta.STATE = #ST_ON_GD1 THEN
+            #step := 62;
+        END_IF;
+        #cycleCount := #cycleCount + 1;
+        IF #cycleCount > 200 THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'A3 SETUP: No llegó a ON_GD1';
+            #testFailed := TRUE;
+            #step := #STEP_B1_START;
+        END_IF;
+
+    62: // Inyectar GD_ALARM inmediatamente (sin esperar T_MIN_GD_STAY)
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := TRUE,  // ALARMA
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        // Debe salir de ON_GD1 INMEDIATAMENTE (no espera T_MIN_GD_STAY)
+        IF #scmta.STATE = #ST_ON_GD1 THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'A3 FALLO: GD_ALARM no produce salida inmediata de ON_GD1';
+            #testFailed := TRUE;
+        ELSIF #scmta.STATE = #ST_FAULT_LOCKOUT THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            // También aceptable si fue a FAULT_LOCKOUT en el mismo ciclo
+            #tcPassed := #tcPassed + 1;
+        END_IF;
+        #step := #STEP_A4_START;
+
+
+    // =========================================================================
+    // TEST_A4: GD2 también respeta T_MIN_GD_STAY
+    // =========================================================================
+    #STEP_A4_START:  // 90
+        #testStatus := 'A4: T_MIN_GD_STAY aplica a GD2';
+        // Forzar ON_GD2 directo con RESET
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := TRUE,
+            ENABLE_QG2 := TRUE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := TRUE, QG2_FAULT := FALSE, QG2_REMOTE := TRUE,  // QG2 cerrado
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := TRUE, GD2_RUNNING := TRUE, GD2_ALARM := FALSE,  // GD2 running
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        #step := 91;
+
+    91: // Verificar que esta en ON_GD2 y que RED_OK no genera retorno antes de tiempo
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := TRUE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := TRUE, QG2_FAULT := FALSE, QG2_REMOTE := TRUE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := TRUE, GD2_RUNNING := TRUE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        IF #scmta.STATE = #ST_ON_GD2 THEN
+            #tcPassed := #tcPassed + 1;  // A4: GD2 queda en ON_GD2 hasta tiempo min
+        ELSIF #scmta.STATE = #ST_GRID_RETURN OR #scmta.STATE = #ST_WAIT_GRID_STABLE THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'A4 FALLO: GD2 inició retorno antes de T_MIN_GD_STAY';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B1_START;
+
+
+    // =========================================================================
+    // TEST_B1: Modo MANUAL — Interlock CLOSE QT1 bloqueado si QG1 cerrado
+    // =========================================================================
+    #STEP_B1_START:  // 110
+        #testStatus := 'B1: Interlock CLOSE QT1 manual (QG1 cerrado)';
+        // QG1 cerrado → intentar CLOSE QT1 → debe bloquearse
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
+            REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2 := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22 := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN  := FALSE, REQ_MAN_QT1_CLOSE := TRUE,  // INTENTAR CLOSE QT1
+            REQ_MAN_QG1_OPEN  := FALSE, REQ_MAN_QG1_CLOSE := FALSE,
+            REQ_MAN_QG2_OPEN  := FALSE, REQ_MAN_QG2_CLOSE := FALSE,
+            REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := FALSE,
+            MODE_MANUAL  := TRUE,   // MODO MANUAL
+            QT1_CLOSED   := FALSE, QT1_REMOTE := TRUE,
+            QG1_CLOSED   := TRUE,  QG1_REMOTE := TRUE,  // QG1 CERRADO → interlock
+            QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
+            Q22_REMOTE   := TRUE
+        );
+        IF #arbiter.CMD_CLOSE_QT1 = FALSE AND #arbiter.BLOCK_INTERLOCK = TRUE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B1 FALLO: CLOSE QT1 manual no bloqueado con QG1 cerrado';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B2_START;
+
+
+    // =========================================================================
+    // TEST_B2: Modo MANUAL — Interlock CLOSE QG1 bloqueado si QT1 cerrado
+    // =========================================================================
+    #STEP_B2_START:  // 120
+        #testStatus := 'B2: Interlock CLOSE QG1 manual (QT1 cerrado)';
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
+            REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2 := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22 := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN  := FALSE, REQ_MAN_QT1_CLOSE := FALSE,
+            REQ_MAN_QG1_OPEN  := FALSE, REQ_MAN_QG1_CLOSE := TRUE,  // INTENTAR CLOSE QG1
+            REQ_MAN_QG2_OPEN  := FALSE, REQ_MAN_QG2_CLOSE := FALSE,
+            REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := FALSE,
+            MODE_MANUAL  := TRUE,
+            QT1_CLOSED   := TRUE,  QT1_REMOTE := TRUE,  // QT1 CERRADO → interlock
+            QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
+            Q22_REMOTE   := TRUE
+        );
+        IF #arbiter.CMD_CLOSE_QG1 = FALSE AND #arbiter.BLOCK_INTERLOCK = TRUE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B2 FALLO: CLOSE QG1 manual no bloqueado con QT1 cerrado';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B3_START;
+
+
+    // =========================================================================
+    // TEST_B3: Modo MANUAL — Interlock CLOSE QG2 bloqueado si QT1 cerrado
+    // =========================================================================
+    #STEP_B3_START:  // 130
+        #testStatus := 'B3: Interlock CLOSE QG2 manual (QT1 cerrado)';
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
+            REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2 := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22 := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN  := FALSE, REQ_MAN_QT1_CLOSE := FALSE,
+            REQ_MAN_QG1_OPEN  := FALSE, REQ_MAN_QG1_CLOSE := FALSE,
+            REQ_MAN_QG2_OPEN  := FALSE, REQ_MAN_QG2_CLOSE := TRUE,  // INTENTAR CLOSE QG2
+            REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := FALSE,
+            MODE_MANUAL  := TRUE,
+            QT1_CLOSED   := TRUE,  QT1_REMOTE := TRUE,  // QT1 cerrado → interlock
+            QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED   := FALSE, QG2_REMOTE := TRUE,
+            Q22_REMOTE   := TRUE
+        );
+        IF #arbiter.CMD_CLOSE_QG2 = FALSE AND #arbiter.BLOCK_INTERLOCK = TRUE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B3 FALLO: CLOSE QG2 manual no bloqueado con QT1 cerrado';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B4_START;
+
+
+    // =========================================================================
+    // TEST_B4: Modo MANUAL — Comando bloqueado si interruptor en LOCAL
+    // =========================================================================
+    #STEP_B4_START:  // 140
+        #testStatus := 'B4: Bloqueo LOCAL modo manual';
+        // QT1 en LOCAL (QT1_REMOTE=FALSE) → OPEN o CLOSE debe bloquearse
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
+            REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2 := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22 := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN  := TRUE, REQ_MAN_QT1_CLOSE := FALSE,  // OPEN QT1
+            REQ_MAN_QG1_OPEN  := FALSE, REQ_MAN_QG1_CLOSE := FALSE,
+            REQ_MAN_QG2_OPEN  := FALSE, REQ_MAN_QG2_CLOSE := FALSE,
+            REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := FALSE,
+            MODE_MANUAL  := TRUE,
+            QT1_CLOSED   := TRUE, QT1_REMOTE := FALSE,  // LOCAL
+            QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
+            Q22_REMOTE   := TRUE
+        );
+        IF #arbiter.CMD_OPEN_QT1 = FALSE AND #arbiter.BLOCK_LOCAL = TRUE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B4 FALLO: OPEN QT1 no bloqueado con LOCAL activo';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B5_START;
+
+
+    // =========================================================================
+    // TEST_B5: Modo MANUAL — Conflicto OPEN+CLOSE simultáneo bloqueado
+    // =========================================================================
+    #STEP_B5_START:  // 150
+        #testStatus := 'B5: Conflicto OPEN+CLOSE simultaneo bloqueado';
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
+            REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2 := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22 := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN  := TRUE, REQ_MAN_QT1_CLOSE := TRUE,  // CONFLICTO
+            REQ_MAN_QG1_OPEN  := FALSE, REQ_MAN_QG1_CLOSE := FALSE,
+            REQ_MAN_QG2_OPEN  := FALSE, REQ_MAN_QG2_CLOSE := FALSE,
+            REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := FALSE,
+            MODE_MANUAL  := TRUE,
+            QT1_CLOSED   := FALSE, QT1_REMOTE := TRUE,
+            QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
+            Q22_REMOTE   := TRUE
+        );
+        IF #arbiter.CMD_OPEN_QT1 = FALSE AND #arbiter.CMD_CLOSE_QT1 = FALSE
+           AND #arbiter.BLOCK_CONFLICT = TRUE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B5 FALLO: Conflicto OPEN+CLOSE QT1 no bloqueado';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B6_START;
+
+
+    // =========================================================================
+    // TEST_B6: Modo MANUAL — Comando libre ejecutado si enclavamiento OK
+    // =========================================================================
+    #STEP_B6_START:  // 160
+        #testStatus := 'B6: Comando manual libre OK';
+        // QT1 abierto, QG1 abierto, QG2 abierto → CLOSE QT1 libre
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
+            REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2 := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22 := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN  := FALSE, REQ_MAN_QT1_CLOSE := TRUE,
+            REQ_MAN_QG1_OPEN  := FALSE, REQ_MAN_QG1_CLOSE := FALSE,
+            REQ_MAN_QG2_OPEN  := FALSE, REQ_MAN_QG2_CLOSE := FALSE,
+            REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := FALSE,
+            MODE_MANUAL  := TRUE,
+            QT1_CLOSED   := FALSE, QT1_REMOTE := TRUE,  // todos abiertos / remoto
+            QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
+            Q22_REMOTE   := TRUE
+        );
+        IF #arbiter.CMD_CLOSE_QT1 = TRUE AND #arbiter.BLOCK_INTERLOCK = FALSE
+           AND #arbiter.BLOCK_LOCAL = FALSE AND #arbiter.BLOCK_CONFLICT = FALSE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B6 FALLO: Comando manual CLOSE QT1 bloqueado sin motivo';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_B7_START;
+
+
+    // =========================================================================
+    // TEST_B7: Modo AUTO — SCMTA pasa interlock incluso con QG1 cerrado
+    //          (En AUTO, SCMTA gestiona la secuencia correcta: no debería
+    //           pedir CLOSE QT1 si QG1 está cerrado, pero el arbiter siempre
+    //           aplica el interlock independientemente de la fuente)
+    // =========================================================================
+    #STEP_B7_START:  // 170
+        #testStatus := 'B7: AUTO — Interlock aplica igual ante SCMTA';
+        // Simular que SCMTA pide CLOSE QT1 con QG1 cerrado (no debería pasar en práctica
+        // pero el arbiter debe bloquearlo de todas formas — defensa en profundidad)
+        #arbiter(
+            REQ_SCMTA_OPEN_QT1  := FALSE, REQ_SCMTA_CLOSE_QT1 := TRUE,  // SCMTA pide CLOSE QT1
+            REQ_SCMTA_OPEN_QG1  := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
+            REQ_SCMTA_OPEN_QG2  := FALSE, REQ_SCMTA_CLOSE_QG2 := FALSE,
+            REQ_SCMTA_OPEN_Q22  := FALSE, REQ_SCMTA_CLOSE_Q22 := FALSE,
+            REQ_MAN_QT1_OPEN    := FALSE, REQ_MAN_QT1_CLOSE := FALSE,
+            REQ_MAN_QG1_OPEN    := FALSE, REQ_MAN_QG1_CLOSE := FALSE,
+            REQ_MAN_QG2_OPEN    := FALSE, REQ_MAN_QG2_CLOSE := FALSE,
+            REQ_MAN_Q22_OPEN    := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
+            MODE_AUTO    := TRUE,   // AUTO
+            MODE_MANUAL  := FALSE,
+            QT1_CLOSED   := FALSE, QT1_REMOTE := TRUE,
+            QG1_CLOSED   := TRUE,  QG1_REMOTE := TRUE,  // QG1 cerrado — interlock activo
+            QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
+            Q22_REMOTE   := TRUE
+        );
+        // El arbiter DEBE bloquear aun siendo AUTO (defensa en profundidad)
+        IF #arbiter.CMD_CLOSE_QT1 = FALSE AND #arbiter.BLOCK_INTERLOCK = TRUE THEN
+            #tcPassed := #tcPassed + 1;
+        ELSE
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'B7: Interlock no actúa en modo AUTO ante doble fuente';
+            #testFailed := TRUE;
+        END_IF;
+        #step := #STEP_C1_START;
+
+
+    // =========================================================================
+    // TEST_C1: Integración — Secuencia completa con T_MIN_GD_STAY
+    //          Verifica que el sistema completo respeta los 10 min en GD
+    // =========================================================================
+    #STEP_C1_START:  // 180
+        #testStatus := 'C1: Integracion T_MIN_GD_STAY secuencia completa';
+        #subStep := 0;
+        #step := 181;
+
+    181: // RESET sistema
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := TRUE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := TRUE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms   // 500ms para test
+        );
+        #step := 182;
+
+    182: // Verificar NORMAL_ON_GRID, luego cortar RED
+        IF #scmta.STATE = #ST_NORMAL_ON_GRID THEN
+            #step := 183;
+        ELSE
+            #step := 181;  // Reintentar reset
+        END_IF;
+
+    183: // RED falla
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := TRUE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := FALSE, GD_RUNNING := FALSE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        #simTimer(IN := TRUE, PT := T#400ms);
+        IF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#400ms);
+            #step := 184;
+        END_IF;
+
+    184: // QT1 abierto, GD running → SCMTA avanza
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := FALSE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        #simTimer(IN := TRUE, PT := T#400ms);
+        IF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#400ms);
+            #step := 185;
+        END_IF;
+
+    185: // Confirmar QG1 cerrado → ON_GD1
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 0.0, GRID_V_L2L3 := 0.0, GRID_V_L3L1 := 0.0,
+            GRID_FREQ := 0.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        IF #scmta.STATE = #ST_ON_GD1 THEN
+            #step := 186;
+        END_IF;
+        #simTimer(IN := TRUE, PT := T#300ms);
+        IF #simTimer.Q AND #scmta.STATE <> #ST_ON_GD1 THEN
+            #simTimer(IN := FALSE, PT := T#300ms);
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'C1 FALLO: No llegó a ON_GD1';
+            #testFailed := TRUE;
+            #step := #STEP_DONE;
+        END_IF;
+
+    186: // RED vuelve INMEDIATAMENTE (antes de 500ms) → check bloqueado
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        // Debe seguir en ON_GD1 pese a que RED volvió
+        IF #scmta.STATE <> #ST_ON_GD1 THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'C1 FALLO: Retorno antes de T_MIN_GD_STAY con RED recién restaurada';
+            #testFailed := TRUE;
+            #step := #STEP_DONE;
+        ELSE
+            #step := 187;
+        END_IF;
+
+    187: // Esperar T_MIN_GD_STAY (600ms > 500ms) con RED ok continua
+        #simTimer(IN := TRUE, PT := T#650ms);
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        IF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#650ms);
+            #step := 188;
+        END_IF;
+
+    188: // Verificar que ahora SÍ salió de ON_GD1 (retorno habilitado)
+        #scmta(
+            ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
+            ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
+            QT1_CLOSED := FALSE, QT1_FAULT := FALSE, QT1_REMOTE := TRUE,
+            QT1_UV_OV_DI := FALSE,
+            QG1_CLOSED := TRUE, QG1_FAULT := FALSE, QG1_REMOTE := TRUE,
+            QG2_CLOSED := FALSE, QG2_FAULT := FALSE, QG2_REMOTE := FALSE,
+            Q22_CLOSED := FALSE, T_OPEN_Q22 := T#100ms, T_CLOSE_Q22 := T#100ms,
+            GD_READY := TRUE, GD_RUNNING := TRUE, GD_ALARM := FALSE,
+            GD2_READY := FALSE, GD2_RUNNING := FALSE, GD2_ALARM := FALSE,
+            GRID_V_L1L2 := 380.0, GRID_V_L2L3 := 380.0, GRID_V_L3L1 := 380.0,
+            GRID_FREQ := 50.0, GRID_MEASUREMENT_OK := TRUE,
+            GRID_PHASE_LOSS := FALSE, GRID_ALM_UV := FALSE, GRID_ALM_OV := FALSE,
+            V_NOM := 380.0, V_MIN_PCT := 85.0, V_MAX_PCT := 115.0,
+            FREQ_NOM := 50.0, FREQ_MIN := 49.0, FREQ_MAX := 51.0,
+            T_OPEN_QT1 := T#200ms, T_START_GD_DELAY := T#100ms,
+            T_GD_READY_TIMEOUT := T#1s, T_GD_STABILIZATION := T#100ms,
+            T_CLOSE_QG1 := T#200ms, T_CLOSE_QG2 := T#200ms,
+            T_GRID_STABLE := T#200ms, T_OPEN_QG1 := T#200ms, T_OPEN_QG2 := T#200ms,
+            T_CLOSE_QT1 := T#200ms, T_GD_COOLDOWN := T#200ms,
+            T_GRID_FAIL_FILTER := T#100ms,
+            T_MIN_GD_STAY := T#500ms
+        );
+        IF #scmta.STATE = #ST_ON_GD1 THEN
+            #tcFailed := #tcFailed + 1;
+            #failInfo := 'C1 FALLO: Sigue en ON_GD1 tras T_MIN_GD_STAY (600ms)';
+            #testFailed := TRUE;
+        ELSE
+            #tcPassed := #tcPassed + 1;
+        END_IF;
+        #step := #STEP_DONE;
+
+
+    // =========================================================================
+    // PASO FINAL — Consolidar resultado
+    // =========================================================================
+    #STEP_DONE:  // 999
+        IF #tcFailed = 0 THEN
+            #testPassed  := TRUE;
+            #testFailed  := FALSE;
+            #testStatus  := 'TODOS LOS TESTS PASARON';
+        ELSE
+            #testPassed  := FALSE;
+            #testFailed  := TRUE;
+            // failInfo ya contiene el último error
+        END_IF;
+
+    END_CASE;
+
+END_FUNCTION_BLOCK

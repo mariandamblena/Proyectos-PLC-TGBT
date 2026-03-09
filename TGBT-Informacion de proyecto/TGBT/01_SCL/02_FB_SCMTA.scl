@@ -63,6 +63,8 @@ VERSION : 0.1
       T_GD_COOLDOWN : Time := T#60s;
       T_GRID_FAIL_FILTER : Time := T#2s;
       T_CMD_CONFIRM : Time := T#2s;
+      // Tiempo mínimo de permanencia en GD antes de permitir retorno a RED
+      T_MIN_GD_STAY : Time := T#10m;
    END_VAR
 
    VAR_OUTPUT 
@@ -112,6 +114,7 @@ VERSION : 0.1
       tonGridStableFilter {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
       tonGdStabilization {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
       tonFaultAutoRecover {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      tonMinGdStay {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;  // Tiempo mínimo en GD
    END_VAR
 
    VAR_TEMP 
@@ -368,7 +371,11 @@ BEGIN
         #IS_ON_GD := TRUE; #IS_ON_GD1 := TRUE; #IS_ON_GD2 := FALSE;
         #IS_ON_GRID := FALSE; #IS_IN_TRANSFER := FALSE;
         #ACTIVE_GD  := 1;    #activeGDInternal := 1;
+        // Tiempo mínimo de permanencia en GD (protección motor)
+        #tonMinGdStay(IN := TRUE, PT := #T_MIN_GD_STAY);
         IF #GD_ALARM THEN
+            // Alarma: no hay tiempo mínimo, la seguridad tiene prioridad
+            #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
             IF #ENABLE_QG2 AND #GD2_AVAILABLE THEN
                 #STATE := #ST_OPEN_GD_FOR_SWITCH;
             ELSE
@@ -378,14 +385,22 @@ BEGIN
         ELSIF #QG1_FAULT THEN
             #faultCodeLatch := #FAULT_INTERLOCK_VIOLATION;
             #STATE := #ST_FAULT_LOCKOUT;
-        ELSIF #ENABLE_AUTO_RETURN AND #GRID_OK THEN
+        ELSIF #ENABLE_AUTO_RETURN AND #GRID_OK AND #tonMinGdStay.Q THEN
+            // Retorno a RED solo después de T_MIN_GD_STAY
+            #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
             #STATE := #ST_GRID_RETURN_DETECTED;
         END_IF;
         
     // ---- 9: GRID_RETURN_DETECTED ----
     #ST_GRID_RETURN_DETECTED:
+        // Al entrar aquí ya se cumplió T_MIN_GD_STAY; resetear timer
+        #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
         IF NOT #GRID_OK THEN
-            #STATE := #ST_ON_GD1;
+            IF #activeGDInternal = 2 THEN
+                #STATE := #ST_ON_GD2;
+            ELSE
+                #STATE := #ST_ON_GD1;
+            END_IF;
         ELSE
             #STATE := #ST_WAIT_GRID_STABLE;
         END_IF;
@@ -520,13 +535,19 @@ BEGIN
     #ST_ON_GD2:
         #IS_ON_GD := TRUE; #IS_ON_GD2 := TRUE; #IS_ON_GD1 := FALSE;
         #IS_ON_GRID := FALSE; #IS_IN_TRANSFER := FALSE; #ACTIVE_GD := 2;
+        // Tiempo mínimo de permanencia en GD (protección motor)
+        #tonMinGdStay(IN := TRUE, PT := #T_MIN_GD_STAY);
         IF #GD2_ALARM THEN
+            // Alarma: no hay tiempo mínimo, la seguridad tiene prioridad
+            #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
             #faultCodeLatch := #FAULT_GD2_ALARM;
             #STATE := #ST_FAULT_LOCKOUT;
         ELSIF #QG2_FAULT THEN
             #faultCodeLatch := #FAULT_INTERLOCK_VIOLATION;
             #STATE := #ST_FAULT_LOCKOUT;
-        ELSIF #ENABLE_AUTO_RETURN AND #GRID_OK THEN
+        ELSIF #ENABLE_AUTO_RETURN AND #GRID_OK AND #tonMinGdStay.Q THEN
+            // Retorno a RED solo después de T_MIN_GD_STAY
+            #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
             #STATE := #ST_GRID_RETURN_DETECTED;
         END_IF;
         

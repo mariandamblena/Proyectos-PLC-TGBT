@@ -1,4 +1,4 @@
-þÿÿÿ ###id###VisulizationRootBrowsableId###TargetIdAcknowledgementGroupText-###SearchableNonTechnicalFieldNamesOfDocument###ParentIds###ImmediateParentId###ReferenceFieldIdsInvalidAttempts	ValidDaysWarningDaysGenerationsMinNumPsswd
+þÿÿÿö###id###VisulizationRootBrowsableId###TargetIdAcknowledgementGroupText-###SearchableNonTechnicalFieldNamesOfDocument###ParentIds###ImmediateParentId###ReferenceFieldIdsInvalidAttempts	ValidDaysWarningDaysGenerationsMinNumPsswd
 ServerName
 PortNumberWindowsDomainNameStationNamePartnerNameNodeNameDisplayNameAcknowledgementModelIdEmailAddressAcknowledgedText
 ComingText	GoingTextCommonAlarmClass	CycleUnit	CycleTimeTextCommentNumber	ShortName
@@ -9,4 +9,13 @@ FocusColorGridlineColorSelectionBackColorSelectionForeColorSortByTimeDir
 StartValueFirstGradientColorHorizontalPictureAlignmentMiddleGradientColorPictureAutoSizing	PictureOnSecondGradientColorVerticalPictureAlignment
 LineColor1
 LineColor2OperatableAreaColor
-VisibilityAuthorFamilyUser-defined ID###ReconstitutionDataIDAssociatedCultureFieldIdAssociatedProjectVersion!AssociatedIndexDataVersionFieldId,AssociatedTechnicalFieldNamesHashCodeFieldId-AssociatedTechnicalFieldContentVersionFieldIdIndexAtomStoreAuthorization
+VisibilityAuthorFamilyUser-defined ID###ReconstitutionDataIDAssociatedCultureFieldIdAssociatedProjectVersion!AssociatedIndexDataVersionFieldId,AssociatedTechnicalFieldNamesHashCodeFieldId-AssociatedTechnicalFieldContentVersionFieldIdIndexAtomStoreAuthorizationColorEndStyle	FillStyleLineEndShapeStyle
+StartStyleStyle
+BlinkColorFillColorModeFlipRotation
+DataFormatFormatPatternUnitProcessValueAddressAccessMode
+ConnectionUITypeEditorBitPositionUITypeEditorTagExpressionRangeFromToAcknowledgementBitAddress
+AlarmClassPlcAcknowledgementBitAddressTriggerBitAddress	AlarmText
+TriggerTagDelayTimeUnitHysteresisMode	LimitMode
+LimitValueCaptionColorCaptionFontCaptionTextHelpTextInnerBackColorOffInnerBackColorOnSwitchOrientationSetOfVisibleColumnsTableGridlineColorOperandColumnHeaderSymbolnameColumnHeaderCommentColumnHeaderValueColumnHeaderSymbolTableFontTagCategory1ColorCategory1TextCategory2ColorCategory2TextCategory3ColorCategory3TextCategory4ColorCategory4TextCategory5ColorCategory5TextCategory6ColorCategory6TextCategory7ColorCategory7TextCategory8ColorCategory8TextErrorIconBackColorHeaderBackColor
+HeaderFontHeaderForeColorInfoIconBackColorOutputBackColor
+OutputFontOutputForeColorOutputGridlineColorOutputLabelCategoryTextOutputLabelFontOutputLabelForeColorOutputLabelSupervisionTypeTextSupervisionType1ColorSupervisionType1TextSupervisionType2ColorSupervisionType2TextSupervisionType3ColorSupervisionType3TextSupervisionType4ColorSupervisionType4TextSupervisionType5ColorSupervisionType5TextSupervisionType6ColorSupervisionType6TextToolbarBackColor

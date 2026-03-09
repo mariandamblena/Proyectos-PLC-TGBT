@@ -156,6 +156,7 @@ BEGIN
         T_CLOSE_QT1          := "DB_PARAMS".T_CLOSE_QT1,
         T_GD_COOLDOWN        := "DB_PARAMS".T_GD_COOLDOWN,
         T_GRID_FAIL_FILTER   := "DB_PARAMS".T_GRID_FAIL_FILTER,
+        T_MIN_GD_STAY        := "DB_PARAMS".T_MIN_GD_STAY,
 
         // Outputs -> DATA_BUFF
         STATE                => "DATA_BUFF".SCMTA_STATE,

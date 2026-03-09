@@ -42,6 +42,11 @@ NON_RETAIN
       T_CMD_PULSE : Time := T#300ms;      // Duración pulso DO (ajustar según MTZ)
       T_CMD_CONFIRM : Time := T#2s;       // Tiempo máx para recibir confirmación DI tras pulso
 
+      // ---- TIEMPO MINIMO DE PERMANENCIA EN GENERADOR ----
+      // Impide la transición de retorno a RED antes de que el GD haya operado
+      // al menos este tiempo. Protege el motor de arranques/paradas frecuentes.
+      T_MIN_GD_STAY : Time := T#10m;      // Tiempo mínimo operando en GD antes de permitir retorno
+
       // ---- PARAMETROS DESLASTRE (conservados, deshabilitado en V4) ----
       GD_SHED_ON : Real := 90.0;
       GD_SHED_OFF : Real := 70.0;

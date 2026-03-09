@@ -73,4 +73,12 @@ BEGIN
     // ========================================================================
     // "TEST_SYSTEM_DB"();
 
+    // ========================================================================
+    // TEST 6: TIEMPO MINIMO EN GD + ENCLAVAMIENTOS MANUAL HMI
+    // Cubre: T_MIN_GD_STAY (GD1/GD2), alarma pasa sin esperar, enclavamientos
+    //        fuente única en modo MANUAL (B1-B7), integración completa (C1)
+    // Activar: TEST_MIN_STAY_DB.testEnable := TRUE
+    // ========================================================================
+    // "TEST_MIN_STAY_DB"();
+
 END_ORGANIZATION_BLOCK
