@@ -1,84 +1,81 @@
-﻿(*
+(*
 ================================================================================
-  OB1 TEST MAIN - Bloque principal para ejecucion de tests
-  Version: 1.0
-  Fecha: 2026-02-21
+  OB1 TEST MAIN V4 - Bloque principal para ejecucion de tests
+  Version: 4.0
+  Fecha: 2026-03-11
 ================================================================================
   DESCRIPCION:
-  OB1 alternativo para ejecutar los tests del proyecto SCMTA TGBT.
-  
+  OB1 alternativo para ejecutar los tests del proyecto SCMTA TGBT V4.
+  Interfaz Bool DI, un solo generador GD1, sin SHED.
+
   INSTRUCCIONES DE USO:
-  1. Importar TODOS los FBs de produccion primero (01-07)
+  1. Importar TODOS los FBs de produccion primero (01-07, 12)
   2. Importar TODOS los instance DBs de produccion (11_INSTANCE_DBS.scl)
   3. Importar los Test FBs (07_TEST/*.scl)
   4. Importar Test Instance DBs (12_TEST_INSTANCE_DBS.scl)
   5. Importar este archivo (OB1 de test)
-  
+
   EJECUCION:
   - Solo UN test a la vez debe estar descomentado
   - Activar testEnable := TRUE en el instance DB del test activo
-  - Observar testStep y testStatus en watch table
+  - Observar testStep / testGroup y testStatus en watch table
   - Al terminar, comentar ese test y descomentar el siguiente
   - testReset := TRUE para reiniciar un test
-  
-  TESTS DISPONIBLES:
-  1. TEST_SCMTA_DB       -> Happy path IO_NORMALIZE + SCMTA (15 pasos)
-  2. TEST_FALLAS_DB      -> Escenarios de falla SCMTA (37 pasos)
-  3. TEST_SHED_DB        -> Deslastre dual RED/GD (20 pasos)
-  4. TEST_GD2_FAILOVER_DB -> Failover GD1<->GD2 (25 pasos)
-  5. TEST_SYSTEM_DB      -> Validacion sistema completo (50 pasos)
-  
+
+  TESTS V4 DISPONIBLES:
+  1. TEST_HAPPY_PATH_DB  -> Ciclo completo RED->GD1->RED (13 pasos)
+  2. TEST_FALLAS_DB      -> 7 escenarios falla: timeout, alarma, bounce (A-G)
+  3. TEST_MIN_STAY_DB    -> T_MIN_GD_STAY + interlocks manual (A/B/C)
+  4. HMI_SIM_DB          -> Simulacion manual con feedback DI para PLCSIM+HMI
+
+  NOTA IMPORTANTE:
+  - Tests 1-3 son autonomos: activan testEnable y observan resultados
+  - Test 4 (HMI_SIM) es interactivo: se opera desde el HMI en modo manual
+  - Para test 4, NO activar ningun otro test simultaneamente
 ================================================================================
 *)
 
 ORGANIZATION_BLOCK "Main"
-TITLE = "OB1 Test Main - Ejecucion secuencial de tests"
+TITLE = "OB1 Test Main V4 - TGBT SCMTA"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
 BEGIN
-    
+
     // ========================================================================
-    // TEST 1: HAPPY PATH IO_NORMALIZE + SCMTA
-    // Transferencia RED->GD1, retorno GD1->RED, modo manual
-    // Activar: TEST_SCMTA_DB.testEnable := TRUE
+    // TEST 1: HAPPY PATH V4 - Transferencia RED->GD1->RED
+    // 13 pasos: init, normal, falla RED, apertura QT1, arranque GD1,
+    //           GD1 ready, cierre QG1, ON_GD1, retorno RED, apertura QG1,
+    //           cierre QT1, cooldown, validacion final
+    // Activar: TEST_HAPPY_PATH_DB.testEnable := TRUE
     // ========================================================================
-    // "TEST_SCMTA_DB"();
-    
+    "TEST_HAPPY_PATH_DB"();
+
     // ========================================================================
-    // TEST 2: ESCENARIOS DE FALLA SCMTA
-    // 37 pasos: timeouts, alarmas GD, oscilacion RED, bloqueo LOCAL
+    // TEST 2: ESCENARIOS DE FALLA V4
+    // 7 grupos: A=timeout QT1 open, B=GD1 alarm arranque,
+    //           C=GD1 not ready, D=timeout QG1 close,
+    //           E=GD1 alarm ON_GD1, F=QT1 not remote, G=oscilacion RED
     // Activar: TEST_FALLAS_DB.testEnable := TRUE
     // ========================================================================
     // "TEST_FALLAS_DB"();
-    
-    // ========================================================================
-    // TEST 3: DESLASTRE DUAL RED/GD (FB_SHED)
-    // 20 pasos: clasificacion, GRID_SHED, GD_INITIAL_SHED, acoplamiento
-    // Activar: TEST_SHED_DB.testEnable := TRUE
-    // ========================================================================
-    "TEST_SHED_DB"();
-    
-    // ========================================================================
-    // TEST 4: FAILOVER GD1<->GD2
-    // 25 pasos: failover arranque, operacion, retorno, ambos fallan
-    // Activar: TEST_GD2_FAILOVER_DB.testEnable := TRUE
-    // ========================================================================
-    // "TEST_GD2_FAILOVER_DB"();
-    
-    // ========================================================================
-    // TEST 5: VALIDACION SISTEMA COMPLETO
-    // 50 pasos: cadena completa IO->SCMTA->SHED->ARBITER->OUTPUTS
-    // Activar: TEST_SYSTEM_DB.testEnable := TRUE
-    // ========================================================================
-    // "TEST_SYSTEM_DB"();
 
     // ========================================================================
-    // TEST 6: TIEMPO MINIMO EN GD + ENCLAVAMIENTOS MANUAL HMI
-    // Cubre: T_MIN_GD_STAY (GD1/GD2), alarma pasa sin esperar, enclavamientos
-    //        fuente única en modo MANUAL (B1-B7), integración completa (C1)
+    // TEST 3: TIEMPO MINIMO EN GD + ENCLAVAMIENTOS MANUAL
+    // Cubre: T_MIN_GD_STAY (GD1/GD2), alarma pasa sin esperar,
+    //        enclavamientos fuente unica modo MANUAL (B1-B7), integracion (C1)
     // Activar: TEST_MIN_STAY_DB.testEnable := TRUE
     // ========================================================================
     // "TEST_MIN_STAY_DB"();
+
+    // ========================================================================
+    // TEST 4: SIMULACION HMI MANUAL (PLCSIM + KTP700)
+    // INTERACTIVO: opera desde el HMI en modo MANUAL
+    // El FB simula feedback DI de interruptores automaticamente
+    // Toggles en watch table: SIM_GRID_FAIL, SIM_GD_START, SIM_QT1_LOCAL, etc.
+    // IMPORTANTE: comentar TODOS los otros tests cuando se use este
+    // Activar: descomentar la linea y descargar a PLCSIM
+    // ========================================================================
+    // "HMI_SIM_DB"();
 
 END_ORGANIZATION_BLOCK

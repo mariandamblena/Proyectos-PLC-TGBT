@@ -6,24 +6,24 @@
 ================================================================================
   DESCRIPCION:
   Test secuencial con delays para validar el ciclo completo de transferencia
-  del sistema SCMTA V4 — interfaz Bool DI, un solo generador (GD1).
+  del sistema SCMTA V4 - interfaz Bool DI, un solo generador (GD1).
 
   Valida la cadena: IO_NORMALIZE -> SCMTA -> CMD_ARBITER -> PULSE_EXPANDER
 
   PASOS DEL TEST:
    0. Inicializacion (5s)
-   1. Operacion normal en RED — validar NORMAL_ON_GRID (3s)
-   2. Simular falla RED — subtension (espera filtro 2s)
-   3. SCMTA abre QT1 — simular DI QT1_CLOSED=FALSE
-   4. Arranque GD1 — simular GD_RUNNING=TRUE
-   5. GD1 listo — simular GD_READY=TRUE, esperar estabilizacion
-   6. SCMTA cierra QG1 — simular DI QG1_CLOSED=TRUE
-   7. Operando con GD1 — validar IS_ON_GD1 (5s)
-   8. Retorno RED — restaurar tension, esperar GRID_STABLE
-   9. SCMTA abre QG1 — simular QG1_CLOSED=FALSE
-  10. SCMTA cierra QT1 — simular QT1_CLOSED=TRUE
-  11. GD_COOLDOWN — esperar enfriamiento
-  12. Validar retorno a NORMAL_ON_GRID — TEST COMPLETADO
+   1. Operacion normal en RED - validar NORMAL_ON_GRID (3s)
+   2. Simular falla RED - subtension (espera filtro 2s)
+   3. SCMTA abre QT1 - simular DI QT1_CLOSED=FALSE
+   4. Arranque GD1 - simular GD_RUNNING=TRUE
+   5. GD1 listo - simular GD_READY=TRUE, esperar estabilizacion
+   6. SCMTA cierra QG1 - simular DI QG1_CLOSED=TRUE
+   7. Operando con GD1 - validar IS_ON_GD1 (5s)
+   8. Retorno RED - restaurar tension, esperar GRID_STABLE
+   9. SCMTA abre QG1 - simular QG1_CLOSED=FALSE
+  10. SCMTA cierra QT1 - simular QT1_CLOSED=TRUE
+  11. GD_COOLDOWN - esperar enfriamiento
+  12. Validar retorno a NORMAL_ON_GRID - TEST COMPLETADO
 
   INSTRUCCIONES:
   1. Importar este archivo en TIA Portal V18 (crea FB_TEST_HAPPY_PATH_V4)
@@ -149,7 +149,7 @@ BEGIN
 
         // ---- PASO 0: Inicializacion ----
         0:
-            #testStatus := 'PASO 0: Inicializando — RED normal, QT1 cerrado';
+            #testStatus := 'PASO 0: Inicializando - RED normal, QT1 cerrado';
             #simQT1_CLOSED := TRUE;
             #simQT1_REMOTE := TRUE;
             #simQG1_REMOTE := TRUE;
@@ -167,7 +167,7 @@ BEGIN
 
         // ---- PASO 1: Operacion normal en RED ----
         1:
-            #testStatus := 'PASO 1: Operacion normal RED — validar estado 1';
+            #testStatus := 'PASO 1: Operacion normal RED - validar estado 1';
 
             #testTimer(IN := TRUE, PT := T#3s);
             IF #testTimer.Q THEN
@@ -178,7 +178,7 @@ BEGIN
 
         // ---- PASO 2: Simular falla RED ----
         2:
-            #testStatus := 'PASO 2: Falla RED — subtension 200V, subfrecuencia 48Hz';
+            #testStatus := 'PASO 2: Falla RED - subtension 200V, subfrecuencia 48Hz';
             #simGridV_L1L2 := 200.0;
             #simGridV_L2L3 := 200.0;
             #simGridV_L3L1 := 200.0;
@@ -191,32 +191,34 @@ BEGIN
                 #testStep := 3;
             END_IF;
 
-        // ---- PASO 3: SCMTA abre QT1 — simular apertura ----
+        // ---- PASO 3: SCMTA abre QT1 - simular apertura ----
         3:
-            #testStatus := 'PASO 3: SCMTA solicita abrir QT1 — simulando DI';
+            #testStatus := 'PASO 3: SCMTA solicita abrir QT1 - simulando DI';
+            #simQT1_CLOSED := FALSE;
 
-            IF #outState >= 2 AND #outState < 14 THEN
-                // Responder inmediatamente al comando apertura
-                #simQT1_CLOSED := FALSE;
-                #testResults[3] := #outIsInTransfer;
+            // Esperar 1s para que SCMTA procese y IS_IN_TRANSFER se actualice
+            #testTimer(IN := TRUE, PT := T#1s);
+            IF #testTimer.Q THEN
+                #testResults[3] := (#outState >= 2 AND #outState < 14 AND #outIsInTransfer);
                 #testTimer(IN := FALSE, PT := T#1s);
                 #testStep := 4;
             END_IF;
 
         // ---- PASO 4: Arranque GD1 ----
         4:
-            #testStatus := 'PASO 4: Delay arranque GD1 — simulando GD_RUNNING';
+            #testStatus := 'PASO 4: Delay arranque GD1 - simulando GD_RUNNING';
+            #simGD1_RUNNING := TRUE;
 
-            IF #outState >= 5 AND #outState < 14 THEN
-                #testResults[4] := #outDoGdStart;
-                #simGD1_RUNNING := TRUE;
+            #testTimer(IN := TRUE, PT := T#3s);
+            IF #testTimer.Q THEN
+                #testResults[4] := (#outState >= 5 AND #outState < 14 AND #outDoGdStart);
                 #testTimer(IN := FALSE, PT := T#1s);
                 #testStep := 5;
             END_IF;
 
         // ---- PASO 5: GD1 listo ----
         5:
-            #testStatus := 'PASO 5: GD1 corriendo — simulando GD_READY';
+            #testStatus := 'PASO 5: GD1 corriendo - simulando GD_READY';
 
             #testTimer(IN := TRUE, PT := T#5s);
             IF #testTimer.Q THEN
@@ -228,7 +230,7 @@ BEGIN
 
         // ---- PASO 6: SCMTA cierra QG1 ----
         6:
-            #testStatus := 'PASO 6: SCMTA solicita cerrar QG1 — simulando DI';
+            #testStatus := 'PASO 6: SCMTA solicita cerrar QG1 - simulando DI';
 
             IF #outState >= 7 AND #outState < 14 THEN
                 #simQG1_CLOSED := TRUE;
@@ -239,7 +241,7 @@ BEGIN
 
         // ---- PASO 7: Operando con GD1 ----
         7:
-            #testStatus := 'PASO 7: Operando con GD1 — validar IS_ON_GD1';
+            #testStatus := 'PASO 7: Operando con GD1 - validar IS_ON_GD1';
 
             #testTimer(IN := TRUE, PT := T#5s);
             IF #testTimer.Q THEN
@@ -250,7 +252,7 @@ BEGIN
 
         // ---- PASO 8: Retorno RED ----
         8:
-            #testStatus := 'PASO 8: Retorno RED — restaurando tension 380V';
+            #testStatus := 'PASO 8: Retorno RED - restaurando tension 380V';
             #simGridV_L1L2 := 380.0;
             #simGridV_L2L3 := 380.0;
             #simGridV_L3L1 := 380.0;
@@ -266,7 +268,7 @@ BEGIN
 
         // ---- PASO 9: SCMTA abre QG1 ----
         9:
-            #testStatus := 'PASO 9: Espera estabilizacion RED — OPEN QG1';
+            #testStatus := 'PASO 9: Espera estabilizacion RED - OPEN QG1';
 
             #testTimer(IN := TRUE, PT := T#15s);
             IF #outState = 11 THEN
@@ -277,7 +279,7 @@ BEGIN
                 #testTimer(IN := FALSE, PT := T#1s);
                 #testStep := 10;
             ELSIF #testTimer.Q THEN
-                // Timeout — evaluar donde se detuvo
+                // Timeout - evaluar donde se detuvo
                 #testResults[9] := FALSE;
                 #testTimer(IN := FALSE, PT := T#1s);
                 #testStep := 10;
@@ -303,7 +305,7 @@ BEGIN
 
         // ---- PASO 11: GD_COOLDOWN ----
         11:
-            #testStatus := 'PASO 11: GD_COOLDOWN — esperando enfriamiento';
+            #testStatus := 'PASO 11: GD_COOLDOWN - esperando enfriamiento';
 
             #testTimer(IN := TRUE, PT := T#70s);
             IF #outState = 1 THEN
@@ -330,16 +332,16 @@ BEGIN
                               #testResults[12];
 
             IF #testAllPassed THEN
-                #testStatus := 'TEST COMPLETADO — TODOS LOS PASOS OK';
+                #testStatus := 'TEST COMPLETADO - TODOS LOS PASOS OK';
             ELSE
-                #testStatus := 'TEST COMPLETADO — HAY PASOS FALLIDOS';
+                #testStatus := 'TEST COMPLETADO - HAY PASOS FALLIDOS';
             END_IF;
 
     END_CASE;
 
 
     // ====================================================================
-    // LLAMADA FB_IO_NORMALIZE (V4 — Bool DI)
+    // LLAMADA FB_IO_NORMALIZE (V4 - Bool DI)
     // ====================================================================
     #instIO(
         DI_SYS_AUTO     := TRUE,  // Modo AUTO para test
@@ -367,7 +369,7 @@ BEGIN
 
 
     // ====================================================================
-    // LLAMADA FB_SCMTA (V4 — Bool DI directas)
+    // LLAMADA FB_SCMTA (V4 - Bool DI directas)
     // ====================================================================
     #instSCMTA(
         ENABLE             := TRUE,

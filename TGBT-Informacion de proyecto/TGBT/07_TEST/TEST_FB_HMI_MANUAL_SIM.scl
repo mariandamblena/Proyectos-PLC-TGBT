@@ -1,0 +1,353 @@
+(*
+================================================================================
+  FB_HMI_MANUAL_SIM: Simulacion HMI - Operacion Manual con PLCSIM
+  Version: 4.0
+  Fecha: 2026-03-11
+================================================================================
+  DESCRIPCION:
+  Capa de simulacion que permite operar el sistema TGBT en modo MANUAL
+  desde el HMI (KTP700) usando PLCSIM, sin SCMTA automatico.
+
+  Simula el feedback de los interruptores: cuando CMD_ARBITER envia un
+  comando (OPE/CLOSE), despues de un delay configurable la DI de
+  posicion del interruptor se actualiza automaticamente.
+
+  FUNCIONALIDAD:
+  - Reemplaza las entradas fisicas (%I) con valores simulados
+  - Ejecuta IO_NORMALIZE -> CMD_ARBITER -> OUTPUTS internamente
+  - Detecta comandos CMD y actualiza posiciones simuladas con delay
+  - Escribe todos los resultados a DATA_BUFF para visualizacion HMI
+  - NO ejecuta SCMTA (modo manual puro)
+  - NO ejecuta MODBUS_MANAGER (sin comunicacion real en PLCSIM)
+
+  TOGGLES DE SIMULACION (watch table o HMI):
+  - SIM_GRID_FAIL   : Simula perdida de RED (V=200V, F=48Hz)
+  - SIM_GD_START    : Simula arranque y GD1_READY (con delay warmup)
+  - SIM_QT1_LOCAL   : Pone QT1 en modo LOCAL (no REMOTE)
+  - SIM_QG1_LOCAL   : Pone QG1 en modo LOCAL
+  - SIM_GD_ALARM    : Simula alarma GD1
+  - SIM_QT1_FAULT   : Simula falla/disparo QT1
+  - SIM_QG1_FAULT   : Simula falla/disparo QG1
+
+  USO:
+  1. Importar este FB + crear instance DB (HMI_SIM_DB)
+  2. En OB1_TEST: llamar solo  "HMI_SIM_DB"();
+     (no llamar la cadena de produccion normal)
+  3. Descargar a PLCSIM
+  4. Abrir simulacion HMI
+  5. En watch table: ajustar SIM_* toggles como sea necesario
+  6. En HMI: presionar botones ABRIR/CERRAR -> ver feedback automatico
+
+  NOTA: DATA_BUFF debe existir como DB global ({S7_Optimized_Access:='FALSE'})
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_HMI_MANUAL_SIM"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR
+    // ========== TOGGLES SIMULACION (desde watch table o HMI) ==========
+    SIM_GRID_FAIL : Bool := FALSE;      // TRUE = RED caida (200V/48Hz)
+    SIM_GD_START : Bool := FALSE;       // TRUE = GD1 arrancando
+    SIM_QT1_LOCAL : Bool := FALSE;      // TRUE = QT1 en LOCAL
+    SIM_QG1_LOCAL : Bool := FALSE;      // TRUE = QG1 en LOCAL
+    SIM_GD_ALARM : Bool := FALSE;       // TRUE = alarma GD1
+    SIM_QT1_FAULT : Bool := FALSE;      // TRUE = QT1 disparado/falla
+    SIM_QG1_FAULT : Bool := FALSE;      // TRUE = QG1 disparado/falla
+
+    // ========== ESTADO SIMULADO INTERRUPTORES ==========
+    simQT1_CLOSED : Bool := TRUE;       // Condicion inicial: QT1 cerrado (en RED)
+    simQG1_CLOSED : Bool := FALSE;
+    simQG2_CLOSED : Bool := FALSE;
+
+    // ========== ESTADO SIMULADO GD1 ==========
+    simGD1_Running : Bool := FALSE;
+    simGD1_Ready : Bool := FALSE;
+
+    // ========== DELAY FEEDBACK (configurable) ==========
+    T_FEEDBACK : Time := T#500ms;       // Delay respuesta interruptor
+    T_GD_WARMUP : Time := T#3s;         // Delay GD arranque -> ready
+
+    // ========== FEEDBACK CONTROL - OPEN QT1 ==========
+    fbkOpenQT1 : Bool;
+    rtOpenQT1 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkOpenQT1 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== FEEDBACK CONTROL - CLOSE QT1 ==========
+    fbkCloseQT1 : Bool;
+    rtCloseQT1 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkCloseQT1 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== FEEDBACK CONTROL - OPEN QG1 ==========
+    fbkOpenQG1 : Bool;
+    rtOpenQG1 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkOpenQG1 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== FEEDBACK CONTROL - CLOSE QG1 ==========
+    fbkCloseQG1 : Bool;
+    rtCloseQG1 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkCloseQG1 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== GD WARMUP TIMER ==========
+    tonGdWarmup {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== CMD OUTPUTS (monitoreados) ==========
+    cmdOpenQT1 : Bool;
+    cmdCloseQT1 : Bool;
+    cmdOpenQG1 : Bool;
+    cmdCloseQG1 : Bool;
+
+    // ========== INSTANCIAS PRODUCCION ==========
+    instIO : "01_FB_IO_NORMALIZE";
+    instArbiter : "04_FB_CMD_ARBITER";
+    instOutputs : "05_FB_OUTPUTS";
+END_VAR
+
+VAR_TEMP
+    simGridV : Real;
+    simGridFreq : Real;
+END_VAR
+
+BEGIN
+
+    // ====================================================================
+    // 1. SIMULACION RED
+    // ====================================================================
+    IF #SIM_GRID_FAIL THEN
+        #simGridV := 200.0;
+        #simGridFreq := 48.0;
+    ELSE
+        #simGridV := 380.0;
+        #simGridFreq := 50.0;
+    END_IF;
+
+
+    // ====================================================================
+    // 2. SIMULACION GD1
+    // ====================================================================
+    #simGD1_Running := #SIM_GD_START AND NOT #SIM_GD_ALARM;
+
+    #tonGdWarmup(IN := #simGD1_Running, PT := #T_GD_WARMUP);
+    #simGD1_Ready := #simGD1_Running AND #tonGdWarmup.Q;
+
+
+    // ====================================================================
+    // 3. IO_NORMALIZE CON VALORES SIMULADOS
+    // ====================================================================
+    #instIO(
+        DI_SYS_AUTO     := FALSE,                      // MANUAL para sim HMI
+        DI_QT1_REMOTE   := NOT #SIM_QT1_LOCAL,
+        DI_QT1_CLOSE    := #simQT1_CLOSED,
+        DI_QT1_FAULT    := #SIM_QT1_FAULT,
+        DI_QT1_UV_OV    := FALSE,
+        DI_BUSBAR_UV_OV := FALSE,
+        DI_QG1_REMOTE   := NOT #SIM_QG1_LOCAL,
+        DI_QG1_CLOSE    := #simQG1_CLOSED,
+        DI_QG1_FAULT    := #SIM_QG1_FAULT,
+        DI_QG1_UV_OV    := FALSE,
+        DI_QG2_REMOTE   := FALSE,
+        DI_QG2_CLOSE    := #simQG2_CLOSED,
+        DI_QG2_FAULT    := FALSE,
+        DI_QG2_UV_OV    := FALSE,
+        DI_GD1_READY    := #simGD1_Ready,
+        DI_GD1_RUNNING  := #simGD1_Running,
+        DI_GD1_ALARM    := #SIM_GD_ALARM,
+        DI_GD2_READY    := FALSE,
+        DI_GD2_RUNNING  := FALSE,
+        DI_GD2_ALARM    := FALSE,
+        DI_Q22_REMOTE   := FALSE
+    );
+
+
+    // ====================================================================
+    // 4. ESCRIBIR POSICIONES A DATA_BUFF (para que HMI las lea)
+    // ====================================================================
+    "DATA_BUFF".MODE_AUTO := #instIO.MODE_AUTO;
+    "DATA_BUFF".MODE_MANUAL := #instIO.MODE_MANUAL;
+    "DATA_BUFF".DIAG_MODE_VALID := #instIO.DIAG_MODE_VALID;
+
+    "DATA_BUFF".QT1_CLOSED := #instIO.QT1_CLOSED;
+    "DATA_BUFF".QT1_OPEN := #instIO.QT1_OPEN;
+    "DATA_BUFF".QT1_FAULT := #instIO.QT1_FAULT;
+    "DATA_BUFF".QT1_REMOTE := #instIO.QT1_REMOTE;
+    "DATA_BUFF".QT1_UV_OV_DI := #instIO.QT1_UV_OV_DI;
+
+    "DATA_BUFF".QG1_CLOSED := #instIO.QG1_CLOSED;
+    "DATA_BUFF".QG1_OPEN := #instIO.QG1_OPEN;
+    "DATA_BUFF".QG1_FAULT := #instIO.QG1_FAULT;
+    "DATA_BUFF".QG1_REMOTE := #instIO.QG1_REMOTE;
+
+    "DATA_BUFF".QG2_CLOSED := #instIO.QG2_CLOSED;
+    "DATA_BUFF".QG2_OPEN := #instIO.QG2_OPEN;
+
+    "DATA_BUFF".GD_READY := #instIO.GD_READY;
+    "DATA_BUFF".GD_RUNNING := #instIO.GD_RUNNING;
+    "DATA_BUFF".GD_ALARM := #instIO.GD_ALARM;
+    "DATA_BUFF".GD1_READY := #simGD1_Ready;
+    "DATA_BUFF".GD1_RUNNING := #simGD1_Running;
+    "DATA_BUFF".GD1_ALARM := #SIM_GD_ALARM;
+
+    // Mediciones simuladas RED
+    "DATA_BUFF".GRID_V_L1L2 := #simGridV;
+    "DATA_BUFF".GRID_V_L2L3 := #simGridV;
+    "DATA_BUFF".GRID_V_L3L1 := #simGridV;
+    "DATA_BUFF".GRID_FREQ := #simGridFreq;
+    "DATA_BUFF".GRID_MEASUREMENT_OK := TRUE;
+    "DATA_BUFF".GRID_OK := NOT #SIM_GRID_FAIL;
+    "DATA_BUFF".GRID_FAIL := #SIM_GRID_FAIL;
+
+    // Estado SCMTA: en modo manual puro, siempre "sin SCMTA"
+    "DATA_BUFF".SCMTA_STATE := 0;
+    "DATA_BUFF".SCMTA_STATE_NAME := 'MANUAL_SIM';
+    "DATA_BUFF".IS_ON_GRID := #simQT1_CLOSED AND NOT #simQG1_CLOSED;
+    "DATA_BUFF".IS_ON_GD := #simQG1_CLOSED AND NOT #simQT1_CLOSED;
+    "DATA_BUFF".IS_ON_GD1 := "DATA_BUFF".IS_ON_GD;
+    "DATA_BUFF".IS_ON_GD2 := FALSE;
+    "DATA_BUFF".IS_IN_TRANSFER := FALSE;
+    "DATA_BUFF".IS_FAULT := FALSE;
+    "DATA_BUFF".FAULT_CODE := 0;
+
+
+    // ====================================================================
+    // 5. CMD_ARBITER (manual requests desde DATA_BUFF del HMI)
+    // ====================================================================
+    #instArbiter(
+        // Sin requests SCMTA (modo manual puro)
+        REQ_SCMTA_OPEN_QT1  := FALSE,
+        REQ_SCMTA_CLOSE_QT1 := FALSE,
+        REQ_SCMTA_OPEN_QG1  := FALSE,
+        REQ_SCMTA_CLOSE_QG1 := FALSE,
+        REQ_SCMTA_OPEN_QG2  := FALSE,
+        REQ_SCMTA_CLOSE_QG2 := FALSE,
+        REQ_SCMTA_OPEN_Q22  := FALSE,
+        REQ_SCMTA_CLOSE_Q22 := FALSE,
+        // Manual requests desde HMI (DATA_BUFF)
+        REQ_MAN_QT1_OPEN    := "DATA_BUFF".REQ_MAN_QT1_OPEN,
+        REQ_MAN_QT1_CLOSE   := "DATA_BUFF".REQ_MAN_QT1_CLOSE,
+        REQ_MAN_QG1_OPEN    := "DATA_BUFF".REQ_MAN_QG1_OPEN,
+        REQ_MAN_QG1_CLOSE   := "DATA_BUFF".REQ_MAN_QG1_CLOSE,
+        REQ_MAN_QG2_OPEN    := "DATA_BUFF".REQ_MAN_QG2_OPEN,
+        REQ_MAN_QG2_CLOSE   := "DATA_BUFF".REQ_MAN_QG2_CLOSE,
+        REQ_MAN_Q22_OPEN    := "DATA_BUFF".REQ_MAN_Q22_OPEN,
+        REQ_MAN_Q22_CLOSE   := "DATA_BUFF".REQ_MAN_Q22_CLOSE,
+        // Modo
+        MODE_AUTO           := FALSE,
+        MODE_MANUAL         := TRUE,
+        // Posiciones actuales (para interlocks)
+        QT1_CLOSED          := #instIO.QT1_CLOSED,
+        QG1_CLOSED          := #instIO.QG1_CLOSED,
+        QG2_CLOSED          := #instIO.QG2_CLOSED,
+        QT1_REMOTE          := #instIO.QT1_REMOTE,
+        QG1_REMOTE          := #instIO.QG1_REMOTE,
+        QG2_REMOTE          := FALSE,
+        Q22_REMOTE          := FALSE,
+        // Outputs
+        CMD_OPEN_QT1        => #cmdOpenQT1,
+        CMD_CLOSE_QT1       => #cmdCloseQT1,
+        CMD_OPEN_QG1        => #cmdOpenQG1,
+        CMD_CLOSE_QG1       => #cmdCloseQG1,
+        BLOCK_LOCAL         => "DATA_BUFF".BLOCK_LOCAL,
+        BLOCK_INTERLOCK     => "DATA_BUFF".BLOCK_INTERLOCK,
+        BLOCK_CONFLICT      => "DATA_BUFF".BLOCK_CONFLICT,
+        ALM_INTERLOCK_VIOLATION => "DATA_BUFF".ALM_INTERLOCK_VIOLATION
+    );
+
+    // Limpiar requests manuales despues de procesarlos (1-shot desde HMI)
+    "DATA_BUFF".REQ_MAN_QT1_OPEN := FALSE;
+    "DATA_BUFF".REQ_MAN_QT1_CLOSE := FALSE;
+    "DATA_BUFF".REQ_MAN_QG1_OPEN := FALSE;
+    "DATA_BUFF".REQ_MAN_QG1_CLOSE := FALSE;
+    "DATA_BUFF".REQ_MAN_QG2_OPEN := FALSE;
+    "DATA_BUFF".REQ_MAN_QG2_CLOSE := FALSE;
+    "DATA_BUFF".REQ_MAN_Q22_OPEN := FALSE;
+    "DATA_BUFF".REQ_MAN_Q22_CLOSE := FALSE;
+
+
+    // ====================================================================
+    // 6. FEEDBACK SIMULADO - CMD -> delay -> actualizar posicion DI
+    // ====================================================================
+
+    // ---- OPEN QT1 ----
+    #rtOpenQT1(CLK := #cmdOpenQT1);
+    IF #rtOpenQT1.Q THEN #fbkOpenQT1 := TRUE; END_IF;
+    #tonFbkOpenQT1(IN := #fbkOpenQT1, PT := #T_FEEDBACK);
+    IF #tonFbkOpenQT1.Q THEN
+        #simQT1_CLOSED := FALSE;
+        #fbkOpenQT1 := FALSE;
+    END_IF;
+
+    // ---- CLOSE QT1 ----
+    #rtCloseQT1(CLK := #cmdCloseQT1);
+    IF #rtCloseQT1.Q THEN #fbkCloseQT1 := TRUE; END_IF;
+    #tonFbkCloseQT1(IN := #fbkCloseQT1, PT := #T_FEEDBACK);
+    IF #tonFbkCloseQT1.Q THEN
+        #simQT1_CLOSED := TRUE;
+        #fbkCloseQT1 := FALSE;
+    END_IF;
+
+    // ---- OPEN QG1 ----
+    #rtOpenQG1(CLK := #cmdOpenQG1);
+    IF #rtOpenQG1.Q THEN #fbkOpenQG1 := TRUE; END_IF;
+    #tonFbkOpenQG1(IN := #fbkOpenQG1, PT := #T_FEEDBACK);
+    IF #tonFbkOpenQG1.Q THEN
+        #simQG1_CLOSED := FALSE;
+        #fbkOpenQG1 := FALSE;
+    END_IF;
+
+    // ---- CLOSE QG1 ----
+    #rtCloseQG1(CLK := #cmdCloseQG1);
+    IF #rtCloseQG1.Q THEN #fbkCloseQG1 := TRUE; END_IF;
+    #tonFbkCloseQG1(IN := #fbkCloseQG1, PT := #T_FEEDBACK);
+    IF #tonFbkCloseQG1.Q THEN
+        #simQG1_CLOSED := TRUE;
+        #fbkCloseQG1 := FALSE;
+    END_IF;
+
+
+    // ====================================================================
+    // 7. FB_OUTPUTS - pilotos e indicadores para HMI
+    // ====================================================================
+    #instOutputs(
+        IS_ON_GRID          := "DATA_BUFF".IS_ON_GRID,
+        IS_ON_GD            := "DATA_BUFF".IS_ON_GD,
+        IS_IN_TRANSFER      := FALSE,
+        IS_FAULT            := FALSE,
+        STATE               := 0,
+        STATE_NAME          := 'MANUAL_SIM',
+        FAULT_CODE          := 0,
+        QT1_CLOSED          := #instIO.QT1_CLOSED,
+        QT1_FAULT           := #instIO.QT1_FAULT,
+        QG1_CLOSED          := #instIO.QG1_CLOSED,
+        QG1_FAULT           := #instIO.QG1_FAULT,
+        QG2_CLOSED          := FALSE,
+        QG2_FAULT           := FALSE,
+        Q22_CLOSED          := FALSE,
+        Q22_FAULT           := FALSE,
+        ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
+        BLOCK_INTERLOCK     := "DATA_BUFF".BLOCK_INTERLOCK,
+        GRID_FAIL           := #SIM_GRID_FAIL,
+        GD_ALARM            := #SIM_GD_ALARM,
+        GD2_ALARM           := FALSE,
+        ACK_ALARM           := "DATA_BUFF".ACK_ALARM,
+        // Outputs piloto
+        DO_PILOT_ON_GRID    => "DATA_BUFF".PILOT_ON_GRID,
+        DO_PILOT_ON_GD      => "DATA_BUFF".PILOT_ON_GD,
+        DO_PILOT_FAULT      => "DATA_BUFF".PILOT_FAULT,
+        DO_PILOT_QT1_OPEN   => "DATA_BUFF".PILOT_QT1_OPEN,
+        DO_PILOT_QT1_CLOSED => "DATA_BUFF".PILOT_QT1_CLOSED,
+        DO_PILOT_QT1_FAULT  => "DATA_BUFF".PILOT_QT1_FAULT,
+        DO_PILOT_QG1_OPEN   => "DATA_BUFF".PILOT_QG1_OPEN,
+        DO_PILOT_QG1_CLOSED => "DATA_BUFF".PILOT_QG1_CLOSED,
+        DO_PILOT_QG1_FAULT  => "DATA_BUFF".PILOT_QG1_FAULT,
+        DO_PILOT_QG2_OPEN   => "DATA_BUFF".PILOT_QG2_OPEN,
+        DO_PILOT_QG2_CLOSED => "DATA_BUFF".PILOT_QG2_CLOSED,
+        DO_PILOT_QG2_FAULT  => "DATA_BUFF".PILOT_QG2_FAULT,
+        DO_PILOT_Q22_OPEN   => "DATA_BUFF".PILOT_Q22_OPEN,
+        DO_PILOT_Q22_CLOSED => "DATA_BUFF".PILOT_Q22_CLOSED,
+        DO_PILOT_Q22_FAULT  => "DATA_BUFF".PILOT_Q22_FAULT,
+        HMI_ALARM_ACTIVE    => "DATA_BUFF".HMI_ALARM_ACTIVE,
+        HMI_ALARM_TEXT      => "DATA_BUFF".HMI_ALARM_TEXT
+    );
+
+END_FUNCTION_BLOCK

@@ -1,393 +1,203 @@
-# Test FB_IO_NORMALIZE + FB_SCMTA
+# Suite de Tests SCMTA TGBT V4
 
-## Descripción
-Test automatizado con secuencia de validación paso a paso con delays configurados para poder observar y validar cada transición de estado del sistema SCMTA.
-
-**Implementado como Function Block (FB)** con todas las variables inicializadas. Se llama desde el Main.
-
-## Características
-- **10 pasos** de test secuenciales
-- **Delays programados** en cada paso para observación
-- **Estados esperados** definidos para cada paso
-- **Simulación automática** de entradas físicas y transiciones
-- **Validación manual** observando variables en watch table
-- **Timer interno** (VAR STAT) sin necesidad de DBs externos
-- **Variables inicializadas** con valores por defecto
+## Descripcion
+Suite de tests automatizados y simulacion interactiva para el sistema SCMTA TGBT V4.
+Interfaz Bool DI, un solo generador (GD1), sin SHED, sin GD2 failover.
 
 ---
 
-## Uso Rápido
+## Archivos
 
-### ⚙️ Configuración Inicial
-
-1. **Importar** `TEST_FB_IO_NORMALIZE_SCMTA.scl` en TIA Portal (genera **FB_TEST_SCMTA**)
-2. **Importar** `12_TEST_INSTANCE_DBS.scl` (genera **TEST_SCMTA_DB** y demás instance DBs)
-3. **Llamar desde Main (OB1) o OB de test:**
-   ```scl
-   "TEST_SCMTA_DB"();
-   ```
-
-> **Nota:** El test FB usa instancias locales de `01_FB_IO_NORMALIZE` y `02_FB_SCMTA` internamente (no necesita instance DBs de producción).
-
-### ▶️ Ejecución
-
-1. **Compilar** y descargar a PLCSIM
-2. **Activar** `TEST_SCMTA_DB.testEnable = TRUE` en watch table
-3. **Observar** el avance automático a través de los pasos
-4. **Monitorear** variables en el instance DB
+| Archivo | Descripcion |
+|---------|-------------|
+| `TEST_FB_HAPPY_PATH_V4.scl` | Test automatico: ciclo completo RED→GD1→RED (13 pasos) |
+| `TEST_FB_FALLAS_V4.scl` | Test automatico: 7 escenarios de falla (grupos A-G) |
+| `TEST_FB_MIN_STAY_AND_INTERLOCKS.scl` | Test automatico: T_MIN_GD_STAY + interlocks manual |
+| `TEST_FB_HMI_MANUAL_SIM.scl` | Simulacion interactiva: operacion manual desde HMI con PLCSIM |
+| `12_TEST_INSTANCE_DBS.scl` | Instance DBs para los 4 test FBs |
+| `13_OB1_TEST_MAIN.scl` | OB1 alternativo para ejecutar tests |
 
 ---
 
-## Variables de Control
+## Orden de Importacion en TIA Portal V18
 
-### Control del Test
-| Variable | Tipo | Descripción |
-|----------|------|-------------|
-| `testEnable` | Bool | **Activar para iniciar test** (cambiar a TRUE) |
-| `testStep` | Int | Paso actual del test (0-10) |
-| `testStatus` | String | Descripción del paso actual |
-| `testExpectedState` | Int | Estado SCMTA esperado en este paso |
-| `testExpectedResult` | String | Resultado esperado para validar |
-
-### Outputs a Monitorear
-| Variable | Tipo | Descripción |
-|----------|------|-------------|
-| `outState` | Int | Estado actual FB_SCMTA |
-| `outStateName` | String | Nombre del estado actual |
-| `outIsOnGrid` | Bool | Sistema operando con RED |
-| `outIsOnGD` | Bool | Sistema operando con GD |
-| `outGridOk` | Bool | RED OK (dentro de límites) |
-| `outGridFail` | Bool | RED en falla |
-| `outDoGD_Start` | Bool | Comando arranque GD |
-| `outReqScmtaOpenQT1` | Bool | Comando apertura QT1 |
-| `outReqScmtaCloseQG1` | Bool | Comando cierre QG1 |
-| `outElapsedTime` | Time | Tiempo transcurrido en estado actual |
+1. `DATA_BUFF` (DB global) + `DB_PARAMS`
+2. FBs produccion: `01_FB_IO_NORMALIZE` .. `12_FB_PULSE_EXPANDER`
+3. Instance DBs produccion: `11_INSTANCE_DBS.scl`
+4. Test FBs: los 4 archivos `TEST_*.scl`
+5. Test Instance DBs: `12_TEST_INSTANCE_DBS.scl`
+6. OB1 de test: `13_OB1_TEST_MAIN.scl`
 
 ---
 
-## Secuencia del Test
+## Test 1: Happy Path V4 (TEST_HAPPY_PATH_DB)
 
-### Paso 0: Inicialización (5s)
-**Configuración:**
-- `simDI_SYS_AUTO = TRUE`
-- `simQT1_STATE = 1` (cerrado)
-- `simGridV_L1L2/L2L3/L3L1 = 380V`
-- `simGridFreq = 50Hz`
-- `simDI_GD_READY = FALSE`
+**Valida el ciclo completo de transferencia automatica.**
 
-**Validar:**
-- ✅ `outState` debe llegar a 0 o 1 (INIT o NORMAL_ON_GRID)
+### Secuencia (13 pasos)
+| Paso | Descripcion | Validacion |
+|------|-------------|------------|
+| 0 | Inicializacion (5s) | Estado 0 o 1 |
+| 1 | Operacion normal RED | Estado=1, IS_ON_GRID, GRID_OK |
+| 2 | Falla RED: V=200V, F=48Hz | GRID_FAIL despues de filtro 2s |
+| 3 | SCMTA abre QT1 → simula QT1_CLOSED=FALSE | IS_IN_TRANSFER |
+| 4 | Arranque GD1 → simula GD_RUNNING=TRUE | DO_GD_START |
+| 5 | GD1 listo → simula GD_READY=TRUE (5s delay) | Estado >= 5 |
+| 6 | SCMTA cierra QG1 → simula QG1_CLOSED=TRUE | Estado >= 7 |
+| 7 | Operando con GD1 (5s) | Estado=8, IS_ON_GD1 |
+| 8 | Retorno RED: V=380V, F=50Hz | GRID_OK |
+| 9 | SCMTA abre QG1 → simula QG1_CLOSED=FALSE | Estado=11 |
+| 10 | SCMTA cierra QT1 → simula QT1_CLOSED=TRUE | Estado=12 |
+| 11 | GD_COOLDOWN | Estado=1 (retorno completo) |
+| 12 | Validacion final | Estado=1, IS_ON_GRID, sin FAULT |
 
----
+### Variables de Control
+```
+TEST_HAPPY_PATH_DB.testEnable := TRUE   // Iniciar
+TEST_HAPPY_PATH_DB.testReset := TRUE    // Reiniciar
+TEST_HAPPY_PATH_DB.testStep             // Paso actual (0-12)
+TEST_HAPPY_PATH_DB.testStatus           // Descripcion del paso
+TEST_HAPPY_PATH_DB.testResults[0..12]   // PASS/FAIL por paso
+TEST_HAPPY_PATH_DB.testAllPassed        // TRUE si todos OK
+```
 
-### Paso 1: Operación Normal RED (3s)
-**Descripción:** Sistema estabilizado operando con RED
-
-**Validar:**
-- ✅ `outState = 1` (NORMAL_ON_GRID)
-- ✅ `outIsOnGrid = TRUE`
-- ✅ `outGridOk = TRUE`
-
----
-
-### Paso 2: Simulación Falla RED (4s)
-**Acción automática:**
-- Reduce tensiones a 200V
-- Reduce frecuencia a 48Hz
-
-**Validar:**
-- ✅ `outGridFail = TRUE` (después de ~2s de filtro)
-- ✅ `outState` transiciona a 2 o 3 (GRID_FAIL_DETECTED o WAIT_OPEN_QT1)
-
----
-
-### Paso 3: Apertura QT1 (espera comando)
-**Acción automática:**
-- Detecta comando `outReqScmtaOpenQT1 = TRUE`
-- Simula apertura cambiando `simQT1_STATE = 0`
-
-**Validar:**
-- ✅ `outReqScmtaOpenQT1 = TRUE`
-- ✅ `outState = 3` (WAIT_OPEN_QT1)
-- ✅ `simQT1_STATE` cambia a 0 después de 1s
+### Timeouts Reducidos
+- `T_GRID_STABLE = 5s` (prod: 120s)
+- `T_GD_COOLDOWN = 5s` (prod: 60s)
+- `T_MIN_GD_STAY = 5s` (prod: 10min)
 
 ---
 
-### Paso 4: Arranque GD (2s)
-**Acción automática:**
-- Espera comando `outDoGD_Start = TRUE`
-- Simula GD arranca: `simDI_GD_RUNNING = TRUE`
+## Test 2: Escenarios de Falla V4 (TEST_FALLAS_DB)
 
-**Validar:**
-- ✅ `outDoGD_Start = TRUE`
-- ✅ `outState = 5` (START_GD)
-- ✅ `simDI_GD_RUNNING = TRUE` después de 2s
+**Valida todos los escenarios de falla del SCMTA con FAULT_LOCKOUT.**
 
----
+### Grupos de Test
+| Grupo | Falla | FAULT_CODE | Descripcion |
+|-------|-------|------------|-------------|
+| A | Timeout QT1 OPEN | 101 | QT1 no abre despues de T_OPEN_QT1 |
+| B | GD1 ALARM arranque | 106 | Alarma GD1 durante arranque |
+| C | GD1 NOT READY | 102 | GD1 no listo en T_GD_READY_TIMEOUT |
+| D | Timeout CLOSE QG1 | 103 | QG1 no cierra despues de T_CLOSE_QG1 |
+| E | GD1 ALARM ON_GD1 | 106 | Alarma GD1 durante operacion |
+| F | QT1 NOT REMOTE | 111 | QT1 en LOCAL cuando se necesita abrir |
+| G | Oscilacion RED | — | Bounce <2s NO dispara transferencia |
 
-### Paso 5: GD Estabilizando (3s)
-**Acción automática:**
-- Espera 3s de estabilización
-- Activa `simDI_GD_READY = TRUE`
+### Variables de Control
+```
+TEST_FALLAS_DB.testEnable := TRUE       // Iniciar
+TEST_FALLAS_DB.testReset := TRUE        // Reiniciar
+TEST_FALLAS_DB.testGroup                // Grupo actual (0-6 = A-G)
+TEST_FALLAS_DB.testSubStep              // Sub-paso dentro del grupo
+TEST_FALLAS_DB.testStatus               // Descripcion del estado
+TEST_FALLAS_DB.testGroupResults[0..6]   // PASS/FAIL por grupo
+TEST_FALLAS_DB.testAllPassed            // TRUE si todos OK
+```
 
-**Validar:**
-- ✅ `outState = 6` (WAIT_GD_READY)
-- ✅ `simDI_GD_READY = TRUE` después de 3s
-
----
-
-### Paso 6: Cierre QG1 (6s)
-**Acción automática:**
-- Espera delay estabilización (5s en SCMTA)
-- Detecta comando `outReqScmtaCloseQG1 = TRUE`
-- Simula cierre: `simQG1_STATE = 1`
-
-**Validar:**
-- ✅ `outReqScmtaCloseQG1 = TRUE`
-- ✅ `outState = 7` (WAIT_CLOSE_QG1)
-- ✅ `simQG1_STATE = 1` después de delay
+### Timeouts Reducidos
+- `T_GD_READY_TIMEOUT = 5s` (prod: 30s)
+- `T_GRID_STABLE = 3s` (prod: 120s)
+- `T_GD_COOLDOWN = 3s` (prod: 60s)
 
 ---
 
-### Paso 7: Operando con GD (5s)
-**Descripción:** Sistema estabilizado operando con GD
+## Test 3: Min Stay + Interlocks (TEST_MIN_STAY_DB)
 
-**Validar:**
-- ✅ `outState = 8` (NORMAL_ON_GD)
-- ✅ `outIsOnGD = TRUE`
-- ✅ `outIsOnGrid = FALSE`
+**Valida T_MIN_GD_STAY y enclavamientos de fuente unica en modo manual.**
 
----
+### Sub-tests
+- **TEST_A**: Tiempo minimo en GD1 y GD2, alarma bypasea espera
+- **TEST_B**: Interlocks manuales (B1-B7): fuente unica, LOCAL block, conflict
+- **TEST_C**: Integracion completa
 
-### Paso 8: Retorno de RED (3s)
-**Acción automática:**
-- Restaura tensiones a 380V
-- Restaura frecuencia a 50Hz
-
-**Validar:**
-- ✅ `outGridOk = TRUE` (después de ~2s de filtro)
-- ✅ `outState` transiciona a 9 o 10 (GRID_RETURN_DETECTED o WAIT_OPEN_QG1)
-- ✅ Debe iniciar secuencia de retransferencia a RED
+> Referir a `TEST_FB_MIN_STAY_AND_INTERLOCKS.scl` para detalles de cada sub-test.
 
 ---
 
-### Paso 9: Test Pulsadores Manuales (10s)
-**Acción automática:**
-- Cambia a modo manual: `simDI_SYS_AUTO = FALSE`
-- Genera pulsos en `simDI_QT1_PB_OPEN` cada 2s
+## Test 4: Simulacion HMI Manual (HMI_SIM_DB)
 
-**Validar:**
-- ✅ `outReqManQT1_Open` debe pulsar cuando detecta rising edge
-- ✅ Sistema debe responder a comandos manuales
+**Simulacion interactiva para operar el sistema desde el HMI en modo manual con PLCSIM.**
 
----
+### Que hace
+- Reemplaza entradas fisicas (%I) con valores simulados
+- Ejecuta IO_NORMALIZE → CMD_ARBITER → OUTPUTS internamente
+- **NO ejecuta SCMTA** (modo manual puro, sin transferencia automatica)
+- **NO ejecuta MODBUS_MANAGER** (sin comunicacion real)
+- Cuando CMD_ARBITER envia un comando, el feedback DI se actualiza automaticamente con delay
 
-### Paso 10: Test Completado
-**Acción automática:**
-- Detiene el test: `testEnable = FALSE`
+### Como usar
 
-**Revisión Final:**
-- ✅ Todos los pasos completados sin errores
-- ✅ Transiciones de estado correctas
-- ✅ Comandos de salida activados en momentos esperados
+1. En `13_OB1_TEST_MAIN.scl`: comentar todos los otros tests, descomentar `"HMI_SIM_DB"();`
+2. Compilar y descargar a PLCSIM
+3. Abrir Runtime HMI (KTP700 Basic)
+4. Observar posiciones de interruptores en la pantalla del HMI
+5. Presionar botones ABRIR/CERRAR desde el HMI → ver el feedback automatico
+
+### Toggles de Simulacion (watch table)
+| Variable | Efecto |
+|----------|--------|
+| `HMI_SIM_DB.SIM_GRID_FAIL` | Simula perdida RED (V=200V, F=48Hz) |
+| `HMI_SIM_DB.SIM_GD_START` | Simula arranque GD1 (running + ready con delay 3s) |
+| `HMI_SIM_DB.SIM_QT1_LOCAL` | Pone QT1 en LOCAL (bloquea comandos remotos) |
+| `HMI_SIM_DB.SIM_QG1_LOCAL` | Pone QG1 en LOCAL |
+| `HMI_SIM_DB.SIM_GD_ALARM` | Simula alarma GD1 |
+| `HMI_SIM_DB.SIM_QT1_FAULT` | Simula falla/disparo QT1 |
+| `HMI_SIM_DB.SIM_QG1_FAULT` | Simula falla/disparo QG1 |
+
+### Parametros Configurables
+| Variable | Default | Descripcion |
+|----------|---------|-------------|
+| `T_FEEDBACK` | 500ms | Delay entre CMD y cambio de posicion DI |
+| `T_GD_WARMUP` | 3s | Delay entre GD_RUNNING y GD_READY |
+
+### Flujo de Datos
+```
+HMI presiona boton → DATA_BUFF.REQ_MAN_xx_OPEN/CLOSE
+→ CMD_ARBITER verifica interlocks
+→ CMD_OPEN/CLOSE_xx sale
+→ R_TRIG detecta flanco → TON feedback delay (500ms)
+→ simQT1_CLOSED / simQG1_CLOSED se actualiza
+→ IO_NORMALIZE procesa nuevo estado
+→ Se escribe a DATA_BUFF → HMI muestra nueva posicion
+```
+
+### Que se puede probar
+- Abrir/cerrar QT1 y QG1 desde HMI en modo manual
+- Verificar que interlock evita cerrar QT1 si QG1 esta cerrado (y viceversa)
+- Verificar que LOCAL bloquea comandos remotos
+- Simular falla RED con toggle y ver indicadores HMI
+- Arrancar GD1 con toggle y ver indicadores de estado
+- Probar secuencia manual completa: abrir QT1 → arrancar GD → cerrar QG1
 
 ---
 
 ## Watch Table Recomendada
 
-### Grupo 1: Control Test
-```
-testEnable
-testStep
-testStatus
-testExpectedState
-testExpectedResult
-```
-
-### Grupo 2: Estado SCMTA
-```
-outState
-outStateName
-outIsOnGrid
-outIsOnGD
-outGridOk
-outGridFail
-outElapsedTime
-```
-
-### Grupo 3: Comandos Salida
-```
-outReqScmtaOpenQT1
-outReqScmtaCloseQT1
-outReqScmtaOpenQG1
-outDoGD_Start
-outDoGD_Stop
-outReqManQT1_Open
-```
-
-### Grupo 4: Simulación (opcional)
-```
-simQT1_STATE
-simQG1_STATE
-simGridV_L1L2
-simGridFreq
-simDI_GD_READY
-simDI_GD_RUNNING
-```
-
----
-
-## Notas Importantes
-
-⚠️ **Observación Manual:** Aunque el test es automático, debes observar las variables en la watch table para validar cada paso.
-
-⚠️ **Tiempos de Filtro:** Los cambios en RED tienen filtros de 2s (tonGridFailFilter, tonGridStableFilter), por eso algunos pasos tienen delays de 3-4s.
-
-⚠️ **Delays en SCMTA:** El delay de estabilización GD es de 5s antes de cerrar QG1, configurado en el paso 6.
-
-⚠️ **Modo Manual:** El paso 9 prueba comandos manuales, debe generar pulsos en `outReqManQT1_Open`.
-
-✅ **Test Reproducible:** Puedes reiniciar el test en cualquier momento poniendo `testEnable = FALSE` y luego `TRUE` nuevamente.
-
----
-
-## Troubleshooting
-
-**El test no avanza:**
-- Verificar `testEnable = TRUE`
-- Observar `testStep` y `testStatus`
-- Revisar si el estado SCMTA coincide con `testExpectedState`
-
-**Falla en un paso específico:**
-- Leer `testExpectedResult` para saber qué validar
-- Comparar `outState` con `testExpectedState`
-- Verificar que las condiciones del FB_SCMTA se cumplan
-
-**Test muy rápido:**
-- Aumentar los tiempos PT en los `testTimer(IN := TRUE, PT := T#Xs)`
-- Cada paso tiene su delay configurable
-
-**Quiero pausar en un paso:**
-- Cambiar `testEnable = FALSE` cuando llegue al paso deseado
-- Observar variables el tiempo necesario
-- Reactivar `testEnable = TRUE` para continuar
-
----
-
-## Ejemplo de Ejecución
+Para monitorear cualquier test, crear una watch table con:
 
 ```
-[00:00] testStep=0, testStatus="PASO 0: Inicializando test..."
-[00:05] testStep=1, testStatus="PASO 1: Operación normal RED"
-        ✅ outState=1, outIsOnGrid=TRUE
-[00:08] testStep=2, testStatus="PASO 2: Falla RED"
-        Tensión baja a 200V, Frecuencia a 48Hz
-[00:10] ✅ outGridFail=TRUE
-[00:12] testStep=3, testStatus="PASO 3: Comando OPEN_QT1"
-        ✅ outReqScmtaOpenQT1=TRUE
-[00:13] simQT1_STATE=0 (abierto)
-[00:15] testStep=4, testStatus="PASO 4: START_GD"
-        ✅ outDoGD_Start=TRUE
-[00:17] simDI_GD_RUNNING=TRUE
-...
-[00:50] testStep=10, testStatus="PASO 10: TEST COMPLETADO"
-        testEnable=FALSE (detenido)
+// Control test
+"TEST_xxx_DB".testEnable
+"TEST_xxx_DB".testReset
+"TEST_xxx_DB".testStep / testGroup
+"TEST_xxx_DB".testStatus
+"TEST_xxx_DB".testAllPassed
+
+// Estado SCMTA (tests 1-3)
+"TEST_xxx_DB".outState
+"TEST_xxx_DB".outIsOnGrid
+"TEST_xxx_DB".outIsOnGD1
+"TEST_xxx_DB".outIsFault
+"TEST_xxx_DB".outFaultCode
+"TEST_xxx_DB".outGridOk
+"TEST_xxx_DB".outGridFail
+
+// Simulacion HMI (test 4)
+"HMI_SIM_DB".SIM_GRID_FAIL
+"HMI_SIM_DB".SIM_GD_START
+"HMI_SIM_DB".simQT1_CLOSED
+"HMI_SIM_DB".simQG1_CLOSED
+"DATA_BUFF".BLOCK_LOCAL
+"DATA_BUFF".BLOCK_INTERLOCK
+"DATA_BUFF".ALM_INTERLOCK_VIOLATION
 ```
-
----
-
-**Autor**: Sistema SCMTA TGBT  
-**Fecha**: 5 de febrero de 2026  
-**Última actualización**: 10 de febrero de 2026
-
----
-
-## Archivos de Test V3.0
-
-| Archivo | Descripción | Pasos | Versión |
-|---------|-------------|-------|---------|
-| `TEST_FB_IO_NORMALIZE_SCMTA.scl` | Happy path: ciclo completo RED→GD1→RED | 15 (0-14) | 2.2 |
-| `TEST_FB_FALLAS_SCMTA.scl` | Fallas: timeouts, GD_ALARM, bouncing, LOCAL | 37 (0-36) | 1.2 |
-| `TEST_FB_SHED.scl` | Deslastre dual RED/GD V2.0 | 20 (0-19) | 1.0 |
-| `TEST_FB_GD2_FAILOVER.scl` | **NUEVO** - Failover GD1↔GD2 completo | 25 (0-24) | 1.0 |
-
-### TEST_FB_SHED.scl (Nuevo V2.0)
-
-Test dedicado para validar FB_SHED V2.0 con la nueva arquitectura de deslastre dual.
-
-**Configuración:**
-- 18 feeders: 3 esenciales (1,2,3) + 15 no-esenciales (4-18)
-- SHED_ORDER: 18→4 (deslastar desde los menos prioritarios)
-- RECONNECT_ORDER: 4→18 (reconectar desde los más prioritarios)
-- Timings reducidos para test rápido (T_SHED_STEP=3s, T_RECONNECT_STEP=3s)
-
-**Grupos de test:**
-
-| Grupo | Pasos | Escenario |
-|-------|-------|-----------|
-| A | 0-2 | Clasificación feeders y estado IDLE |
-| B | 3-7 | Deslastre reactivo en RED (TR_LoadPct > 85%) |
-| C | 8-10 | Desacople inicial al transferir a GD (TRANSFER_TO_GD) |
-| D | 11-14 | Acoplamiento escalonado en GD + pausa/reanudación |
-| E | 15-16 | Deslastre reactivo en GD (GD_LoadPct > 90%) |
-| F | 17-19 | Reenganche al volver a RED |
-
-**Uso:**
-```scl
-// Crear instance DB "TEST_SHED_DB" → DB "03_FB_SHED_DB_2"
-"TEST_SHED_DB"();  // Llamar desde OB1
-
-// Activar: TEST_SHED_DB.testEnable := TRUE
-// Resetear: TEST_SHED_DB.testReset := TRUE
-```
-
-### TEST_FB_GD2_FAILOVER.scl (Nuevo V3.0)
-
-Test dedicado para validar el failover automático entre GD1 y GD2 implementado en FB_SCMTA V3.0.
-
-**Escenarios cubiertos:**
-- Failover GD1→GD2 durante arranque (GD1_ALARM en START_GD1)
-- Failover GD1→GD2 durante operación (live switch via OPEN_GD_FOR_SWITCH)
-- Failover inverso GD2→GD1 durante operación
-- Ambos GDs fallan → FAULT_LOCKOUT (código 209)
-- Retorno a RED desde GD2 (OPEN_ACTIVE_GD abre QG2)
-
-**Configuración:**
-- T_GRID_STABLE := T#2s, T_GD_COOLDOWN := T#2s (reducidos para test rápido)
-- GD2 usa señales independientes: simDI_GD2_READY, simDI_GD2_RUNNING, simDI_GD2_ALARM
-
-**Grupos de test:**
-
-| Grupo | Pasos | Escenario |
-|-------|-------|-----------|
-| A | 0-4 | Failover GD1→GD2 durante arranque |
-| B | 5-9 | Failover GD1→GD2 durante operación (live switch) |
-| C | 10-14 | Failover GD2→GD1 durante operación |
-| D | 15-17 | Ambos GDs fallan → FAULT_LOCKOUT (209) |
-| E | 18-23 | Retorno a RED desde GD2 |
-| - | 24 | Test completado |
-
-**Uso:**
-```scl
-// Crear instance DB "TEST_GD2_FAILOVER_DB" → DB "02_FB_SCMTA_DB_2"
-"TEST_GD2_FAILOVER_DB"();  // Llamar desde OB1
-
-// Activar: TEST_GD2_FAILOVER_DB.testEnable := TRUE
-// Resetear: TEST_GD2_FAILOVER_DB.testReset := TRUE
-```
-
-### Cambios V3.0 en Tests Existentes
-
-**TEST_FB_IO_NORMALIZE_SCMTA.scl (V2.1 → V2.2):**
-- Agregadas variables GD2: simDI_GD2_READY/RUNNING/ALARM, outGD2_Ready/Running
-- Agregadas salidas V3.0: IS_ON_GD1, IS_ON_GD2, ACTIVE_GD, GD1_AVAILABLE, GD2_AVAILABLE
-- Actualizada llamada FB_IO_NORMALIZE con GD2 I/O
-- Actualizada llamada FB_SCMTA con T_CLOSE_QG2, T_OPEN_QG2, DO_GD2_START/STOP
-- PASO 7: Validación incluye IS_ON_GD1 (además de IS_ON_GD backward compatible)
-- Comentarios actualizados: ON_GD → ON_GD1, OPEN_QG1 → OPEN_ACTIVE_GD
-
-**TEST_FB_FALLAS_SCMTA.scl (V1.1 → V1.2):**
-- Agregadas variables GD2: simDI_GD2_READY/RUNNING/ALARM, outGD2_Ready/Running
-- Agregadas salidas V3.0: IS_ON_GD1, IS_ON_GD2, ACTIVE_GD, GD1_AVAILABLE, GD2_AVAILABLE
-- Actualizada llamada FB_IO_NORMALIZE/FB_SCMTA con interfaz GD2 completa
-- Comentarios actualizados con nombres de estado V3.0

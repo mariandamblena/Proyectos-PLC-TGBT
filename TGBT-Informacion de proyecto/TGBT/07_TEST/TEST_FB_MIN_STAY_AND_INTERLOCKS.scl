@@ -1,30 +1,30 @@
 // =============================================================================
-// TEST SUITE — Tiempo Mínimo en GD + Enclavamientos Manual HMI
-// Versión: 1.0   Fecha: 2026-03-06
+// TEST SUITE - Tiempo Minimo en GD + Enclavamientos Manual HMI
+// Version: 1.0   Fecha: 2026-03-06
 // =============================================================================
 // Cubre los tres temas del pedido:
 //
-//  TEST_A: Tiempo mínimo de permanencia en GD (T_MIN_GD_STAY = 10 min)
+//  TEST_A: Tiempo minimo de permanencia en GD (T_MIN_GD_STAY = 10 min)
 //          - TC_A1: Si la RED vuelve antes de T_MIN_GD_STAY, NO se inicia retorno
-//          - TC_A2: Sólo cuando se cumple T_MIN_GD_STAY y GRID_OK → retorno
+//          - TC_A2: Solo cuando se cumple T_MIN_GD_STAY y GRID_OK -> retorno
 //          - TC_A3: Alarma GD NO espera T_MIN_GD_STAY (prioridad seguridad)
 //          - TC_A4: Mismo comportamiento para GD2
 //
-//  TEST_B: Enclavamientos con operación manual desde HMI (04_FB_CMD_ARBITER)
-//          - TC_B1: Modo MANUAL — CLOSE QT1 bloqueado si QG1 cerrado (interlock fuente única)
-//          - TC_B2: Modo MANUAL — CLOSE QG1 bloqueado si QT1 cerrado
-//          - TC_B3: Modo MANUAL — CLOSE QG2 bloqueado si QT1 o QG1 cerrado
-//          - TC_B4: Modo MANUAL — Open/Close bloqueado si interruptor en LOCAL
-//          - TC_B5: Modo MANUAL — Conflicto OPEN+CLOSE simultáneo bloqueado
-//          - TC_B6: Modo MANUAL — Comando libre si enclavamiento OK
-//          - TC_B7: Modo AUTO — Comandos SCMTA no bloqueados por interlock (testeado al pasar)
+//  TEST_B: Enclavamientos con operacion manual desde HMI (04_FB_CMD_ARBITER)
+//          - TC_B1: Modo MANUAL - CLOSE QT1 bloqueado si QG1 cerrado (interlock fuente unica)
+//          - TC_B2: Modo MANUAL - CLOSE QG1 bloqueado si QT1 cerrado
+//          - TC_B3: Modo MANUAL - CLOSE QG2 bloqueado si QT1 o QG1 cerrado
+//          - TC_B4: Modo MANUAL - Open/Close bloqueado si interruptor en LOCAL
+//          - TC_B5: Modo MANUAL - Conflicto OPEN+CLOSE simultaneo bloqueado
+//          - TC_B6: Modo MANUAL - Comando libre si enclavamiento OK
+//          - TC_B7: Modo AUTO - Comandos SCMTA no bloqueados por interlock (testeado al pasar)
 //
-//  TEST_C: Integración — secuencia completa con T_MIN_GD_STAY y retorno correcto
-//          - TC_C1: RED falla → GD1 arranca → RED vuelve antes de 10 min → se bloquea
-//                   → pasa 10 min → retorno automático correcto
+//  TEST_C: Integracion - secuencia completa con T_MIN_GD_STAY y retorno correcto
+//          - TC_C1: RED falla -> GD1 arranca -> RED vuelve antes de 10 min -> se bloquea
+//                   -> pasa 10 min -> retorno automatico correcto
 //
 // Para importar en TIA Portal V18:
-//   1. Importar después de todos los FBs de producción (01-12) e instance DBs
+//   1. Importar despues de todos los FBs de produccion (01-12) e instance DBs
 //   2. Agregar DB instancia en 12_TEST_INSTANCE_DBS.scl:
 //        DATA_BLOCK "TEST_MIN_STAY_DB"
 //        { S7_Optimized_Access := 'TRUE' } VERSION : 0.1 NON_RETAIN
@@ -131,15 +131,15 @@ VAR CONSTANT
     STEP_A1_START       : Int := 10;   // TEST_A1: RED vuelve antes de T_MIN_GD_STAY
     STEP_A2_START       : Int := 30;   // TEST_A2: Retorno solo cuando cumple tiempo
     STEP_A3_START       : Int := 60;   // TEST_A3: Alarma GD no espera tiempo min
-    STEP_A4_START       : Int := 90;   // TEST_A4: GD2 también respeta tiempo min
+    STEP_A4_START       : Int := 90;   // TEST_A4: GD2 tambien respeta tiempo min
     STEP_B1_START       : Int := 110;  // TEST_B1: Interlock CLOSE QT1 manual
     STEP_B2_START       : Int := 120;  // TEST_B2: Interlock CLOSE QG1 manual
     STEP_B3_START       : Int := 130;  // TEST_B3: Interlock CLOSE QG2 manual
     STEP_B4_START       : Int := 140;  // TEST_B4: Bloqueo LOCAL
     STEP_B5_START       : Int := 150;  // TEST_B5: Conflicto OPEN+CLOSE
     STEP_B6_START       : Int := 160;  // TEST_B6: Comando libre OK
-    STEP_B7_START       : Int := 170;  // TEST_B7: AUTO — SCMTA pasa interlock
-    STEP_C1_START       : Int := 180;  // TEST_C1: Integración completa
+    STEP_B7_START       : Int := 170;  // TEST_B7: AUTO - SCMTA pasa interlock
+    STEP_C1_START       : Int := 180;  // TEST_C1: Integracion completa
     STEP_DONE           : Int := 999;
 END_VAR
 
@@ -210,7 +210,7 @@ BEGIN
     CASE #step OF
 
     // =========================================================================
-    // STEP 0 — Reset y arranque
+    // STEP 0 - Reset y arranque
     // =========================================================================
     #STEP_INIT:
         #testStatus  := 'Inicializando...';
@@ -249,11 +249,11 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_A1: RED vuelve ANTES de T_MIN_GD_STAY → retorno NO debe iniciarse
+    // TEST_A1: RED vuelve ANTES de T_MIN_GD_STAY -> retorno NO debe iniciarse
     // =========================================================================
     #STEP_A1_START:   // 10
         #testStatus := 'A1: RED antes T_MIN_GD_STAY';
-        // Simular: QT1 cerrado, RED ok → NORMAL_ON_GRID
+        // Simular: QT1 cerrado, RED ok -> NORMAL_ON_GRID
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -279,7 +279,7 @@ BEGIN
         );
         #step := 11;
 
-    11: // Verificar NORMAL_ON_GRID
+    11: // Esperar NORMAL_ON_GRID (grid filter necesita ~100ms)
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -303,16 +303,20 @@ BEGIN
             T_GRID_FAIL_FILTER := T#100ms,
             T_MIN_GD_STAY := T#500ms
         );
-        // Debe estar en NORMAL_ON_GRID
-        IF #scmta.STATE <> #ST_NORMAL_ON_GRID THEN
+        #simTimer(IN := TRUE, PT := T#300ms);
+        IF #scmta.STATE = #ST_NORMAL_ON_GRID THEN
+            #simTimer(IN := FALSE, PT := T#300ms);
+            #step := 12;
+        ELSIF #simTimer.Q THEN
+            #simTimer(IN := FALSE, PT := T#300ms);
             #tcFailed := #tcFailed + 1;
-            #failInfo := 'A1: Esperado ST_NORMAL_ON_GRID en init';
+            #failInfo := 'A1: Timeout NORMAL_ON_GRID en init';
             #testFailed := TRUE;
+            #step := 12;
         END_IF;
-        #step := 12;
 
-    12: // Llevar a ON_GD1: simular RED falla → QT1 se abre → GD1 arranca
-        // Inyectar falla de red (tensión baja)
+    12: // Llevar a ON_GD1: simular RED falla -> QT1 se abre -> GD1 arranca
+        // Inyectar falla de red (tension baja)
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -402,7 +406,7 @@ BEGIN
         END_IF;
 
     15: // Ahora RED vuelve ANTES de T_MIN_GD_STAY (100ms << 500ms)
-        // RED OK pero el timer aún no cumplió: DEBE PERMANECER EN ON_GD1
+        // RED OK pero el timer aun no cumplio: DEBE PERMANECER EN ON_GD1
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -474,7 +478,7 @@ BEGIN
             T_MIN_GD_STAY := T#500ms
         );
 
-    31: // Verificar que ahora SE MUEVE a GRID_RETURN o más allá
+    31: // Verificar que ahora SE MUEVE a GRID_RETURN o mas alla
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -506,13 +510,13 @@ BEGIN
         ELSE
             #tcPassed := #tcPassed + 1;
         END_IF;
-        // Reset para próximo test
+        // Reset para proximo test
         #scmta.RESET_FAULT := TRUE;
         #step := #STEP_A3_START;
 
 
     // =========================================================================
-    // TEST_A3: Alarma GD en ON_GD1 → NO espera T_MIN_GD_STAY (seguridad)
+    // TEST_A3: Alarma GD en ON_GD1 -> NO espera T_MIN_GD_STAY (seguridad)
     // =========================================================================
     #STEP_A3_START:  // 60
         #testStatus := 'A3: Alarma GD no espera T_MIN_GD_STAY';
@@ -572,7 +576,7 @@ BEGIN
         #cycleCount := #cycleCount + 1;
         IF #cycleCount > 200 THEN
             #tcFailed := #tcFailed + 1;
-            #failInfo := 'A3 SETUP: No llegó a ON_GD1';
+            #failInfo := 'A3 SETUP: No llego a ON_GD1';
             #testFailed := TRUE;
             #step := #STEP_B1_START;
         END_IF;
@@ -609,14 +613,14 @@ BEGIN
         ELSIF #scmta.STATE = #ST_FAULT_LOCKOUT THEN
             #tcPassed := #tcPassed + 1;
         ELSE
-            // También aceptable si fue a FAULT_LOCKOUT en el mismo ciclo
+            // Tambien aceptable si fue a FAULT_LOCKOUT en el mismo ciclo
             #tcPassed := #tcPassed + 1;
         END_IF;
         #step := #STEP_A4_START;
 
 
     // =========================================================================
-    // TEST_A4: GD2 también respeta T_MIN_GD_STAY
+    // TEST_A4: GD2 tambien respeta T_MIN_GD_STAY
     // =========================================================================
     #STEP_A4_START:  // 90
         #testStatus := 'A4: T_MIN_GD_STAY aplica a GD2';
@@ -674,18 +678,18 @@ BEGIN
             #tcPassed := #tcPassed + 1;  // A4: GD2 queda en ON_GD2 hasta tiempo min
         ELSIF #scmta.STATE = #ST_GRID_RETURN OR #scmta.STATE = #ST_WAIT_GRID_STABLE THEN
             #tcFailed := #tcFailed + 1;
-            #failInfo := 'A4 FALLO: GD2 inició retorno antes de T_MIN_GD_STAY';
+            #failInfo := 'A4 FALLO: GD2 inicio retorno antes de T_MIN_GD_STAY';
             #testFailed := TRUE;
         END_IF;
         #step := #STEP_B1_START;
 
 
     // =========================================================================
-    // TEST_B1: Modo MANUAL — Interlock CLOSE QT1 bloqueado si QG1 cerrado
+    // TEST_B1: Modo MANUAL - Interlock CLOSE QT1 bloqueado si QG1 cerrado
     // =========================================================================
     #STEP_B1_START:  // 110
-        #testStatus := 'B1: Interlock CLOSE QT1 manual (QG1 cerrado)';
-        // QG1 cerrado → intentar CLOSE QT1 → debe bloquearse
+        #testStatus := 'B1: Interlk CLOSE QT1 (QG1 cerrado)';
+        // QG1 cerrado -> intentar CLOSE QT1 -> debe bloquearse
         #arbiter(
             REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
             REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -698,7 +702,7 @@ BEGIN
             MODE_AUTO    := FALSE,
             MODE_MANUAL  := TRUE,   // MODO MANUAL
             QT1_CLOSED   := FALSE, QT1_REMOTE := TRUE,
-            QG1_CLOSED   := TRUE,  QG1_REMOTE := TRUE,  // QG1 CERRADO → interlock
+            QG1_CLOSED   := TRUE,  QG1_REMOTE := TRUE,  // QG1 CERRADO -> interlock
             QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
             Q22_REMOTE   := TRUE
         );
@@ -713,10 +717,10 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_B2: Modo MANUAL — Interlock CLOSE QG1 bloqueado si QT1 cerrado
+    // TEST_B2: Modo MANUAL - Interlock CLOSE QG1 bloqueado si QT1 cerrado
     // =========================================================================
     #STEP_B2_START:  // 120
-        #testStatus := 'B2: Interlock CLOSE QG1 manual (QT1 cerrado)';
+        #testStatus := 'B2: Interlk CLOSE QG1 (QT1 cerrado)';
         #arbiter(
             REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
             REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -728,7 +732,7 @@ BEGIN
             REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
             MODE_AUTO    := FALSE,
             MODE_MANUAL  := TRUE,
-            QT1_CLOSED   := TRUE,  QT1_REMOTE := TRUE,  // QT1 CERRADO → interlock
+            QT1_CLOSED   := TRUE,  QT1_REMOTE := TRUE,  // QT1 CERRADO -> interlock
             QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
             QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
             Q22_REMOTE   := TRUE
@@ -744,10 +748,10 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_B3: Modo MANUAL — Interlock CLOSE QG2 bloqueado si QT1 cerrado
+    // TEST_B3: Modo MANUAL - Interlock CLOSE QG2 bloqueado si QT1 cerrado
     // =========================================================================
     #STEP_B3_START:  // 130
-        #testStatus := 'B3: Interlock CLOSE QG2 manual (QT1 cerrado)';
+        #testStatus := 'B3: Interlk CLOSE QG2 (QT1 cerrado)';
         #arbiter(
             REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
             REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -759,7 +763,7 @@ BEGIN
             REQ_MAN_Q22_OPEN  := FALSE, REQ_MAN_Q22_CLOSE := FALSE,
             MODE_AUTO    := FALSE,
             MODE_MANUAL  := TRUE,
-            QT1_CLOSED   := TRUE,  QT1_REMOTE := TRUE,  // QT1 cerrado → interlock
+            QT1_CLOSED   := TRUE,  QT1_REMOTE := TRUE,  // QT1 cerrado -> interlock
             QG1_CLOSED   := FALSE, QG1_REMOTE := TRUE,
             QG2_CLOSED   := FALSE, QG2_REMOTE := TRUE,
             Q22_REMOTE   := TRUE
@@ -775,11 +779,11 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_B4: Modo MANUAL — Comando bloqueado si interruptor en LOCAL
+    // TEST_B4: Modo MANUAL - Comando bloqueado si interruptor en LOCAL
     // =========================================================================
     #STEP_B4_START:  // 140
         #testStatus := 'B4: Bloqueo LOCAL modo manual';
-        // QT1 en LOCAL (QT1_REMOTE=FALSE) → OPEN o CLOSE debe bloquearse
+        // QT1 en LOCAL (QT1_REMOTE=FALSE) -> OPEN o CLOSE debe bloquearse
         #arbiter(
             REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
             REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -807,10 +811,10 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_B5: Modo MANUAL — Conflicto OPEN+CLOSE simultáneo bloqueado
+    // TEST_B5: Modo MANUAL - Conflicto OPEN+CLOSE simultaneo bloqueado
     // =========================================================================
     #STEP_B5_START:  // 150
-        #testStatus := 'B5: Conflicto OPEN+CLOSE simultaneo bloqueado';
+        #testStatus := 'B5: Conflicto OPEN+CLOSE bloqueado';
         #arbiter(
             REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
             REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -839,11 +843,11 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_B6: Modo MANUAL — Comando libre ejecutado si enclavamiento OK
+    // TEST_B6: Modo MANUAL - Comando libre ejecutado si enclavamiento OK
     // =========================================================================
     #STEP_B6_START:  // 160
         #testStatus := 'B6: Comando manual libre OK';
-        // QT1 abierto, QG1 abierto, QG2 abierto → CLOSE QT1 libre
+        // QT1 abierto, QG1 abierto, QG2 abierto -> CLOSE QT1 libre
         #arbiter(
             REQ_SCMTA_OPEN_QT1 := FALSE, REQ_SCMTA_CLOSE_QT1 := FALSE,
             REQ_SCMTA_OPEN_QG1 := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -872,15 +876,15 @@ BEGIN
 
 
     // =========================================================================
-    // TEST_B7: Modo AUTO — SCMTA pasa interlock incluso con QG1 cerrado
-    //          (En AUTO, SCMTA gestiona la secuencia correcta: no debería
-    //           pedir CLOSE QT1 si QG1 está cerrado, pero el arbiter siempre
+    // TEST_B7: Modo AUTO - SCMTA pasa interlock incluso con QG1 cerrado
+    //          (En AUTO, SCMTA gestiona la secuencia correcta: no deberia
+    //           pedir CLOSE QT1 si QG1 esta cerrado, pero el arbiter siempre
     //           aplica el interlock independientemente de la fuente)
     // =========================================================================
     #STEP_B7_START:  // 170
-        #testStatus := 'B7: AUTO — Interlock aplica igual ante SCMTA';
-        // Simular que SCMTA pide CLOSE QT1 con QG1 cerrado (no debería pasar en práctica
-        // pero el arbiter debe bloquearlo de todas formas — defensa en profundidad)
+        #testStatus := 'B7: AUTO Interlock ante SCMTA';
+        // Simular que SCMTA pide CLOSE QT1 con QG1 cerrado (no deberia pasar en practica
+        // pero el arbiter debe bloquearlo de todas formas - defensa en profundidad)
         #arbiter(
             REQ_SCMTA_OPEN_QT1  := FALSE, REQ_SCMTA_CLOSE_QT1 := TRUE,  // SCMTA pide CLOSE QT1
             REQ_SCMTA_OPEN_QG1  := FALSE, REQ_SCMTA_CLOSE_QG1 := FALSE,
@@ -893,7 +897,7 @@ BEGIN
             MODE_AUTO    := TRUE,   // AUTO
             MODE_MANUAL  := FALSE,
             QT1_CLOSED   := FALSE, QT1_REMOTE := TRUE,
-            QG1_CLOSED   := TRUE,  QG1_REMOTE := TRUE,  // QG1 cerrado — interlock activo
+            QG1_CLOSED   := TRUE,  QG1_REMOTE := TRUE,  // QG1 cerrado - interlock activo
             QG2_CLOSED   := FALSE, QG2_REMOTE := FALSE,
             Q22_REMOTE   := TRUE
         );
@@ -902,18 +906,18 @@ BEGIN
             #tcPassed := #tcPassed + 1;
         ELSE
             #tcFailed := #tcFailed + 1;
-            #failInfo := 'B7: Interlock no actúa en modo AUTO ante doble fuente';
+            #failInfo := 'B7: Interlock no actua en modo AUTO ante doble fuente';
             #testFailed := TRUE;
         END_IF;
         #step := #STEP_C1_START;
 
 
     // =========================================================================
-    // TEST_C1: Integración — Secuencia completa con T_MIN_GD_STAY
+    // TEST_C1: Integracion - Secuencia completa con T_MIN_GD_STAY
     //          Verifica que el sistema completo respeta los 10 min en GD
     // =========================================================================
     #STEP_C1_START:  // 180
-        #testStatus := 'C1: Integracion T_MIN_GD_STAY secuencia completa';
+        #testStatus := 'C1: Integracion T_MIN_GD_STAY';
         #subStep := 0;
         #step := 181;
 
@@ -974,13 +978,13 @@ BEGIN
             T_GRID_FAIL_FILTER := T#100ms,
             T_MIN_GD_STAY := T#500ms
         );
-        #simTimer(IN := TRUE, PT := T#400ms);
+        #simTimer(IN := TRUE, PT := T#150ms);
         IF #simTimer.Q THEN
-            #simTimer(IN := FALSE, PT := T#400ms);
+            #simTimer(IN := FALSE, PT := T#150ms);
             #step := 184;
         END_IF;
 
-    184: // QT1 abierto, GD running → SCMTA avanza
+    184: // QT1 abierto, GD running -> SCMTA avanza
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -1010,7 +1014,7 @@ BEGIN
             #step := 185;
         END_IF;
 
-    185: // Confirmar QG1 cerrado → ON_GD1
+    185: // Confirmar QG1 cerrado -> ON_GD1
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -1041,12 +1045,12 @@ BEGIN
         IF #simTimer.Q AND #scmta.STATE <> #ST_ON_GD1 THEN
             #simTimer(IN := FALSE, PT := T#300ms);
             #tcFailed := #tcFailed + 1;
-            #failInfo := 'C1 FALLO: No llegó a ON_GD1';
+            #failInfo := 'C1 FALLO: No llego a ON_GD1';
             #testFailed := TRUE;
             #step := #STEP_DONE;
         END_IF;
 
-    186: // RED vuelve INMEDIATAMENTE (antes de 500ms) → check bloqueado
+    186: // RED vuelve INMEDIATAMENTE (antes de 500ms) -> check bloqueado
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -1070,10 +1074,10 @@ BEGIN
             T_GRID_FAIL_FILTER := T#100ms,
             T_MIN_GD_STAY := T#500ms
         );
-        // Debe seguir en ON_GD1 pese a que RED volvió
+        // Debe seguir en ON_GD1 pese a que RED volvio
         IF #scmta.STATE <> #ST_ON_GD1 THEN
             #tcFailed := #tcFailed + 1;
-            #failInfo := 'C1 FALLO: Retorno antes de T_MIN_GD_STAY con RED recién restaurada';
+            #failInfo := 'C1 FALLO: Retorno antes de T_MIN_GD_STAY con RED recien restaurada';
             #testFailed := TRUE;
             #step := #STEP_DONE;
         ELSE
@@ -1110,7 +1114,7 @@ BEGIN
             #step := 188;
         END_IF;
 
-    188: // Verificar que ahora SÍ salió de ON_GD1 (retorno habilitado)
+    188: // Verificar que ahora SI salio de ON_GD1 (retorno habilitado)
         #scmta(
             ENABLE := TRUE, MODE_AUTO := TRUE, RESET_FAULT := FALSE,
             ENABLE_QG2 := FALSE, ENABLE_AUTO_RETURN := TRUE,
@@ -1145,7 +1149,7 @@ BEGIN
 
 
     // =========================================================================
-    // PASO FINAL — Consolidar resultado
+    // PASO FINAL - Consolidar resultado
     // =========================================================================
     #STEP_DONE:  // 999
         IF #tcFailed = 0 THEN
@@ -1155,7 +1159,7 @@ BEGIN
         ELSE
             #testPassed  := FALSE;
             #testFailed  := TRUE;
-            // failInfo ya contiene el último error
+            // failInfo ya contiene el ultimo error
         END_IF;
 
     END_CASE;

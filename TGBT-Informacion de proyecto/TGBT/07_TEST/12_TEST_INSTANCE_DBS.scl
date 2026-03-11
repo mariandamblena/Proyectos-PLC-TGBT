@@ -1,22 +1,28 @@
-﻿// =============================================================================
-// TEST INSTANCE DATA BLOCKS - Importar DESPUES de los Test FBs
+// =============================================================================
+// TEST INSTANCE DATA BLOCKS V4 - Importar DESPUES de los Test FBs
 // Cada test FB necesita su propio instance DB para ser llamado desde OB1
 // o desde un OB de test dedicado.
 //
 // Orden de importacion en TIA Portal V18:
 //   1. DATA_BUFF (DB global) + DB_PARAMS
-//   2. FBs (01-07)
+//   2. FBs produccion (01-07, 12)
 //   3. Instance DBs produccion (11_INSTANCE_DBS.scl)
 //   4. Test FBs (07_TEST/*.scl)
 //   5. Este archivo (Test Instance DBs)
-//   6. Main (OB1) o OB de test
+//   6. 13_OB1_TEST_MAIN.scl (OB1 de test)
+//
+// TESTS V4 DISPONIBLES:
+//   1. TEST_HAPPY_PATH_DB    -> Ciclo completo RED->GD1->RED (13 pasos)
+//   2. TEST_FALLAS_DB        -> 7 escenarios de falla (A-G)
+//   3. TEST_MIN_STAY_DB      -> T_MIN_GD_STAY + interlocks manual
+//   4. HMI_SIM_DB            -> Simulacion HMI manual con feedback DI
 // =============================================================================
 
-DATA_BLOCK "TEST_SCMTA_DB"
+DATA_BLOCK "TEST_HAPPY_PATH_DB"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 NON_RETAIN
-"FB_TEST_SCMTA"
+"FB_TEST_HAPPY_PATH_V4"
 
 BEGIN
 
@@ -26,37 +32,7 @@ DATA_BLOCK "TEST_FALLAS_DB"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 NON_RETAIN
-"FB_TEST_FALLAS_SCMTA"
-
-BEGIN
-
-END_DATA_BLOCK
-
-DATA_BLOCK "TEST_SHED_DB"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-NON_RETAIN
-"FB_TEST_SHED"
-
-BEGIN
-
-END_DATA_BLOCK
-
-DATA_BLOCK "TEST_GD2_FAILOVER_DB"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-NON_RETAIN
-"FB_TEST_GD2_FAILOVER"
-
-BEGIN
-
-END_DATA_BLOCK
-
-DATA_BLOCK "TEST_SYSTEM_DB"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-NON_RETAIN
-"FB_TEST_SYSTEM_VALIDATION"
+"FB_TEST_FALLAS_V4"
 
 BEGIN
 
@@ -67,6 +43,16 @@ DATA_BLOCK "TEST_MIN_STAY_DB"
 VERSION : 0.1
 NON_RETAIN
 "FB_TEST_MIN_STAY_AND_INTERLOCKS"
+
+BEGIN
+
+END_DATA_BLOCK
+
+DATA_BLOCK "HMI_SIM_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"FB_HMI_MANUAL_SIM"
 
 BEGIN
 

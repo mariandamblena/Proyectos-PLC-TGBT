@@ -1,0 +1,790 @@
+(*
+================================================================================
+  FB_TEST_FALLAS_V4: Test Automatizado de Fallas SCMTA V4
+  Version: 4.0
+  Fecha: 2026-03-11
+================================================================================
+  DESCRIPCION:
+  Test secuencial que valida todos los escenarios de falla del sistema SCMTA V4.
+  Cada grupo de test inyecta una condicion de falla y verifica que el SCMTA
+  entre a FAULT_LOCKOUT (estado 14) con el FAULT_CODE correcto.
+
+  GRUPOS DE TEST:
+   A (grupo 0): Timeout QT1 OPEN - QT1 no abre -> FAULT_CODE=101
+   B (grupo 1): GD1 ALARM arranque - GD1 alarma durante start -> FAULT_CODE=106
+   C (grupo 2): GD1 NOT READY timeout - GD1 no listo -> FAULT_CODE=102
+   D (grupo 3): Timeout CLOSE QG1 - QG1 no cierra -> FAULT_CODE=103
+   E (grupo 4): GD1 ALARM operacion - GD1 alarma en ON_GD1 -> FAULT_CODE=106
+   F (grupo 5): QT1 NOT REMOTE - QT1 local en falla RED -> FAULT_CODE=111
+   G (grupo 6): Oscilacion RED - bounce < filtro 2s -> NO transfiere
+
+  INSTRUCCIONES:
+  1. Importar en TIA Portal V18
+  2. Crear instance DB (TEST_FALLAS_DB)
+  3. Llamar desde OB1 test: "TEST_FALLAS_DB"();
+  4. Activar testEnable := TRUE
+  5. Observar testGroup, testSubStep, testStatus, testGroupResults[0..6]
+  
+  NOTA: Usa timeouts reducidos para acelerar ejecucion de test.
+  T_GD_READY_TIMEOUT = 5s (prod: 30s), T_GRID_STABLE = 5s (prod: 120s),
+  T_GD_COOLDOWN = 3s (prod: 60s), T_MIN_GD_STAY = 3s (prod: 10min)
+================================================================================
+*)
+
+FUNCTION_BLOCK "FB_TEST_FALLAS_V4"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+VAR
+    // ========== CONTROL TEST ==========
+    testEnable : Bool := FALSE;
+    testReset : Bool := FALSE;
+    testGroup : Int := 0;          // Grupo de test actual (0=A, 1=B, ... 6=G)
+    testSubStep : Int := 0;        // Sub-paso dentro del grupo
+    testStatus : String[100] := 'Test detenido';
+    testGroupResults : Array[0..6] of Bool;
+    testAllPassed : Bool := FALSE;
+    testComplete : Bool := FALSE;
+    totalGroups : Int := 7;
+    failInfo : String[100] := '';
+
+    // ========== SIMULACION DI (V4 Bool) ==========
+    simQT1_CLOSED : Bool := TRUE;
+    simQT1_FAULT : Bool := FALSE;
+    simQT1_REMOTE : Bool := TRUE;
+    simQT1_UV_OV : Bool := FALSE;
+    simBUSBAR_UV_OV : Bool := FALSE;
+    simQG1_CLOSED : Bool := FALSE;
+    simQG1_FAULT : Bool := FALSE;
+    simQG1_REMOTE : Bool := TRUE;
+    simGD1_READY : Bool := FALSE;
+    simGD1_RUNNING : Bool := FALSE;
+    simGD1_ALARM : Bool := FALSE;
+
+    // ========== SIMULACION RED ==========
+    simGridV_L1L2 : Real := 380.0;
+    simGridV_L2L3 : Real := 380.0;
+    simGridV_L3L1 : Real := 380.0;
+    simGridFreq : Real := 50.0;
+    simGridMeasOk : Bool := TRUE;
+    simRESET_FAULT : Bool := FALSE;
+
+    // ========== OUTPUTS MONITOREADOS ==========
+    outState : Int;
+    outIsOnGrid : Bool;
+    outIsOnGD1 : Bool;
+    outGridOk : Bool;
+    outGridFail : Bool;
+    outIsFault : Bool;
+    outFaultCode : Int;
+    outReqOpenQT1 : Bool;
+    outReqCloseQT1 : Bool;
+    outReqOpenQG1 : Bool;
+    outReqCloseQG1 : Bool;
+    outDoGdStart : Bool;
+
+    // ========== TIMERS ==========
+    testTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== INSTANCIAS FB V4 ==========
+    instIO : "01_FB_IO_NORMALIZE";
+    instSCMTA : "02_FB_SCMTA";
+END_VAR
+
+VAR_TEMP
+    resetOk : Bool;
+END_VAR
+
+BEGIN
+
+    // ====================================================================
+    // RESET GENERAL
+    // ====================================================================
+    IF #testReset THEN
+        #testGroup := 0;
+        #testSubStep := 0;
+        #testComplete := FALSE;
+        #testAllPassed := FALSE;
+        #testStatus := 'Test reseteado - activar testEnable';
+        #testTimer(IN := FALSE, PT := T#1s);
+        RETURN;
+    END_IF;
+
+    IF NOT #testEnable THEN RETURN; END_IF;
+    IF #testComplete THEN RETURN; END_IF;
+
+    // ====================================================================
+    // SELECTOR DE GRUPO
+    // ====================================================================
+    CASE #testGroup OF
+
+        // ================================================================
+        // TEST_A (grupo 0): Timeout QT1 OPEN -> FAULT 101
+        // QT1 no abre despues de T_OPEN_QT1 (3s)
+        // ================================================================
+        0:
+            CASE #testSubStep OF
+                0:  // Init - condiciones normales
+                    #testStatus := 'TEST_A: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN
+                            #testSubStep := 1;
+                        END_IF;
+                    END_IF;
+
+                1:  // Forzar falla RED
+                    #testStatus := 'TEST_A: Falla RED - subtension';
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+                    #simGridFreq := 48.0;
+
+                    // Esperar que SCMTA pase de estado 1 (filtro 2s)
+                    IF #outState >= 2 THEN
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // NO responder apertura QT1 - dejar QT1_CLOSED=TRUE
+                    #testStatus := 'TEST_A: QT1 NO abre - esperando timeout 3s';
+                    // QT1_CLOSED sigue TRUE -> timeout T_OPEN_QT1
+
+                    #testTimer(IN := TRUE, PT := T#10s);
+                    IF #outState = 14 AND #outFaultCode = 101 THEN
+                        #testGroupResults[0] := TRUE;
+                        #testStatus := 'TEST_A: PASS - FAULT 101 detectado';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 3;
+                    ELSIF #testTimer.Q THEN
+                        #testGroupResults[0] := FALSE;
+                        #testStatus := 'TEST_A: FAIL - timeout sin FAULT 101';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 3;
+                    END_IF;
+
+                3:  // Reset para siguiente test
+                    #testStatus := 'TEST_A: Reseteando...';
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simQT1_CLOSED := TRUE;
+                    #simRESET_FAULT := TRUE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 1 OR #testTimer.Q THEN
+                        #simRESET_FAULT := FALSE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 0;
+                        #testGroup := 1;
+                    END_IF;
+            END_CASE;
+
+
+        // ================================================================
+        // TEST_B (grupo 1): GD1 ALARM durante arranque -> FAULT 106
+        // ================================================================
+        1:
+            CASE #testSubStep OF
+                0:  // Init
+                    #testStatus := 'TEST_B: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN #testSubStep := 1; END_IF;
+                    END_IF;
+
+                1:  // Falla RED
+                    #testStatus := 'TEST_B: Falla RED';
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+
+                    IF #outState >= 2 THEN
+                        #simQT1_CLOSED := FALSE;  // Responder apertura QT1
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // Esperar arranque GD1
+                    #testStatus := 'TEST_B: Esperando arranque GD1';
+                    #simGD1_RUNNING := TRUE;  // GD arranca OK
+
+                    IF #outState = 6 THEN
+                        // Inyectar alarma GD1 en WAIT_GD1_READY (estado 6)
+                        // Estado 5 es pass-through y genera fault 209, no 106
+                        #simGD1_ALARM := TRUE;
+                        #testSubStep := 3;
+                    END_IF;
+
+                3:  // Verificar FAULT
+                    #testStatus := 'TEST_B: GD1 ALARM - esperando FAULT 106';
+
+                    #testTimer(IN := TRUE, PT := T#10s);
+                    IF #outState = 14 AND #outFaultCode = 106 THEN
+                        #testGroupResults[1] := TRUE;
+                        #testStatus := 'TEST_B: PASS - FAULT 106 detectado';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 4;
+                    ELSIF #testTimer.Q THEN
+                        #testGroupResults[1] := FALSE;
+                        #testStatus := 'TEST_B: FAIL - timeout';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 4;
+                    END_IF;
+
+                4:  // Reset
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simQT1_CLOSED := TRUE;
+                    #simGD1_ALARM := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simRESET_FAULT := TRUE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 1 OR #testTimer.Q THEN
+                        #simRESET_FAULT := FALSE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 0;
+                        #testGroup := 2;
+                    END_IF;
+            END_CASE;
+
+
+        // ================================================================
+        // TEST_C (grupo 2): GD1 NOT READY timeout -> FAULT 102
+        // ================================================================
+        2:
+            CASE #testSubStep OF
+                0:
+                    #testStatus := 'TEST_C: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN #testSubStep := 1; END_IF;
+                    END_IF;
+
+                1:  // Falla RED
+                    #testStatus := 'TEST_C: Falla RED';
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+
+                    IF #outState >= 2 THEN
+                        #simQT1_CLOSED := FALSE;
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // GD1 arranca pero NUNCA GD_READY
+                    #testStatus := 'TEST_C: GD_RUNNING pero NO GD_READY - timeout 5s';
+                    #simGD1_RUNNING := TRUE;
+                    #simGD1_READY := FALSE;  // NUNCA dar READY
+
+                    #testTimer(IN := TRUE, PT := T#15s);
+                    IF #outState = 14 AND #outFaultCode = 102 THEN
+                        #testGroupResults[2] := TRUE;
+                        #testStatus := 'TEST_C: PASS - FAULT 102 detectado';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 3;
+                    ELSIF #testTimer.Q THEN
+                        #testGroupResults[2] := FALSE;
+                        #testStatus := 'TEST_C: FAIL - timeout';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 3;
+                    END_IF;
+
+                3:  // Reset
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simQT1_CLOSED := TRUE;
+                    #simGD1_RUNNING := FALSE;
+                    #simRESET_FAULT := TRUE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 1 OR #testTimer.Q THEN
+                        #simRESET_FAULT := FALSE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 0;
+                        #testGroup := 3;
+                    END_IF;
+            END_CASE;
+
+
+        // ================================================================
+        // TEST_D (grupo 3): Timeout CLOSE QG1 -> FAULT 103
+        // ================================================================
+        3:
+            CASE #testSubStep OF
+                0:
+                    #testStatus := 'TEST_D: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN #testSubStep := 1; END_IF;
+                    END_IF;
+
+                1:  // Falla RED, avanzar hasta CLOSE_QG1
+                    #testStatus := 'TEST_D: Falla RED - avanzando a CLOSE_QG1';
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+
+                    IF #outState >= 2 THEN
+                        #simQT1_CLOSED := FALSE;
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // Dar GD ready
+                    #testStatus := 'TEST_D: GD1 arranca y listo';
+                    #simGD1_RUNNING := TRUE;
+                    #simGD1_READY := TRUE;
+
+                    IF #outState = 7 THEN
+                        // Estado CLOSE_QG1 - NO dar QG1_CLOSED
+                        #testSubStep := 3;
+                    END_IF;
+
+                3:  // QG1 no cierra -> timeout
+                    #testStatus := 'TEST_D: QG1 NO cierra - esperando timeout';
+                    // QG1_CLOSED sigue FALSE -> timeout T_CLOSE_QG1
+
+                    #testTimer(IN := TRUE, PT := T#10s);
+                    IF #outState = 14 AND #outFaultCode = 103 THEN
+                        #testGroupResults[3] := TRUE;
+                        #testStatus := 'TEST_D: PASS - FAULT 103 detectado';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 4;
+                    ELSIF #testTimer.Q THEN
+                        #testGroupResults[3] := FALSE;
+                        #testStatus := 'TEST_D: FAIL - timeout';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 4;
+                    END_IF;
+
+                4:  // Reset
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simQT1_CLOSED := TRUE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_READY := FALSE;
+                    #simRESET_FAULT := TRUE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 1 OR #testTimer.Q THEN
+                        #simRESET_FAULT := FALSE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 0;
+                        #testGroup := 4;
+                    END_IF;
+            END_CASE;
+
+
+        // ================================================================
+        // TEST_E (grupo 4): GD1 ALARM durante ON_GD1 -> FAULT 106
+        // ================================================================
+        4:
+            CASE #testSubStep OF
+                0:
+                    #testStatus := 'TEST_E: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN #testSubStep := 1; END_IF;
+                    END_IF;
+
+                1:  // Transferir completamente a GD1
+                    #testStatus := 'TEST_E: Transferencia completa a GD1';
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+
+                    IF #outState >= 2 THEN
+                        #simQT1_CLOSED := FALSE;
+                        #simGD1_RUNNING := TRUE;
+                        #simGD1_READY := TRUE;
+                    END_IF;
+
+                    IF #outState = 7 THEN
+                        #simQG1_CLOSED := TRUE;
+                    END_IF;
+
+                    IF #outState = 8 THEN
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // ON_GD1 - inyectar alarma
+                    #testStatus := 'TEST_E: ON_GD1 - inyectando GD1_ALARM';
+
+                    #testTimer(IN := TRUE, PT := T#3s);
+                    IF #testTimer.Q THEN
+                        #simGD1_ALARM := TRUE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 3;
+                    END_IF;
+
+                3:  // Verificar FAULT
+                    #testStatus := 'TEST_E: Esperando FAULT 106';
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 14 AND #outFaultCode = 106 THEN
+                        #testGroupResults[4] := TRUE;
+                        #testStatus := 'TEST_E: PASS - FAULT 106 detectado';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 4;
+                    ELSIF #testTimer.Q THEN
+                        #testGroupResults[4] := FALSE;
+                        #testStatus := 'TEST_E: FAIL - timeout';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 4;
+                    END_IF;
+
+                4:  // Reset
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simQT1_CLOSED := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_READY := FALSE;
+                    #simRESET_FAULT := TRUE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 1 OR #testTimer.Q THEN
+                        #simRESET_FAULT := FALSE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 0;
+                        #testGroup := 5;
+                    END_IF;
+            END_CASE;
+
+
+        // ================================================================
+        // TEST_F (grupo 5): QT1 NOT REMOTE -> FAULT 111
+        // QT1 en LOCAL cuando SCMTA necesita abrir
+        // ================================================================
+        5:
+            CASE #testSubStep OF
+                0:
+                    #testStatus := 'TEST_F: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN #testSubStep := 1; END_IF;
+                    END_IF;
+
+                1:  // Poner QT1 en LOCAL antes de falla RED
+                    #testStatus := 'TEST_F: QT1 en LOCAL - forzando falla RED';
+                    #simQT1_REMOTE := FALSE;
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+
+                    // Esperar que SCMTA intente transferir y detecte QT1 no REMOTE
+                    #testTimer(IN := TRUE, PT := T#10s);
+                    IF #outState = 14 AND #outFaultCode = 111 THEN
+                        #testGroupResults[5] := TRUE;
+                        #testStatus := 'TEST_F: PASS - FAULT 111 detectado';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 2;
+                    ELSIF #testTimer.Q THEN
+                        #testGroupResults[5] := FALSE;
+                        #testStatus := 'TEST_F: FAIL - timeout';
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // Reset
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simQT1_REMOTE := TRUE;
+                    #simQT1_CLOSED := TRUE;
+                    #simRESET_FAULT := TRUE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #outState = 1 OR #testTimer.Q THEN
+                        #simRESET_FAULT := FALSE;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 0;
+                        #testGroup := 6;
+                    END_IF;
+            END_CASE;
+
+
+        // ================================================================
+        // TEST_G (grupo 6): Oscilacion RED - bounce < filtro 2s
+        // Verificar que subtension breve (<2s) NO dispara transferencia
+        // ================================================================
+        6:
+            CASE #testSubStep OF
+                0:
+                    #testStatus := 'TEST_G: Init - esperando NORMAL_ON_GRID';
+                    #simQT1_CLOSED := TRUE;
+                    #simQG1_CLOSED := FALSE;
+                    #simQT1_REMOTE := TRUE;
+                    #simQG1_REMOTE := TRUE;
+                    #simGD1_READY := FALSE;
+                    #simGD1_RUNNING := FALSE;
+                    #simGD1_ALARM := FALSE;
+                    #simGridV_L1L2 := 380.0;
+                    #simGridV_L2L3 := 380.0;
+                    #simGridV_L3L1 := 380.0;
+                    #simGridFreq := 50.0;
+                    #simRESET_FAULT := FALSE;
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        IF #outState = 1 THEN #testSubStep := 1; END_IF;
+                    END_IF;
+
+                1:  // Dip de tension por 1s
+                    #testStatus := 'TEST_G: Dip tension 200V - 1s bounce';
+                    #simGridV_L1L2 := 200.0;
+                    #simGridV_L2L3 := 200.0;
+                    #simGridV_L3L1 := 200.0;
+
+                    #testTimer(IN := TRUE, PT := T#1s);
+                    IF #testTimer.Q THEN
+                        // Restaurar tension antes de que filtro 2s expire
+                        #simGridV_L1L2 := 380.0;
+                        #simGridV_L2L3 := 380.0;
+                        #simGridV_L3L1 := 380.0;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 2;
+                    END_IF;
+
+                2:  // Verificar que NO transfiere (sigue en estado 1)
+                    #testStatus := 'TEST_G: Verificando que NO transfiere';
+
+                    #testTimer(IN := TRUE, PT := T#5s);
+                    IF #testTimer.Q THEN
+                        #testGroupResults[6] := (#outState = 1 AND #outIsOnGrid AND NOT #outIsFault);
+                        IF #testGroupResults[6] THEN
+                            #testStatus := 'TEST_G: PASS - Filtro evito transferencia espuria';
+                        ELSE
+                            #testStatus := 'TEST_G: FAIL - Se inicio transferencia con bounce';
+                        END_IF;
+                        #testTimer(IN := FALSE, PT := T#1s);
+                        #testSubStep := 3;
+                    END_IF;
+
+                3:  // Finalizacion
+                    #testComplete := TRUE;
+                    #testGroup := 7;
+            END_CASE;
+
+
+        // ================================================================
+        // RESULTADO FINAL
+        // ================================================================
+        7:
+            #testAllPassed := #testGroupResults[0] AND #testGroupResults[1] AND
+                              #testGroupResults[2] AND #testGroupResults[3] AND
+                              #testGroupResults[4] AND #testGroupResults[5] AND
+                              #testGroupResults[6];
+
+            #failInfo := '';
+            IF NOT #testGroupResults[0] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'A(101-QT1_OPEN) '); END_IF;
+            IF NOT #testGroupResults[1] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'B(106-GD_ALM) '); END_IF;
+            IF NOT #testGroupResults[2] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'C(102-GD_RDY) '); END_IF;
+            IF NOT #testGroupResults[3] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'D(103-QG1_CLS) '); END_IF;
+            IF NOT #testGroupResults[4] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'E(106-GD_ALM) '); END_IF;
+            IF NOT #testGroupResults[5] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'F(111-QT1_REM) '); END_IF;
+            IF NOT #testGroupResults[6] THEN #failInfo := CONCAT(IN1 := #failInfo, IN2 := 'G(BOUNCE) '); END_IF;
+
+            IF #testAllPassed THEN
+                #testStatus := 'TEST FALLAS COMPLETO - TODOS LOS GRUPOS OK';
+                #failInfo := 'Ninguno';
+            ELSE
+                #testStatus := 'TEST FALLAS COMPLETO - HAY GRUPOS FALLIDOS';
+            END_IF;
+            #testComplete := TRUE;
+
+    END_CASE;
+
+
+    // ====================================================================
+    // LLAMADA FB_IO_NORMALIZE (V4 Bool DI)
+    // ====================================================================
+    #instIO(
+        DI_SYS_AUTO     := TRUE,
+        DI_QT1_REMOTE   := #simQT1_REMOTE,
+        DI_QT1_CLOSE    := #simQT1_CLOSED,
+        DI_QT1_FAULT    := #simQT1_FAULT,
+        DI_QT1_UV_OV    := #simQT1_UV_OV,
+        DI_BUSBAR_UV_OV := #simBUSBAR_UV_OV,
+        DI_QG1_REMOTE   := #simQG1_REMOTE,
+        DI_QG1_CLOSE    := #simQG1_CLOSED,
+        DI_QG1_FAULT    := #simQG1_FAULT,
+        DI_QG1_UV_OV    := FALSE,
+        DI_QG2_REMOTE   := FALSE,
+        DI_QG2_CLOSE    := FALSE,
+        DI_QG2_FAULT    := FALSE,
+        DI_QG2_UV_OV    := FALSE,
+        DI_GD1_READY    := #simGD1_READY,
+        DI_GD1_RUNNING  := #simGD1_RUNNING,
+        DI_GD1_ALARM    := #simGD1_ALARM,
+        DI_GD2_READY    := FALSE,
+        DI_GD2_RUNNING  := FALSE,
+        DI_GD2_ALARM    := FALSE,
+        DI_Q22_REMOTE   := FALSE
+    );
+
+
+    // ====================================================================
+    // LLAMADA FB_SCMTA (V4)
+    // ====================================================================
+    #instSCMTA(
+        ENABLE             := TRUE,
+        MODE_AUTO          := #instIO.MODE_AUTO,
+        ENABLE_QG2         := FALSE,
+        ENABLE_AUTO_RETURN := TRUE,
+        RESET_FAULT        := #simRESET_FAULT,
+
+        QT1_CLOSED         := #instIO.QT1_CLOSED,
+        QT1_FAULT          := #instIO.QT1_FAULT,
+        QT1_REMOTE         := #instIO.QT1_REMOTE,
+        QT1_UV_OV_DI       := #instIO.QT1_UV_OV_DI,
+        QG1_CLOSED         := #instIO.QG1_CLOSED,
+        QG1_FAULT          := #instIO.QG1_FAULT,
+        QG1_REMOTE         := #instIO.QG1_REMOTE,
+        QG2_CLOSED         := FALSE,
+        QG2_FAULT          := FALSE,
+        QG2_REMOTE         := FALSE,
+        Q22_CLOSED         := FALSE,
+
+        GRID_V_L1L2        := #simGridV_L1L2,
+        GRID_V_L2L3        := #simGridV_L2L3,
+        GRID_V_L3L1        := #simGridV_L3L1,
+        GRID_FREQ          := #simGridFreq,
+        GRID_MEASUREMENT_OK := #simGridMeasOk,
+        GRID_PHASE_LOSS    := FALSE,
+        GRID_ALM_UV        := FALSE,
+        GRID_ALM_OV        := FALSE,
+
+        GD_READY           := #instIO.GD_READY,
+        GD_RUNNING         := #instIO.GD_RUNNING,
+        GD_ALARM           := #instIO.GD_ALARM,
+        GD2_READY          := FALSE,
+        GD2_RUNNING        := FALSE,
+        GD2_ALARM          := FALSE,
+
+        V_NOM              := 380.0,
+        V_MIN_PCT          := 85.0,
+        V_MAX_PCT          := 110.0,
+        FREQ_NOM           := 50.0,
+        FREQ_MIN           := 49.0,
+        FREQ_MAX           := 51.0,
+
+        T_OPEN_QT1         := T#3s,
+        T_CLOSE_QG1        := T#3s,
+        T_CLOSE_QG2        := T#3s,
+        T_OPEN_QG1         := T#3s,
+        T_OPEN_QG2         := T#3s,
+        T_CLOSE_QT1        := T#3s,
+        T_START_GD_DELAY   := T#2s,
+        T_GD_READY_TIMEOUT := T#5s,     // Reducido: prod=30s
+        T_GD_STABILIZATION := T#2s,
+        T_GRID_STABLE      := T#3s,     // Reducido: prod=120s
+        T_GD_COOLDOWN      := T#3s,     // Reducido: prod=60s
+        T_GRID_FAIL_FILTER := T#2s,
+        T_MIN_GD_STAY      := T#3s,     // Reducido: prod=10min
+
+        STATE              => #outState,
+        REQ_SCMTA_OPEN_QT1  => #outReqOpenQT1,
+        REQ_SCMTA_CLOSE_QT1 => #outReqCloseQT1,
+        REQ_SCMTA_OPEN_QG1  => #outReqOpenQG1,
+        REQ_SCMTA_CLOSE_QG1 => #outReqCloseQG1,
+        DO_GD_START        => #outDoGdStart,
+        IS_ON_GRID         => #outIsOnGrid,
+        IS_ON_GD1          => #outIsOnGD1,
+        IS_FAULT           => #outIsFault,
+        GRID_OK            => #outGridOk,
+        GRID_FAIL          => #outGridFail,
+        FAULT_CODE         => #outFaultCode
+    );
+
+END_FUNCTION_BLOCK
