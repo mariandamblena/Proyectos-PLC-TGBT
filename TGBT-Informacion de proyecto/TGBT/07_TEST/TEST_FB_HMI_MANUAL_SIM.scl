@@ -25,9 +25,14 @@
   - SIM_GD_START    : Simula arranque y GD1_READY (con delay warmup)
   - SIM_QT1_LOCAL   : Pone QT1 en modo LOCAL (no REMOTE)
   - SIM_QG1_LOCAL   : Pone QG1 en modo LOCAL
+  - SIM_QG2_LOCAL   : Pone QG2 en modo LOCAL
+  - SIM_Q22_LOCAL   : Pone Q22 en modo LOCAL
   - SIM_GD_ALARM    : Simula alarma GD1
+  - SIM_GD2_ALARM   : Simula alarma GD2
   - SIM_QT1_FAULT   : Simula falla/disparo QT1
   - SIM_QG1_FAULT   : Simula falla/disparo QG1
+  - SIM_QG2_FAULT   : Simula falla/disparo QG2
+  - SIM_Q22_FAULT   : Simula falla/disparo Q22
 
   USO:
   1. Importar este FB + crear instance DB (HMI_SIM_DB)
@@ -50,20 +55,29 @@ VAR
     // ========== TOGGLES SIMULACION (desde watch table o HMI) ==========
     SIM_GRID_FAIL : Bool := FALSE;      // TRUE = RED caida (200V/48Hz)
     SIM_GD_START : Bool := FALSE;       // TRUE = GD1 arrancando
+    SIM_GD2_START : Bool := FALSE;      // TRUE = GD2 arrancando
     SIM_QT1_LOCAL : Bool := FALSE;      // TRUE = QT1 en LOCAL
     SIM_QG1_LOCAL : Bool := FALSE;      // TRUE = QG1 en LOCAL
+    SIM_QG2_LOCAL : Bool := FALSE;      // TRUE = QG2 en LOCAL
+    SIM_Q22_LOCAL : Bool := FALSE;      // TRUE = Q22 en LOCAL
     SIM_GD_ALARM : Bool := FALSE;       // TRUE = alarma GD1
+    SIM_GD2_ALARM : Bool := FALSE;      // TRUE = alarma GD2
     SIM_QT1_FAULT : Bool := FALSE;      // TRUE = QT1 disparado/falla
     SIM_QG1_FAULT : Bool := FALSE;      // TRUE = QG1 disparado/falla
+    SIM_QG2_FAULT : Bool := FALSE;      // TRUE = QG2 disparado/falla
+    SIM_Q22_FAULT : Bool := FALSE;      // TRUE = Q22 disparado/falla
 
     // ========== ESTADO SIMULADO INTERRUPTORES ==========
     simQT1_CLOSED : Bool := TRUE;       // Condicion inicial: QT1 cerrado (en RED)
     simQG1_CLOSED : Bool := FALSE;
     simQG2_CLOSED : Bool := FALSE;
+    simQ22_CLOSED : Bool := FALSE;
 
-    // ========== ESTADO SIMULADO GD1 ==========
+    // ========== ESTADO SIMULADO GD ==========
     simGD1_Running : Bool := FALSE;
     simGD1_Ready : Bool := FALSE;
+    simGD2_Running : Bool := FALSE;
+    simGD2_Ready : Bool := FALSE;
 
     // ========== DELAY FEEDBACK (configurable) ==========
     T_FEEDBACK : Time := T#500ms;       // Delay respuesta interruptor
@@ -89,14 +103,39 @@ VAR
     rtCloseQG1 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
     tonFbkCloseQG1 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
 
-    // ========== GD WARMUP TIMER ==========
+    // ========== FEEDBACK CONTROL - OPEN QG2 ==========
+    fbkOpenQG2 : Bool;
+    rtOpenQG2 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkOpenQG2 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== FEEDBACK CONTROL - CLOSE QG2 ==========
+    fbkCloseQG2 : Bool;
+    rtCloseQG2 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkCloseQG2 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== FEEDBACK CONTROL - OPEN Q22 ==========
+    fbkOpenQ22 : Bool;
+    rtOpenQ22 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkOpenQ22 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== FEEDBACK CONTROL - CLOSE Q22 ==========
+    fbkCloseQ22 : Bool;
+    rtCloseQ22 {InstructionName := 'R_TRIG'; LibVersion := '1.0'} : R_TRIG;
+    tonFbkCloseQ22 {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+
+    // ========== GD WARMUP TIMERS ==========
     tonGdWarmup {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+    tonGd2Warmup {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
 
     // ========== CMD OUTPUTS (monitoreados) ==========
     cmdOpenQT1 : Bool;
     cmdCloseQT1 : Bool;
     cmdOpenQG1 : Bool;
     cmdCloseQG1 : Bool;
+    cmdOpenQG2 : Bool;
+    cmdCloseQG2 : Bool;
+    cmdOpenQ22 : Bool;
+    cmdCloseQ22 : Bool;
 
     // ========== INSTANCIAS PRODUCCION ==========
     instIO : "01_FB_IO_NORMALIZE";
@@ -124,12 +163,15 @@ BEGIN
 
 
     // ====================================================================
-    // 2. SIMULACION GD1
+    // 2. SIMULACION GD1 / GD2
     // ====================================================================
     #simGD1_Running := #SIM_GD_START AND NOT #SIM_GD_ALARM;
-
     #tonGdWarmup(IN := #simGD1_Running, PT := #T_GD_WARMUP);
     #simGD1_Ready := #simGD1_Running AND #tonGdWarmup.Q;
+
+    #simGD2_Running := #SIM_GD2_START AND NOT #SIM_GD2_ALARM;
+    #tonGd2Warmup(IN := #simGD2_Running, PT := #T_GD_WARMUP);
+    #simGD2_Ready := #simGD2_Running AND #tonGd2Warmup.Q;
 
 
     // ====================================================================
@@ -146,17 +188,17 @@ BEGIN
         DI_QG1_CLOSE    := #simQG1_CLOSED,
         DI_QG1_FAULT    := #SIM_QG1_FAULT,
         DI_QG1_UV_OV    := FALSE,
-        DI_QG2_REMOTE   := FALSE,
+        DI_QG2_REMOTE   := NOT #SIM_QG2_LOCAL,
         DI_QG2_CLOSE    := #simQG2_CLOSED,
-        DI_QG2_FAULT    := FALSE,
+        DI_QG2_FAULT    := #SIM_QG2_FAULT,
         DI_QG2_UV_OV    := FALSE,
         DI_GD1_READY    := #simGD1_Ready,
         DI_GD1_RUNNING  := #simGD1_Running,
         DI_GD1_ALARM    := #SIM_GD_ALARM,
-        DI_GD2_READY    := FALSE,
-        DI_GD2_RUNNING  := FALSE,
-        DI_GD2_ALARM    := FALSE,
-        DI_Q22_REMOTE   := FALSE
+        DI_GD2_READY    := #simGD2_Ready,
+        DI_GD2_RUNNING  := #simGD2_Running,
+        DI_GD2_ALARM    := #SIM_GD2_ALARM,
+        DI_Q22_REMOTE   := NOT #SIM_Q22_LOCAL
     );
 
 
@@ -180,6 +222,10 @@ BEGIN
 
     "DATA_BUFF".QG2_CLOSED := #instIO.QG2_CLOSED;
     "DATA_BUFF".QG2_OPEN := #instIO.QG2_OPEN;
+    "DATA_BUFF".QG2_FAULT := #instIO.QG2_FAULT;
+    "DATA_BUFF".QG2_REMOTE := #instIO.QG2_REMOTE;
+
+    "DATA_BUFF".Q22_REMOTE_ALLOWED := #instIO.Q22_REMOTE;
 
     "DATA_BUFF".GD_READY := #instIO.GD_READY;
     "DATA_BUFF".GD_RUNNING := #instIO.GD_RUNNING;
@@ -187,6 +233,10 @@ BEGIN
     "DATA_BUFF".GD1_READY := #simGD1_Ready;
     "DATA_BUFF".GD1_RUNNING := #simGD1_Running;
     "DATA_BUFF".GD1_ALARM := #SIM_GD_ALARM;
+
+    "DATA_BUFF".GD2_READY := #simGD2_Ready;
+    "DATA_BUFF".GD2_RUNNING := #simGD2_Running;
+    "DATA_BUFF".GD2_ALARM := #SIM_GD2_ALARM;
 
     // Mediciones simuladas RED
     "DATA_BUFF".GRID_V_L1L2 := #simGridV;
@@ -200,10 +250,10 @@ BEGIN
     // Estado SCMTA: en modo manual puro, siempre "sin SCMTA"
     "DATA_BUFF".SCMTA_STATE := 0;
     "DATA_BUFF".SCMTA_STATE_NAME := 'MANUAL_SIM';
-    "DATA_BUFF".IS_ON_GRID := #simQT1_CLOSED AND NOT #simQG1_CLOSED;
-    "DATA_BUFF".IS_ON_GD := #simQG1_CLOSED AND NOT #simQT1_CLOSED;
-    "DATA_BUFF".IS_ON_GD1 := "DATA_BUFF".IS_ON_GD;
-    "DATA_BUFF".IS_ON_GD2 := FALSE;
+    "DATA_BUFF".IS_ON_GRID := #simQT1_CLOSED AND NOT #simQG1_CLOSED AND NOT #simQG2_CLOSED;
+    "DATA_BUFF".IS_ON_GD := (#simQG1_CLOSED OR #simQG2_CLOSED) AND NOT #simQT1_CLOSED;
+    "DATA_BUFF".IS_ON_GD1 := #simQG1_CLOSED AND NOT #simQT1_CLOSED AND NOT #simQG2_CLOSED;
+    "DATA_BUFF".IS_ON_GD2 := #simQG2_CLOSED AND NOT #simQT1_CLOSED AND NOT #simQG1_CLOSED;
     "DATA_BUFF".IS_IN_TRANSFER := FALSE;
     "DATA_BUFF".IS_FAULT := FALSE;
     "DATA_BUFF".FAULT_CODE := 0;
@@ -212,6 +262,9 @@ BEGIN
     // ====================================================================
     // 5. CMD_ARBITER (manual requests desde DATA_BUFF del HMI)
     // ====================================================================
+    // NOTA: Para interlock, usar posicion ANTICIPADA = actual OR feedback
+    // pendiente de cierre. Esto evita la carrera entre el delay de 500ms
+    // del feedback simulado y un segundo comando de cierre rapido.
     #instArbiter(
         // Sin requests SCMTA (modo manual puro)
         REQ_SCMTA_OPEN_QT1  := FALSE,
@@ -234,19 +287,23 @@ BEGIN
         // Modo
         MODE_AUTO           := FALSE,
         MODE_MANUAL         := TRUE,
-        // Posiciones actuales (para interlocks)
-        QT1_CLOSED          := #instIO.QT1_CLOSED,
-        QG1_CLOSED          := #instIO.QG1_CLOSED,
-        QG2_CLOSED          := #instIO.QG2_CLOSED,
+        // Posiciones ANTICIPADAS para interlocks (actual OR cierre pendiente)
+        QT1_CLOSED          := #instIO.QT1_CLOSED OR #fbkCloseQT1,
+        QG1_CLOSED          := #instIO.QG1_CLOSED OR #fbkCloseQG1,
+        QG2_CLOSED          := #instIO.QG2_CLOSED OR #fbkCloseQG2,
         QT1_REMOTE          := #instIO.QT1_REMOTE,
         QG1_REMOTE          := #instIO.QG1_REMOTE,
-        QG2_REMOTE          := FALSE,
-        Q22_REMOTE          := FALSE,
+        QG2_REMOTE          := #instIO.QG2_REMOTE,
+        Q22_REMOTE          := #instIO.Q22_REMOTE,
         // Outputs
         CMD_OPEN_QT1        => #cmdOpenQT1,
         CMD_CLOSE_QT1       => #cmdCloseQT1,
         CMD_OPEN_QG1        => #cmdOpenQG1,
         CMD_CLOSE_QG1       => #cmdCloseQG1,
+        CMD_OPEN_QG2        => #cmdOpenQG2,
+        CMD_CLOSE_QG2       => #cmdCloseQG2,
+        CMD_OPEN_Q22        => #cmdOpenQ22,
+        CMD_CLOSE_Q22       => #cmdCloseQ22,
         BLOCK_LOCAL         => "DATA_BUFF".BLOCK_LOCAL,
         BLOCK_INTERLOCK     => "DATA_BUFF".BLOCK_INTERLOCK,
         BLOCK_CONFLICT      => "DATA_BUFF".BLOCK_CONFLICT,
@@ -304,6 +361,42 @@ BEGIN
         #fbkCloseQG1 := FALSE;
     END_IF;
 
+    // ---- OPEN QG2 ----
+    #rtOpenQG2(CLK := #cmdOpenQG2);
+    IF #rtOpenQG2.Q THEN #fbkOpenQG2 := TRUE; END_IF;
+    #tonFbkOpenQG2(IN := #fbkOpenQG2, PT := #T_FEEDBACK);
+    IF #tonFbkOpenQG2.Q THEN
+        #simQG2_CLOSED := FALSE;
+        #fbkOpenQG2 := FALSE;
+    END_IF;
+
+    // ---- CLOSE QG2 ----
+    #rtCloseQG2(CLK := #cmdCloseQG2);
+    IF #rtCloseQG2.Q THEN #fbkCloseQG2 := TRUE; END_IF;
+    #tonFbkCloseQG2(IN := #fbkCloseQG2, PT := #T_FEEDBACK);
+    IF #tonFbkCloseQG2.Q THEN
+        #simQG2_CLOSED := TRUE;
+        #fbkCloseQG2 := FALSE;
+    END_IF;
+
+    // ---- OPEN Q22 ----
+    #rtOpenQ22(CLK := #cmdOpenQ22);
+    IF #rtOpenQ22.Q THEN #fbkOpenQ22 := TRUE; END_IF;
+    #tonFbkOpenQ22(IN := #fbkOpenQ22, PT := #T_FEEDBACK);
+    IF #tonFbkOpenQ22.Q THEN
+        #simQ22_CLOSED := FALSE;
+        #fbkOpenQ22 := FALSE;
+    END_IF;
+
+    // ---- CLOSE Q22 ----
+    #rtCloseQ22(CLK := #cmdCloseQ22);
+    IF #rtCloseQ22.Q THEN #fbkCloseQ22 := TRUE; END_IF;
+    #tonFbkCloseQ22(IN := #fbkCloseQ22, PT := #T_FEEDBACK);
+    IF #tonFbkCloseQ22.Q THEN
+        #simQ22_CLOSED := TRUE;
+        #fbkCloseQ22 := FALSE;
+    END_IF;
+
 
     // ====================================================================
     // 7. FB_OUTPUTS - pilotos e indicadores para HMI
@@ -320,15 +413,15 @@ BEGIN
         QT1_FAULT           := #instIO.QT1_FAULT,
         QG1_CLOSED          := #instIO.QG1_CLOSED,
         QG1_FAULT           := #instIO.QG1_FAULT,
-        QG2_CLOSED          := FALSE,
-        QG2_FAULT           := FALSE,
-        Q22_CLOSED          := FALSE,
-        Q22_FAULT           := FALSE,
+        QG2_CLOSED          := #instIO.QG2_CLOSED,
+        QG2_FAULT           := #instIO.QG2_FAULT,
+        Q22_CLOSED          := #simQ22_CLOSED,
+        Q22_FAULT           := #SIM_Q22_FAULT,
         ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
         BLOCK_INTERLOCK     := "DATA_BUFF".BLOCK_INTERLOCK,
         GRID_FAIL           := #SIM_GRID_FAIL,
         GD_ALARM            := #SIM_GD_ALARM,
-        GD2_ALARM           := FALSE,
+        GD2_ALARM           := #SIM_GD2_ALARM,
         ACK_ALARM           := "DATA_BUFF".ACK_ALARM,
         // Outputs piloto
         DO_PILOT_ON_GRID    => "DATA_BUFF".PILOT_ON_GRID,
