@@ -183,6 +183,10 @@ NON_RETAIN
       MODBUS_COMM_OK : Bool;
       MODBUS_ACTIVE_DEVICE : String[20];
       PM_COMM_OK : Bool;   // TRUE cuando al menos un PM tiene lectura valida
+      // Diagnostico configuracion puerto Modbus
+      MB_PORT_CFG_DONE : Bool;      // TRUE = puerto configurado OK
+      MB_PORT_CFG_ERROR : Bool;     // TRUE = error en MB_COMM_LOAD
+      MB_PORT_CFG_STATUS : Word;    // Codigo de error MB_COMM_LOAD
       SYSTEM_UPTIME : Time;
       TRANSFER_COUNT : Int;
       FAULT_COUNT : Int;

@@ -62,17 +62,22 @@ NON_RETAIN
       SHED_ENABLE : Array[1..19] of Bool := [19(FALSE)]; // Todos FALSE en V4
 
       // ---- CONFIGURACION MODBUS PM5350P (7 dispositivos) ----
+      // Parametros del puerto serial (igual que Ladder TGBT_V1-0)
+      MB_PORT_ID : UInt := 271;          // HW ID del CB 1241 RS485
+      MB_BAUD_RATE : UDInt := 19200;     // Baudios: 19200 (PM5350P default)
+      MB_PARITY : UInt := 2;             // 0=None, 1=Odd, 2=Even
+      MB_RESP_TIMEOUT : UInt := 1000;    // Timeout respuesta esclavo [ms]
       // Tablero C02 (QT1 / fuente red)
-      SLAVE_ID_PM5350_C02 : Byte := 10;
+      SLAVE_ID_PM5350_C02 : UInt := 10;
       // Tablero C01 GD1
-      SLAVE_ID_PM5350_C01_GD1 : Byte := 11;
+      SLAVE_ID_PM5350_C01_GD1 : UInt := 11;
       // Tablero C01 GD2
-      SLAVE_ID_PM5350_C01_GD2 : Byte := 12;
+      SLAVE_ID_PM5350_C01_GD2 : UInt := 12;
       // Tableros de feeders (solo monitoreo)
-      SLAVE_ID_PM5350_C03 : Byte := 13;
-      SLAVE_ID_PM5350_C04 : Byte := 14;
-      SLAVE_ID_PM5350_C05 : Byte := 15;
-      SLAVE_ID_PM5350_C06 : Byte := 16;
+      SLAVE_ID_PM5350_C03 : UInt := 13;
+      SLAVE_ID_PM5350_C04 : UInt := 14;
+      SLAVE_ID_PM5350_C05 : UInt := 15;
+      SLAVE_ID_PM5350_C06 : UInt := 16;
       // Timeout Modbus
       T_MODBUS_POLL_TIMEOUT : Time := T#3s;
       T_POLL_CYCLE : Time := T#1s;

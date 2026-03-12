@@ -63,7 +63,9 @@ BEGIN
 END_DATA_BLOCK
 
 DATA_BLOCK "06_FB_MODBUS_MANAGER_DB"
-{ S7_Optimized_Access := 'TRUE' }
+{ S7_Optimized_Access := 'FALSE' }
+// Acceso NO optimizado requerido para que MB_MASTER DATA_PTR funcione
+// (DATA_PTR necesita DB tipo "Standard - compatible with S7-300/400")
 VERSION : 0.1
 NON_RETAIN
 "06_FB_MODBUS_MANAGER"

@@ -1,31 +1,37 @@
 ﻿FUNCTION_BLOCK "06_FB_MODBUS_MANAGER"
-{ S7_Optimized_Access := 'TRUE' }
+{ S7_Optimized_Access := 'FALSE' }
 // ============================================================================
-// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V4.0
+// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V5.0
 // ============================================================================
-// CAMBIO ALCANCE V4:
-//   - Solo comunicacion con 7 PM5350P (lectura de mediciones)
-//   - Eliminados: CMD escribir a MTZ/feeders
-//   - Polling round-robin: lectura voltajes, frecuencia, potencia, alarmas
-//   - Slave IDs: C02=10 C01-GD1=11 C01-GD2=12 C03=13 C04=14 C05=15 C06=16
-// ============================================================================
-// NOTA: Las llamadas a MB_MASTER (CM 1241) estan STUBBED como marcadores TODO.
-//       El scaffold de la maquina de estados esta listo para conectar el
-//       bloque MB_CLIENT o MB_MASTER una vez definida la instancia en TIA.
+// CAMBIO V5 (basado en proyecto Ladder TGBT_V1-0 que funciona):
+//   - Integra MB_COMM_LOAD + MB_MASTER reales (no stubs)
+//   - MB_COMM_LOAD se ejecuta una sola vez en FirstScan
+//   - MB_MASTER lee 120 registros desde DATA_ADDR=43000 (FC03 Holding Registers)
+//   - Buffer rxBuffer: Array[0..119] of Word (compatible con S7-300/400)
+//   - Polling round-robin: 7 PM5350P
+//   - Slave IDs: C02=10, C01-GD1=11, C01-GD2=12, C03=13, C04=14, C05=15, C06=16
+//   - Parametros puerto: BAUD=19200, PARITY=2(Even), PORT=271(CB_1241_RS485)
+//   - S7_Optimized_Access := FALSE para que DATA_PTR funcione con MB_MASTER
 // ============================================================================
 VERSION : 0.1
    VAR_INPUT
       ENABLE         : Bool := TRUE;
+      FIRST_SCAN     : Bool;         // %M800.0 o "FirstScan" desde OB1
       // Slave IDs de los 7 medidores (configurable desde DB_PARAMS)
-      SLAVE_C02      : Int := 10;   // RED / QT1
-      SLAVE_C01_GD1  : Int := 11;   // GD1 / QG1
-      SLAVE_C01_GD2  : Int := 12;   // GD2 / QG2
-      SLAVE_C03      : Int := 13;
-      SLAVE_C04      : Int := 14;
-      SLAVE_C05      : Int := 15;
-      SLAVE_C06      : Int := 16;   // Q22
+      SLAVE_C02      : UInt := 10;   // RED / QT1
+      SLAVE_C01_GD1  : UInt := 11;   // GD1 / QG1
+      SLAVE_C01_GD2  : UInt := 12;   // GD2 / QG2
+      SLAVE_C03      : UInt := 13;
+      SLAVE_C04      : UInt := 14;
+      SLAVE_C05      : UInt := 15;
+      SLAVE_C06      : UInt := 16;   // Q22
+      // Configuracion puerto serial
+      PORT_ID        : UInt := 271;     // CB 1241 RS485: HW ID del puerto
+      BAUD_RATE      : UDInt := 19200;  // 19200 baud (igual que Ladder)
+      PARITY         : UInt := 2;       // 2 = Even (igual que Ladder)
+      RESP_TIMEOUT   : UInt := 1000;    // Timeout respuesta esclavo [ms]
       // Timings de polling
-      T_POLL_CYCLE      : Time := T#1s;
+      T_POLL_CYCLE      : Time := T#500ms;
       T_PAUSE_BETWEEN   : Time := T#200ms;
       T_RETRY_DELAY     : Time := T#3s;
       MAX_RETRIES       : Int  := 3;
@@ -47,39 +53,56 @@ VERSION : 0.1
       BUSY           : Bool;
       ERROR          : Bool;
       COMM_ERRORS    : Int;
+      // Diagnostico MB_COMM_LOAD
+      PORT_CFG_DONE  : Bool;
+      PORT_CFG_ERROR : Bool;
+      PORT_CFG_STATUS : Word;
    END_VAR
 
    VAR
       Step              : Int;
       pollIndex         : Int;
       retryCount        : Int;
-      reqFlag           : Bool;
-      reqHoldActive     : Bool;
+      currentSlaveAddr  : UInt;
       pauseActive       : Bool;
       retryDelayActive  : Bool;
       pollCycleActive   : Bool;
-      currentSlaveID    : Int;
-      tonReqHold        {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
+      portConfigured    : Bool;      // Puerto ya fue configurado con MB_COMM_LOAD
+      mbMasterReq       : Bool;      // REQ para MB_MASTER
+      // Salidas MB_MASTER (se leen despues de cada llamada)
+      mbDone            : Bool;
+      mbBusy            : Bool;
+      mbError           : Bool;
+      mbStatus          : Word;
+      // Salidas MB_COMM_LOAD
+      commLoadDone      : Bool;
+      commLoadError     : Bool;
+      commLoadStatus    : Word;
+      // Temporizadores
       tonPauseBetween   {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
       tonRetryDelay     {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
       tonPollCycle      {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      // Buffer de recepcion PM5350P: 120 registros desde 3000..3119
-      // Una sola lectura MB_MASTER DATA_ADDR=3000, DATA_LEN=120.
-      // Todos los valores son FLOAT32 (2 regs cada uno), sin escala.
-      rxBuffer          : Array[0..119] of Int;
-      // Timestamp de ultima lectura valida del medidor de red (C02, index 1)
-      gridLastOkScan    : DInt;
+      // Instancias Modbus (se asignan como instancias internas del FB)
+      MB_MASTER_Inst    {InstructionName := 'MB_MASTER'; LibVersion := '1.4'} : MB_MASTER;
+      MB_COMM_LOAD_Inst {InstructionName := 'MB_COMM_LOAD'; LibVersion := '1.2'} : MB_COMM_LOAD;
+      // Buffer de recepcion PM5350P: 120 registros holding desde 43000
+      // Modbus address 43000 -> FC03 Holding Register 3000 (43000-40001+1=3000)
+      // Todos los valores PM5350P son FLOAT32 (2 regs c/u, big-endian)
+      rxBuffer          : Array[0..119] of Word;
    END_VAR
 
    VAR CONSTANT
-      N_DEVICES   : Int := 7;
-      ST_IDLE     : Int := 0;
-      ST_PREPARE  : Int := 1;
-      ST_WAIT_ACK : Int := 2;
-      ST_EVAL     : Int := 3;
-      ST_PAUSE    : Int := 4;
-      ST_RETRY    : Int := 98;
-      ST_ERROR    : Int := 99;
+      N_DEVICES      : Int  := 7;
+      MB_DATA_ADDR   : UDInt := 43000;  // Holding register 3000 (40001+2999)
+      MB_DATA_LEN    : UInt := 120;     // 120 registros Word
+      MB_MODE_READ   : USInt := 0;      // MODE 0 = FC03 Read Holding Registers
+      ST_IDLE        : Int := 0;
+      ST_PREPARE     : Int := 1;
+      ST_WAIT_ACK    : Int := 2;
+      ST_EVAL        : Int := 3;
+      ST_PAUSE       : Int := 4;
+      ST_RETRY       : Int := 98;
+      ST_ERROR       : Int := 99;
    END_VAR
 
 
@@ -87,26 +110,63 @@ BEGIN
     // ========================================================================
     // TEMPORIZADORES — ejecutar siempre en cada ciclo de scan
     // ========================================================================
-    #tonReqHold(IN      := #reqHoldActive,    PT := T#2s);
     #tonPauseBetween(IN := #pauseActive,      PT := #T_PAUSE_BETWEEN);
     #tonRetryDelay(IN   := #retryDelayActive, PT := #T_RETRY_DELAY);
     #tonPollCycle(IN    := #pollCycleActive,  PT := #T_POLL_CYCLE);
 
 
     // ========================================================================
-    // PROTECCION: si ENABLE=FALSE detener todo
+    // MB_COMM_LOAD: Configurar puerto serial (solo en FirstScan)
     // ========================================================================
-    IF NOT #ENABLE THEN
-        #Step            := #ST_IDLE;
-        #reqFlag         := FALSE;
-        #reqHoldActive   := FALSE;
-        #pauseActive     := FALSE;
+    // Se ejecuta UNA sola vez para configurar el puerto CB 1241 RS485.
+    // Parametros identicos al Ladder funcional:
+    //   PORT=271, BAUD=19200, PARITY=2(Even), FLOW_CTRL=0,
+    //   RTS_ON_DLY=0, RTS_OFF_DLY=0, RESP_TO=1000
+    // MB_DB apunta a la instancia interna de MB_MASTER.
+    // ========================================================================
+    #MB_COMM_LOAD_Inst(REQ       := #FIRST_SCAN AND NOT #portConfigured,
+                       PORT      := #PORT_ID,
+                       BAUD      := #BAUD_RATE,
+                       PARITY    := #PARITY,
+                       FLOW_CTRL := 0,
+                       RTS_ON_DLY := 0,
+                       RTS_OFF_DLY := 0,
+                       RESP_TO   := #RESP_TIMEOUT,
+                       MB_DB     := #MB_MASTER_Inst);
+
+    #commLoadDone   := #MB_COMM_LOAD_Inst.DONE;
+    #commLoadError  := #MB_COMM_LOAD_Inst.ERROR;
+    #commLoadStatus := #MB_COMM_LOAD_Inst.STATUS;
+
+    // Registrar resultado de la configuracion del puerto
+    IF #commLoadDone AND NOT #commLoadError THEN
+        #portConfigured   := TRUE;
+        #PORT_CFG_DONE    := TRUE;
+        #PORT_CFG_ERROR   := FALSE;
+        #PORT_CFG_STATUS  := #commLoadStatus;
+    ELSIF #commLoadError THEN
+        #portConfigured   := FALSE;
+        #PORT_CFG_DONE    := FALSE;
+        #PORT_CFG_ERROR   := TRUE;
+        #PORT_CFG_STATUS  := #commLoadStatus;
+    END_IF;
+
+
+    // ========================================================================
+    // PROTECCION: si ENABLE=FALSE o puerto no configurado, detener polling
+    // ========================================================================
+    IF NOT #ENABLE OR NOT #portConfigured THEN
+        #Step             := #ST_IDLE;
+        #mbMasterReq      := FALSE;
+        #pauseActive      := FALSE;
         #retryDelayActive := FALSE;
-        #pollCycleActive := FALSE;
-        #BUSY            := FALSE;
-        #COMM_OK         := FALSE;
-        #GRID_MEAS_OK    := FALSE;
-        #ERROR           := FALSE;
+        #pollCycleActive  := FALSE;
+        #BUSY             := FALSE;
+        IF NOT #ENABLE THEN
+            #COMM_OK      := FALSE;
+            #GRID_MEAS_OK := FALSE;
+            #ERROR        := FALSE;
+        END_IF;
     ELSE
 
         // ====================================================================
@@ -118,11 +178,10 @@ BEGIN
             // IDLE: esperar ciclo de polling
             // ----------------------------------------------------------------
             #ST_IDLE:
-                #BUSY  := FALSE;
-                #ERROR := FALSE;
+                #BUSY       := FALSE;
+                #ERROR      := FALSE;
                 #retryCount := 0;
-                #reqFlag := FALSE;
-                #reqHoldActive := FALSE;
+                #mbMasterReq := FALSE;
                 #pollCycleActive := TRUE;
 
                 IF #tonPollCycle.Q THEN
@@ -136,15 +195,15 @@ BEGIN
 
                     // Asignar SlaveID activo segun indice
                     CASE #pollIndex OF
-                        1: #currentSlaveID := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
-                        2: #currentSlaveID := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
-                        3: #currentSlaveID := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
-                        4: #currentSlaveID := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
-                        5: #currentSlaveID := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
-                        6: #currentSlaveID := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
-                        7: #currentSlaveID := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
+                        1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+                        2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+                        3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
+                        4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
+                        5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
+                        6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
+                        7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
                     ELSE
-                        #currentSlaveID := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
+                        #currentSlaveAddr := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
                     END_CASE;
 
                     #Step := #ST_PREPARE;
@@ -152,62 +211,72 @@ BEGIN
 
 
             // ----------------------------------------------------------------
-            // PREPARE: activar REQ al MB_MASTER
+            // PREPARE: disparar lectura MB_MASTER
             // ----------------------------------------------------------------
             #ST_PREPARE:
                 #BUSY          := TRUE;
-                #reqFlag       := TRUE;
-                #reqHoldActive := TRUE;
+                #mbMasterReq   := TRUE;   // Flanco positivo para MB_MASTER
                 #Step          := #ST_WAIT_ACK;
 
 
             // ----------------------------------------------------------------
-            // WAIT_ACK: mantener REQ hasta timeout (2 s)
-            // TODO: reemplazar temporizador por MB_MASTER.DONE / ERROR
+            // WAIT_ACK: esperar DONE o ERROR de MB_MASTER
             // ----------------------------------------------------------------
             #ST_WAIT_ACK:
-                #reqFlag := TRUE;
-                IF #tonReqHold.Q THEN
-                    #reqFlag       := FALSE;
-                    #reqHoldActive := FALSE;
-                    #Step          := #ST_EVAL;
+                // Mantener REQ en TRUE mientras MB_MASTER trabaja
+                #mbMasterReq := TRUE;
+
+                IF #mbDone AND NOT #mbError THEN
+                    // Lectura exitosa -> parsear datos
+                    #mbMasterReq := FALSE;
+                    #Step := #ST_EVAL;
+                ELSIF #mbError THEN
+                    // Error en la comunicacion
+                    #mbMasterReq := FALSE;
+                    #COMM_ERRORS := #COMM_ERRORS + 1;
+                    #retryCount  := #retryCount + 1;
+                    IF #retryCount < #MAX_RETRIES THEN
+                        #retryDelayActive := TRUE;
+                        #Step := #ST_RETRY;
+                    ELSE
+                        #Step := #ST_ERROR;
+                    END_IF;
                 END_IF;
+                // Si BUSY sigue en TRUE, seguimos esperando (no hacer nada)
 
 
             // ----------------------------------------------------------------
-            // EVAL: parsear rxBuffer (120 registros desde 3000)
+            // EVAL: parsear rxBuffer (120 registros desde holding 3000)
             // ----------------------------------------------------------------
             // Fuente: PM51xx_PM53xx_PMC Register List (Schneider)
             // Todos los registros son FLOAT32 (2 regs = 32 bits IEEE 754)
-            // sin escalado adicional. Big-endian: high word en offset N, low en N+1.
+            // Big-endian: high word en offset N, low word en offset N+1.
             // Mapa de offsets (base = reg 3000, offset = reg - 3000):
             //   +20  reg 3020  Voltage A-B (V_L1L2)  FLOAT32  [V]
             //   +22  reg 3022  Voltage B-C (V_L2L3)  FLOAT32  [V]
             //   +24  reg 3024  Voltage C-A (V_L3L1)  FLOAT32  [V]
-            //   +60  reg 3060  Active Power Total    FLOAT32  [kW]  <-- ya en kW, sin /1000
-            //   +110 reg 3110  Frequency             FLOAT32  [Hz]  <-- ya en Hz, sin x0.01
+            //   +60  reg 3060  Active Power Total    FLOAT32  [kW]
+            //   +110 reg 3110  Frequency             FLOAT32  [Hz]
             // ----------------------------------------------------------------
             #ST_EVAL:
-                #reqFlag := FALSE;
                 // Voltajes FLOAT32 [V] (big-endian: high word primero)
                 #PM_V_L1L2[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[20])), N := 16)
-                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[21])));
+                    SHL(IN := WORD_TO_DWORD(#rxBuffer[20]), N := 16)
+                    OR WORD_TO_DWORD(#rxBuffer[21]));
                 #PM_V_L2L3[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[22])), N := 16)
-                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[23])));
+                    SHL(IN := WORD_TO_DWORD(#rxBuffer[22]), N := 16)
+                    OR WORD_TO_DWORD(#rxBuffer[23]));
                 #PM_V_L3L1[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[24])), N := 16)
-                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[25])));
+                    SHL(IN := WORD_TO_DWORD(#rxBuffer[24]), N := 16)
+                    OR WORD_TO_DWORD(#rxBuffer[25]));
                 // Potencia activa total FLOAT32 [kW] — offset +60 (reg 3060)
-                // P_TOTAL llega directamente en kW; OB1 NO divide por 1000.
                 #PM_P_TOTAL[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[60])), N := 16)
-                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[61])));
+                    SHL(IN := WORD_TO_DWORD(#rxBuffer[60]), N := 16)
+                    OR WORD_TO_DWORD(#rxBuffer[61]));
                 // Frecuencia FLOAT32 [Hz] — offset +110 (reg 3110)
                 #PM_FREQ[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[110])), N := 16)
-                    OR WORD_TO_DWORD(INT_TO_WORD(#rxBuffer[111])));
+                    SHL(IN := WORD_TO_DWORD(#rxBuffer[110]), N := 16)
+                    OR WORD_TO_DWORD(#rxBuffer[111]));
 
                 #PM_COMM_OK[#pollIndex] := TRUE;
                 #COMM_OK                := TRUE;
@@ -250,8 +319,7 @@ BEGIN
                 IF #pollIndex = 1 THEN
                     #GRID_MEAS_OK := FALSE;
                 END_IF;
-                #reqFlag       := FALSE;
-                #reqHoldActive := FALSE;
+                #mbMasterReq := FALSE;
                 // Continuar con el siguiente dispositivo tras el proximo ciclo
                 #pauseActive := TRUE;
                 #Step        := #ST_PAUSE;
@@ -262,32 +330,28 @@ BEGIN
 
 
     // ========================================================================
-    // LLAMADA MB_MASTER (CM 1241) -- STUB, descomentar al implementar
+    // MB_MASTER: Lectura de registros — se llama SIEMPRE en cada scan
     // ========================================================================
-    // Una sola lectura de 120 registros desde 3000..3119 cubre todas las
-    // variables necesarias. El buffer rxBuffer[0..119] se parsea en ST_EVAL.
+    // Debe ejecutarse fuera de IF/CASE, en cada ciclo, tal como indica
+    // la documentacion Siemens. La maquina de estados controla REQ.
     //
-    // Fuente: PM51xx_PM53xx_PMC Register List — todos FLOAT32, sin escala.
-    // Mapa de offsets (offset = registro - 3000):
-    //   rxBuffer[20..21]   = reg 3020  V_L1L2 (Voltage A-B) [FLOAT32, V]
-    //   rxBuffer[22..23]   = reg 3022  V_L2L3 (Voltage B-C) [FLOAT32, V]
-    //   rxBuffer[24..25]   = reg 3024  V_L3L1 (Voltage C-A) [FLOAT32, V]
-    //   rxBuffer[60..61]   = reg 3060  P_total (Active Power Total) [FLOAT32, kW]
-    //   rxBuffer[110..111] = reg 3110  Frequency [FLOAT32, Hz]
-    //
-    // Nota: alarmas (reg 3200+) quedan fuera de este rango.
-    // Agregar segunda lectura DATA_ADDR=3200, DATA_LEN=10 si se requieren.
-    //
-    // El bloque MB_MASTER debe llamarse SIEMPRE (fuera de IF/CASE).
-    // DATA_PTR apunta a #rxBuffer usando VARIANT o P# segun version TIA.
-    //
-    // #MB_MASTER_Inst(
-    //     REQ         := #reqFlag,
-    //     MB_ADDR     := INT_TO_UINT(#currentSlaveID),
-    //     MODE        := 0,              // 0 = Read Holding Registers (FC03)
-    //     DATA_ADDR   := 3000,           // Registro inicial — cubre 3000..3119
-    //     DATA_LEN    := 120,            // 120 registros de 16 bits = 240 bytes
-    //     DATA_PTR    := #rxBuffer       // Buffer de recepcion declarado en VAR
-    // );
+    // Parametros identicos al Ladder funcional:
+    //   MB_ADDR = slave activo (round-robin)
+    //   MODE    = 0 (FC03 Read Holding Registers)
+    //   DATA_ADDR = 43000 (reg 3000 del PM5350P)
+    //   DATA_LEN  = 120 registros Word
+    //   DATA_PTR  = rxBuffer (Array[0..119] of Word)
+    // ========================================================================
+    #MB_MASTER_Inst(REQ       := #mbMasterReq,
+                    MB_ADDR   := #currentSlaveAddr,
+                    MODE      := #MB_MODE_READ,
+                    DATA_ADDR := #MB_DATA_ADDR,
+                    DATA_LEN  := #MB_DATA_LEN,
+                    DATA_PTR  := #rxBuffer);
+
+    #mbDone   := #MB_MASTER_Inst.DONE;
+    #mbBusy   := #MB_MASTER_Inst.BUSY;
+    #mbError  := #MB_MASTER_Inst.ERROR;
+    #mbStatus := #MB_MASTER_Inst.STATUS;
 
 END_FUNCTION_BLOCK

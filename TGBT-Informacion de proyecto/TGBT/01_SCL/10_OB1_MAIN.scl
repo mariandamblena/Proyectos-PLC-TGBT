@@ -303,6 +303,7 @@ BEGIN
     // ========================================================================
     "06_FB_MODBUS_MANAGER_DB"(
         ENABLE         := "DB_PARAMS".ENABLE_SCMTA,
+        FIRST_SCAN     := %M800.0,     // FirstScan: TRUE solo en el primer ciclo
         SLAVE_C02      := "DB_PARAMS".SLAVE_ID_PM5350_C02,
         SLAVE_C01_GD1  := "DB_PARAMS".SLAVE_ID_PM5350_C01_GD1,
         SLAVE_C01_GD2  := "DB_PARAMS".SLAVE_ID_PM5350_C01_GD2,
@@ -310,14 +311,20 @@ BEGIN
         SLAVE_C04      := "DB_PARAMS".SLAVE_ID_PM5350_C04,
         SLAVE_C05      := "DB_PARAMS".SLAVE_ID_PM5350_C05,
         SLAVE_C06      := "DB_PARAMS".SLAVE_ID_PM5350_C06,
-        T_POLL_CYCLE   := T#1s,
+        PORT_ID        := "DB_PARAMS".MB_PORT_ID,
+        BAUD_RATE      := "DB_PARAMS".MB_BAUD_RATE,
+        PARITY         := "DB_PARAMS".MB_PARITY,
+        RESP_TIMEOUT   := "DB_PARAMS".MB_RESP_TIMEOUT,
+        T_POLL_CYCLE   := "DB_PARAMS".T_POLL_CYCLE,
         T_PAUSE_BETWEEN := T#200ms,
         // Outputs: mediciones PM5350P -> DATA_BUFF
         // Indice 1 = C02/RED, 2 = C01-GD1, 3 = C01-GD2, 4..7 = C03-C06
         COMM_OK        => "DATA_BUFF".MODBUS_COMM_OK,
         GRID_MEAS_OK   => "DATA_BUFF".GRID_MEASUREMENT_OK,
-        ACTIVE_DEVICE  => "DATA_BUFF".MODBUS_ACTIVE_DEVICE
-        // PM_COMM_OK es Array[1..7] of Bool — se copia manualmente abajo
+        ACTIVE_DEVICE  => "DATA_BUFF".MODBUS_ACTIVE_DEVICE,
+        PORT_CFG_DONE  => "DATA_BUFF".MB_PORT_CFG_DONE,
+        PORT_CFG_ERROR => "DATA_BUFF".MB_PORT_CFG_ERROR,
+        PORT_CFG_STATUS => "DATA_BUFF".MB_PORT_CFG_STATUS
     );
     // PM_COMM_OK[1] = medidor C02/RED; TRUE si tiene lectura valida reciente
     "DATA_BUFF".PM_COMM_OK := "06_FB_MODBUS_MANAGER_DB".PM_COMM_OK[1];
