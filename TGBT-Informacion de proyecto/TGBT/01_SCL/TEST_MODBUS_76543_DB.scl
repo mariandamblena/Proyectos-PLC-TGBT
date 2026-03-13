@@ -1,0 +1,20 @@
+DATA_BLOCK "TEST_MODBUS_76543_DB"
+{ S7_Optimized_Access := 'FALSE' }
+// ============================================================================
+// DB instancia de TEST_MODBUS_76543
+// S7_Optimized_Access := FALSE — obligatorio para DATA_PTR de MB_MASTER
+// ============================================================================
+VERSION : 0.1
+"TEST_MODBUS_76543"
+
+BEGIN
+    SLAVE_1   := 7;
+    SLAVE_2   := 6;
+    SLAVE_3   := 5;
+    SLAVE_4   := 4;
+    SLAVE_5   := 3;
+    PORT_ID   := 271;
+    BAUD_RATE := 19200;
+    PARITY    := 2;
+    RESP_TO   := 1000;
+END_DATA_BLOCK

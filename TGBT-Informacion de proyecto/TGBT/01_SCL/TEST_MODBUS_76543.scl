@@ -1,0 +1,189 @@
+FUNCTION_BLOCK "TEST_MODBUS_76543"
+{ S7_Optimized_Access := 'FALSE' }
+// ============================================================================
+// TEST_MODBUS_76543  —  Driver Modbus simple multi-slave para diagnostico
+// ============================================================================
+// PROPOSITO:
+//   - Probar secuencialmente los powermeters con IDs 7, 6, 5, 4 y 3
+//   - Mantener el mismo patron que funciono en el test simple:
+//       * MB_COMM_LOAD una sola vez en FIRST_SCAN
+//       * MB_MASTER con REQ siempre activo
+//       * cambio de slave solo cuando llega DONE o ERROR
+//
+// MAPEO DE INDICES:
+//   idx 1 = slave 7
+//   idx 2 = slave 6
+//   idx 3 = slave 5
+//   idx 4 = slave 4
+//   idx 5 = slave 3
+//
+// USO EN OB1:
+//   "TEST_MODBUS_76543_DB"(
+//       FIRST_SCAN := "FirstScan"
+//   );
+//
+// MONITOREO ONLINE:
+//   ACTIVE_INDEX      -> indice activo 1..5
+//   ACTIVE_SLAVE_ID   -> slave que esta consultando ahora
+//   CFG_DONE/ERROR    -> estado del MB_COMM_LOAD
+//   DONE/BUSY/ERROR   -> estado actual del MB_MASTER
+//   READ_COUNT[idx]   -> lecturas OK por slave
+//   ERROR_COUNT[idx]  -> errores por slave
+//   STATUS_LAST[idx]  -> ultimo STATUS visto por slave
+//   COMM_OK[idx]      -> ultimo resultado correcto del slave
+//   V_AB[idx], P_KW[idx], HZ[idx] -> valores por cada slave
+// ============================================================================
+VERSION : 0.1
+
+   VAR_INPUT
+      FIRST_SCAN  : Bool;
+      SLAVE_1     : UInt := 7;
+      SLAVE_2     : UInt := 6;
+      SLAVE_3     : UInt := 5;
+      SLAVE_4     : UInt := 4;
+      SLAVE_5     : UInt := 3;
+      PORT_ID     : UInt := 271;
+      BAUD_RATE   : UDInt := 19200;
+      PARITY      : UInt := 2;
+      RESP_TO     : UInt := 1000;
+   END_VAR
+
+   VAR_OUTPUT
+      CFG_DONE        : Bool;
+      CFG_ERROR       : Bool;
+      CFG_STATUS      : Word;
+      DONE            : Bool;
+      BUSY            : Bool;
+      ERROR           : Bool;
+      STATUS          : Word;
+      ACTIVE_INDEX    : Int;
+      ACTIVE_SLAVE_ID : UInt;
+      COMM_OK         : Array[1..5] of Bool;
+      READ_COUNT      : Array[1..5] of DInt;
+      ERROR_COUNT     : Array[1..5] of DInt;
+      STATUS_LAST     : Array[1..5] of Word;
+      V_AB            : Array[1..5] of Real;
+      V_BC            : Array[1..5] of Real;
+      V_CA            : Array[1..5] of Real;
+      P_KW            : Array[1..5] of Real;
+      HZ              : Array[1..5] of Real;
+   END_VAR
+
+   VAR
+      portConfigured : Bool;
+      currentIndex   : Int := 1;
+      doneLastScan   : Bool;
+      errorLastScan  : Bool;
+      mbCommLoad  {InstructionName := 'MB_COMM_LOAD'; LibVersion := '1.2'} : MB_COMM_LOAD;
+      mbMaster    {InstructionName := 'MB_MASTER';    LibVersion := '1.4'} : MB_MASTER;
+      rxBuf       : Array[0..119] of Word;
+   END_VAR
+
+   VAR CONSTANT
+      DATA_ADDR   : UDInt := 43000;
+      DATA_LEN    : UInt  := 120;
+      MODE_READ   : USInt := 0;
+   END_VAR
+
+
+BEGIN
+
+    // ========================================================================
+    // 1. MB_COMM_LOAD — configura el puerto una sola vez
+    // ========================================================================
+    #mbCommLoad(
+        REQ         := #FIRST_SCAN AND NOT #portConfigured,
+        "PORT"      := #PORT_ID,
+        BAUD        := #BAUD_RATE,
+        PARITY      := #PARITY,
+        FLOW_CTRL   := 0,
+        RTS_ON_DLY  := 0,
+        RTS_OFF_DLY := 0,
+        RESP_TO     := #RESP_TO,
+        DONE        => #CFG_DONE,
+        ERROR       => #CFG_ERROR,
+        STATUS      => #CFG_STATUS,
+        MB_DB       := #mbMaster
+    );
+
+    IF #CFG_DONE AND NOT #CFG_ERROR THEN
+        #portConfigured := TRUE;
+    ELSIF #CFG_ERROR THEN
+        #portConfigured := FALSE;
+    END_IF;
+
+    // Exponer indice/slave activos para diagnostico online
+    #ACTIVE_INDEX := #currentIndex;
+    CASE #currentIndex OF
+        1: #ACTIVE_SLAVE_ID := #SLAVE_1;
+        2: #ACTIVE_SLAVE_ID := #SLAVE_2;
+        3: #ACTIVE_SLAVE_ID := #SLAVE_3;
+        4: #ACTIVE_SLAVE_ID := #SLAVE_4;
+        5: #ACTIVE_SLAVE_ID := #SLAVE_5;
+    ELSE
+        #ACTIVE_SLAVE_ID := #SLAVE_1;
+    END_CASE;
+
+    // ========================================================================
+    // 2. MB_MASTER — REQ siempre activo cuando el puerto esta configurado
+    // ========================================================================
+    #mbMaster(
+        REQ       := #portConfigured,
+        MB_ADDR   := #ACTIVE_SLAVE_ID,
+        MODE      := #MODE_READ,
+        DATA_ADDR := #DATA_ADDR,
+        DATA_LEN  := #DATA_LEN,
+        DONE      => #DONE,
+        BUSY      => #BUSY,
+        ERROR     => #ERROR,
+        STATUS    => #STATUS,
+        DATA_PTR  := #rxBuf
+    );
+
+    // ========================================================================
+    // 3. Procesar cada transaccion solo una vez por flanco de DONE/ERROR
+    // ========================================================================
+    IF #DONE AND NOT #doneLastScan AND NOT #ERROR THEN
+
+        #V_AB[#currentIndex] := DWORD_TO_REAL(
+            SHL(IN := WORD_TO_DWORD(#rxBuf[20]), N := 16)
+            OR WORD_TO_DWORD(#rxBuf[21]));
+        #V_BC[#currentIndex] := DWORD_TO_REAL(
+            SHL(IN := WORD_TO_DWORD(#rxBuf[22]), N := 16)
+            OR WORD_TO_DWORD(#rxBuf[23]));
+        #V_CA[#currentIndex] := DWORD_TO_REAL(
+            SHL(IN := WORD_TO_DWORD(#rxBuf[24]), N := 16)
+            OR WORD_TO_DWORD(#rxBuf[25]));
+        #P_KW[#currentIndex] := DWORD_TO_REAL(
+            SHL(IN := WORD_TO_DWORD(#rxBuf[60]), N := 16)
+            OR WORD_TO_DWORD(#rxBuf[61]));
+        #HZ[#currentIndex] := DWORD_TO_REAL(
+            SHL(IN := WORD_TO_DWORD(#rxBuf[110]), N := 16)
+            OR WORD_TO_DWORD(#rxBuf[111]));
+
+        #READ_COUNT[#currentIndex] := #READ_COUNT[#currentIndex] + 1;
+        #STATUS_LAST[#currentIndex] := #STATUS;
+        #COMM_OK[#currentIndex] := TRUE;
+
+        #currentIndex := #currentIndex + 1;
+        IF #currentIndex > 5 THEN
+            #currentIndex := 1;
+        END_IF;
+
+    ELSIF #ERROR AND NOT #errorLastScan THEN
+
+        #ERROR_COUNT[#currentIndex] := #ERROR_COUNT[#currentIndex] + 1;
+        #STATUS_LAST[#currentIndex] := #STATUS;
+        #COMM_OK[#currentIndex] := FALSE;
+
+        #currentIndex := #currentIndex + 1;
+        IF #currentIndex > 5 THEN
+            #currentIndex := 1;
+        END_IF;
+
+    END_IF;
+
+    #doneLastScan := #DONE;
+    #errorLastScan := #ERROR;
+
+END_FUNCTION_BLOCK

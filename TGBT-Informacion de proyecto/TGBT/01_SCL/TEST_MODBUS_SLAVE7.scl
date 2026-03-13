@@ -83,25 +83,23 @@ BEGIN
     // ========================================================================
     #mbCommLoad(
         REQ         := #FIRST_SCAN AND NOT #portConfigured,
-        PORT        := #PORT_ID,
+        "PORT"      := #PORT_ID,
         BAUD        := #BAUD_RATE,
         PARITY      := #PARITY,
         FLOW_CTRL   := 0,
         RTS_ON_DLY  := 0,
         RTS_OFF_DLY := 0,
         RESP_TO     := #RESP_TO,
+        DONE        => #CFG_DONE,
+        ERROR       => #CFG_ERROR,
+        STATUS      => #CFG_STATUS,
         MB_DB       := #mbMaster
     );
 
-    IF #mbCommLoad.DONE AND NOT #mbCommLoad.ERROR THEN
+    IF #CFG_DONE AND NOT #CFG_ERROR THEN
         #portConfigured := TRUE;
-        #CFG_DONE       := TRUE;
-        #CFG_ERROR      := FALSE;
-        #CFG_STATUS     := #mbCommLoad.STATUS;
-    ELSIF #mbCommLoad.ERROR THEN
-        #CFG_DONE       := FALSE;
-        #CFG_ERROR      := TRUE;
-        #CFG_STATUS     := #mbCommLoad.STATUS;
+    ELSIF #CFG_ERROR THEN
+        #portConfigured := FALSE;
     END_IF;
 
 
@@ -116,20 +114,18 @@ BEGIN
         MODE      := #MODE_READ,
         DATA_ADDR := #DATA_ADDR,
         DATA_LEN  := #DATA_LEN,
+        DONE      => #DONE,
+        BUSY      => #BUSY,
+        ERROR     => #ERROR,
+        STATUS    => #STATUS,
         DATA_PTR  := #rxBuf
     );
-
-    // Leer salidas de MB_MASTER
-    #DONE   := #mbMaster.DONE;
-    #BUSY   := #mbMaster.BUSY;
-    #ERROR  := #mbMaster.ERROR;
-    #STATUS := #mbMaster.STATUS;
 
 
     // ========================================================================
     // 3. Procesar resultado de cada transaccion
     // ========================================================================
-    IF #mbMaster.DONE AND NOT #mbMaster.ERROR THEN
+    IF #DONE AND NOT #ERROR THEN
 
         // Lectura exitosa: parsear FLOAT32 big-endian desde rxBuf
         // high word en offset N, low word en offset N+1
@@ -146,7 +142,7 @@ BEGIN
 
         #READ_COUNT := #READ_COUNT + 1;
 
-    ELSIF #mbMaster.ERROR THEN
+    ELSIF #ERROR THEN
 
         #ERROR_COUNT := #ERROR_COUNT + 1;
         // STATUS contiene el codigo de error (ver tabla MB_MASTER errores):

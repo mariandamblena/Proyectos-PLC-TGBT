@@ -68,16 +68,16 @@ NON_RETAIN
       MB_PARITY : UInt := 2;             // 0=None, 1=Odd, 2=Even
       MB_RESP_TIMEOUT : UInt := 1000;    // Timeout respuesta esclavo [ms]
       // Tablero C02 (QT1 / fuente red)
-      SLAVE_ID_PM5350_C02 : UInt := 10;
+      SLAVE_ID_PM5350_C02 : UInt := 1;
       // Tablero C01 GD1
-      SLAVE_ID_PM5350_C01_GD1 : UInt := 11;
+      SLAVE_ID_PM5350_C01_GD1 : UInt := 2;
       // Tablero C01 GD2
-      SLAVE_ID_PM5350_C01_GD2 : UInt := 12;
+      SLAVE_ID_PM5350_C01_GD2 : UInt := 3;
       // Tableros de feeders (solo monitoreo)
-      SLAVE_ID_PM5350_C03 : UInt := 13;
-      SLAVE_ID_PM5350_C04 : UInt := 14;
-      SLAVE_ID_PM5350_C05 : UInt := 15;
-      SLAVE_ID_PM5350_C06 : UInt := 16;
+      SLAVE_ID_PM5350_C03 : UInt := 4;
+      SLAVE_ID_PM5350_C04 : UInt := 5;
+      SLAVE_ID_PM5350_C05 : UInt := 6;
+      SLAVE_ID_PM5350_C06 : UInt := 7;
       // Timeout Modbus
       T_MODBUS_POLL_TIMEOUT : Time := T#3s;
       T_POLL_CYCLE : Time := T#1s;

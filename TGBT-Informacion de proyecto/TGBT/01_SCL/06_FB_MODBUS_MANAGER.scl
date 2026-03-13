@@ -1,29 +1,26 @@
 ﻿FUNCTION_BLOCK "06_FB_MODBUS_MANAGER"
 { S7_Optimized_Access := 'FALSE' }
 // ============================================================================
-// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V5.1
+// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V6.0
 // ============================================================================
-// CAMBIO V5.1:
-//   - REQ siempre activo (AlwaysTrue), igual que Ladder TGBT_V1-0 que funciona.
-//     MB_MASTER gestiona internamente el BLOCKED_PROC_TIMEOUT entre transacciones.
-//     NO usar pulso/flanco — el medidor puede tardar varios segundos en responder.
-//   - Sin maquina de estados compleja ni timers de polling.
-//     Solo se avanza al siguiente slave cuando llega DONE o se agota MAX_RETRIES.
-//   - MB_COMM_LOAD una sola vez en FirstScan (igual que Ladder).
-//   - Inicializacion del primer slave en arranque.
+// CAMBIO V6.0 (alineado al test que funciono):
+//   - MB_COMM_LOAD con salidas explicitas DONE/ERROR/STATUS a outputs del FB.
+//   - MB_MASTER con REQ sostenido (TRUE fijo cuando ENABLE y puerto OK).
+//   - Avance de esclavo por evento (flanco) DONE/ERROR, no por estado/temporizador.
+//   - Sin polling timers; MB_MASTER maneja BLOCKED_PROC_TIMEOUT internamente.
 // ============================================================================
 VERSION : 0.1
    VAR_INPUT
       ENABLE         : Bool := TRUE;
       FIRST_SCAN     : Bool;         // %M800.0 (primer ciclo de scan)
       // Slave IDs de los 7 medidores
-      SLAVE_C02      : UInt := 10;
-      SLAVE_C01_GD1  : UInt := 11;
-      SLAVE_C01_GD2  : UInt := 12;
-      SLAVE_C03      : UInt := 13;
-      SLAVE_C04      : UInt := 14;
-      SLAVE_C05      : UInt := 15;
-      SLAVE_C06      : UInt := 16;
+        SLAVE_C02      : UInt := 1;
+        SLAVE_C01_GD1  : UInt := 2;
+        SLAVE_C01_GD2  : UInt := 3;
+        SLAVE_C03      : UInt := 4;
+        SLAVE_C04      : UInt := 5;
+        SLAVE_C05      : UInt := 6;
+        SLAVE_C06      : UInt := 7;
       // Configuracion puerto serial
       PORT_ID        : UInt  := 271;    // HW ID CB 1241 RS485
       BAUD_RATE      : UDInt := 19200;
@@ -52,7 +49,7 @@ VERSION : 0.1
    END_VAR
 
    VAR
-      pollIndex         : Int  := 1;    // Indice activo 1..7
+        pollIndex         : Int  := 1;    // Indice activo 1..7
       retryCount        : Int;
       currentSlaveAddr  : UInt;
       portConfigured    : Bool;
@@ -62,9 +59,8 @@ VERSION : 0.1
       mbBusy            : Bool;
       mbError           : Bool;
       mbStatus          : Word;
-      commLoadDone      : Bool;
-      commLoadError     : Bool;
-      commLoadStatus    : Word;
+        doneLastScan      : Bool;
+        errorLastScan     : Bool;
       MB_MASTER_Inst    {InstructionName := 'MB_MASTER';    LibVersion := '1.4'} : MB_MASTER;
       MB_COMM_LOAD_Inst {InstructionName := 'MB_COMM_LOAD'; LibVersion := '1.2'} : MB_COMM_LOAD;
       // Buffer de recepcion: 120 registros holding (DATA_ADDR=43000 = reg 3000 del PM)
@@ -86,29 +82,22 @@ BEGIN
     // Identico al Ladder funcional: PORT=271, BAUD=19200, PARITY=2(Even)
     // ========================================================================
     #MB_COMM_LOAD_Inst(REQ        := #FIRST_SCAN AND NOT #portConfigured,
-                       PORT       := #PORT_ID,
+                       "PORT"     := #PORT_ID,
                        BAUD       := #BAUD_RATE,
                        PARITY     := #PARITY,
                        FLOW_CTRL  := 0,
                        RTS_ON_DLY := 0,
                        RTS_OFF_DLY := 0,
                        RESP_TO    := #RESP_TIMEOUT,
+                       DONE       => #PORT_CFG_DONE,
+                       ERROR      => #PORT_CFG_ERROR,
+                       STATUS     => #PORT_CFG_STATUS,
                        MB_DB      := #MB_MASTER_Inst);
 
-    #commLoadDone   := #MB_COMM_LOAD_Inst.DONE;
-    #commLoadError  := #MB_COMM_LOAD_Inst.ERROR;
-    #commLoadStatus := #MB_COMM_LOAD_Inst.STATUS;
-
-    IF #commLoadDone AND NOT #commLoadError THEN
-        #portConfigured  := TRUE;
-        #PORT_CFG_DONE   := TRUE;
-        #PORT_CFG_ERROR  := FALSE;
-        #PORT_CFG_STATUS := #commLoadStatus;
-    ELSIF #commLoadError THEN
-        #portConfigured  := FALSE;
-        #PORT_CFG_DONE   := FALSE;
-        #PORT_CFG_ERROR  := TRUE;
-        #PORT_CFG_STATUS := #commLoadStatus;
+    IF #PORT_CFG_DONE AND NOT #PORT_CFG_ERROR THEN
+        #portConfigured := TRUE;
+    ELSIF #PORT_CFG_ERROR THEN
+        #portConfigured := FALSE;
     END_IF;
 
 
@@ -116,11 +105,29 @@ BEGIN
     // INICIALIZACION: asignar primer slave al arranque
     // ========================================================================
     IF #portConfigured AND NOT #initialized THEN
-        #pollIndex       := 1;
+        #pollIndex        := 1;
         #currentSlaveAddr := #SLAVE_C02;
-        #ACTIVE_DEVICE   := 'C02_RED';
-        #initialized     := TRUE;
+        #ACTIVE_DEVICE    := 'C02_RED';
+        #initialized      := TRUE;
     END_IF;
+
+    IF #pollIndex < 1 OR #pollIndex > #N_DEVICES THEN
+        #pollIndex := 1;
+    END_IF;
+
+    // Resolver slave activo segun indice actual
+    CASE #pollIndex OF
+        1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+        2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+        3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
+        4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
+        5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
+        6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
+        7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
+    ELSE
+        #currentSlaveAddr := #SLAVE_C02;
+        #ACTIVE_DEVICE := 'C02_RED';
+    END_CASE;
 
 
     // ========================================================================
@@ -132,11 +139,29 @@ BEGIN
 
 
     // ========================================================================
-    // PROCESAMIENTO DE RESPUESTAS — reaccionar a DONE / ERROR cada scan
+    // MB_MASTER — llamar SIEMPRE en cada scan
+    // REQ sostenido (patron validado en test y Ladder funcional)
+    // ========================================================================
+    #MB_MASTER_Inst(REQ       := #mbMasterReq,
+                    MB_ADDR   := #currentSlaveAddr,
+                    MODE      := #MB_MODE_READ,
+                    DATA_ADDR := #MB_DATA_ADDR,
+                    DATA_LEN  := #MB_DATA_LEN,
+                    DONE      => #mbDone,
+                    BUSY      => #mbBusy,
+                    ERROR     => #mbError,
+                    STATUS    => #mbStatus,
+                    DATA_PTR  := #rxBuffer);
+
+    #BUSY := #mbBusy;
+
+
+    // ========================================================================
+    // PROCESAMIENTO DE RESPUESTAS — por flanco DONE/ERROR
     // ========================================================================
     IF #ENABLE AND #portConfigured THEN
 
-        IF #mbDone AND NOT #mbError THEN
+        IF #mbDone AND NOT #doneLastScan AND NOT #mbError THEN
             // -----------------------------------------------------------------
             // Lectura exitosa: parsear rxBuffer y avanzar al siguiente slave
             // -----------------------------------------------------------------
@@ -167,7 +192,6 @@ BEGIN
 
             #PM_COMM_OK[#pollIndex] := TRUE;
             #COMM_OK                := TRUE;
-            #BUSY                   := FALSE;
             #ERROR                  := FALSE;
             #retryCount             := 0;
 
@@ -175,29 +199,15 @@ BEGIN
                 #GRID_MEAS_OK := TRUE;
             END_IF;
 
-            // Avanzar al siguiente slave — MB_MASTER tomara la nueva direccion
-            // en su proximo ciclo (tras BLOCKED_PROC_TIMEOUT interno)
+            // Avanzar al siguiente slave para la proxima transaccion
             #pollIndex := #pollIndex + 1;
             IF #pollIndex > #N_DEVICES THEN #pollIndex := 1; END_IF;
 
-            CASE #pollIndex OF
-                1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
-                2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
-                3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
-                4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
-                5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
-                6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
-                7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
-            ELSE
-                #currentSlaveAddr := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
-            END_CASE;
-
-        ELSIF #mbError THEN
+        ELSIF #mbError AND NOT #errorLastScan THEN
             // -----------------------------------------------------------------
             // Error de comunicacion: reintentar MAX_RETRIES veces,
             // luego avanzar al siguiente slave igualmente
             // -----------------------------------------------------------------
-            #BUSY        := FALSE;
             #ERROR       := TRUE;
             #COMM_ERRORS := #COMM_ERRORS + 1;
             #retryCount  := #retryCount + 1;
@@ -212,28 +222,14 @@ BEGIN
 
                 #pollIndex := #pollIndex + 1;
                 IF #pollIndex > #N_DEVICES THEN #pollIndex := 1; END_IF;
-
-                CASE #pollIndex OF
-                    1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
-                    2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
-                    3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
-                    4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
-                    5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
-                    6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
-                    7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
-                ELSE
-                    #currentSlaveAddr := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
-                END_CASE;
             END_IF;
-
-        ELSIF #mbBusy THEN
-            #BUSY := TRUE;
         END_IF;
 
     ELSE
         // ENABLE=FALSE o puerto no configurado
         #mbMasterReq := FALSE;
         #BUSY        := FALSE;
+        #retryCount  := 0;
         IF NOT #ENABLE THEN
             #COMM_OK      := FALSE;
             #GRID_MEAS_OK := FALSE;
@@ -241,21 +237,7 @@ BEGIN
         END_IF;
     END_IF;
 
-
-    // ========================================================================
-    // MB_MASTER — llamar SIEMPRE en cada scan (fuera de IF/CASE)
-    // REQ siempre TRUE cuando activo: identico al Ladder funcional
-    // ========================================================================
-    #MB_MASTER_Inst(REQ       := #mbMasterReq,
-                    MB_ADDR   := #currentSlaveAddr,
-                    MODE      := #MB_MODE_READ,
-                    DATA_ADDR := #MB_DATA_ADDR,
-                    DATA_LEN  := #MB_DATA_LEN,
-                    DATA_PTR  := #rxBuffer);
-
-    #mbDone   := #MB_MASTER_Inst.DONE;
-    #mbBusy   := #MB_MASTER_Inst.BUSY;
-    #mbError  := #MB_MASTER_Inst.ERROR;
-    #mbStatus := #MB_MASTER_Inst.STATUS;
+    #doneLastScan  := #mbDone;
+    #errorLastScan := #mbError;
 
 END_FUNCTION_BLOCK
