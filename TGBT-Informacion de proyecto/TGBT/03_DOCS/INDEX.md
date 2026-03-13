@@ -42,6 +42,7 @@
 | Archivo | Contenido | Audiencia |
 |---------|-----------|-----------|
 | **RESUMEN_PROYECTO.md** | Qué hacía antes vs. ahora, cambios V2→V3, todo lo que controla | Todos |
+| **ANALISIS_GUIADO_SCL_V4.md** | Recorrido guiado del codigo SCL actual V4, scan a scan, con mapa mental del sistema | Programador |
 | **LISTADO_EQUIPOS.md** | 39 equipos del tablero, tipos a/b/c/d, mapeo índices [1..19] | Todos |
 | **LISTADO_IO.md** | Mapeo completo DI/DO/%I/%Q, Modbus, HMI, módulos expansión | Programador |
 | **README_SCMTA.md** | Documentación técnica master (~30 páginas, 15 secciones) | Programador |

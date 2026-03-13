@@ -315,8 +315,8 @@ BEGIN
         BAUD_RATE      := "DB_PARAMS".MB_BAUD_RATE,
         PARITY         := "DB_PARAMS".MB_PARITY,
         RESP_TIMEOUT   := "DB_PARAMS".MB_RESP_TIMEOUT,
-        T_POLL_CYCLE   := "DB_PARAMS".T_POLL_CYCLE,
-        T_PAUSE_BETWEEN := T#200ms,
+        // V5.1: sin T_POLL_CYCLE ni T_PAUSE_BETWEEN — REQ siempre activo,
+        //        MB_MASTER gestiona BLOCKED_PROC_TIMEOUT internamente
         // Outputs: mediciones PM5350P -> DATA_BUFF
         // Indice 1 = C02/RED, 2 = C01-GD1, 3 = C01-GD2, 4..7 = C03-C06
         COMM_OK        => "DATA_BUFF".MODBUS_COMM_OK,

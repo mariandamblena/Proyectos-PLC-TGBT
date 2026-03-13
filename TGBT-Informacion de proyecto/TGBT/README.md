@@ -159,6 +159,7 @@ foreach ($f in $files) {
 | Documento | Contenido |
 |-----------|-----------|
 | [RESUMEN_PROYECTO.md](03_DOCS/RESUMEN_PROYECTO.md) | Qué hacía antes vs. ahora, cambios V2→V3 |
+| [ANALISIS_GUIADO_SCL_V4.md](03_DOCS/ANALISIS_GUIADO_SCL_V4.md) | Guia practica del codigo SCL V4 actual, con recorrido de OB1 y lectura de FB_SCMTA |
 | [LISTADO_EQUIPOS.md](03_DOCS/LISTADO_EQUIPOS.md) | 39 equipos, tipos a/b/c/d, mapeo índices |
 | [LISTADO_IO.md](03_DOCS/LISTADO_IO.md) | Todas las DI/DO con %I/%Q, Modbus, HMI |
 | [README_SCMTA.md](03_DOCS/README_SCMTA.md) | Documentación técnica completa (~30 pág) |

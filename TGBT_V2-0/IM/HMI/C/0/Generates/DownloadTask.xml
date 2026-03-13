@@ -2,18 +2,18 @@
 <DownloadTask>
   <ProjectInfo
     DeviceVersion="17.0.0.0"
-    CreationTime="2026-03-12 11:28:16 (UTC)"
+    CreationTime="2026-03-12 13:42:10 (UTC)"
     Runtime="COLORADO"
     RtProjectName="TGBT_V2-0.HMI_1[TP1200 Comfort]"
     RtProjectFolderName="TGBT_V2-0.HMI_1[TP1200 Comfort]"
     DeviceType="TP1200 Comfort"
     DisplayOrientation="0"
-    RTReleaseNo="17.0.0.0"
-    ImageReleaseNo="17.0.0.0"
+    RTReleaseNo="17.0.0.7"
+    ImageReleaseNo="17.0.0.7"
     RTCV="17.0.0.0"
     PRCV="17.0.0.0"
-    FirmwareFileName=""
-    RuntimeFileName=""
+    FirmwareFileName="CP_7_9\17.0.0.7\CP_7_9_12_V17_0.fwf"
+    RuntimeFileName="CP_7_9\17.0.0.7\CP_7_9_12_V17_0.ruf"
     RuntimeAddonFolderName="CP_7_9" />
   <FullDownload>pdata.fwc</FullDownload>
   <FullDownload

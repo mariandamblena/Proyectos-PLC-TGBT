@@ -1,0 +1,16 @@
+DATA_BLOCK "TEST_MODBUS_SLAVE7_DB"
+{ S7_Optimized_Access := 'FALSE' }
+// ============================================================================
+// DB instancia de TEST_MODBUS_SLAVE7
+// S7_Optimized_Access := FALSE  — obligatorio para DATA_PTR de MB_MASTER
+// ============================================================================
+VERSION : 0.1
+"TEST_MODBUS_SLAVE7"
+
+BEGIN
+    SLAVE_ID   := 7;
+    PORT_ID    := 271;
+    BAUD_RATE  := 19200;
+    PARITY     := 2;
+    RESP_TO    := 1000;
+END_DATA_BLOCK

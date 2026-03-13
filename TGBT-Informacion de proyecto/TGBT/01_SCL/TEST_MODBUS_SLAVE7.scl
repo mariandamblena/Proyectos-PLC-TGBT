@@ -1,0 +1,160 @@
+FUNCTION_BLOCK "TEST_MODBUS_SLAVE7"
+{ S7_Optimized_Access := 'FALSE' }
+// ============================================================================
+// TEST_MODBUS_SLAVE7  —  Driver Modbus minimalista para diagnostico
+// ============================================================================
+// PROPOSITO: verificar que MB_MASTER puede leer el powermeter con Slave ID=7
+//            de forma identica al Ladder funcional (REQ siempre activo).
+//
+// USO EN OB1 (o en un OB ciclico de test):
+//   "TEST_MODBUS_SLAVE7_DB"(
+//       FIRST_SCAN := %M800.0
+//   );
+//
+// MONITOREO: ver en Watch/Force table:
+//   TEST_MODBUS_SLAVE7_DB.CFG_DONE     -> puerto configurado OK
+//   TEST_MODBUS_SLAVE7_DB.CFG_ERROR    -> fallo al configurar puerto
+//   TEST_MODBUS_SLAVE7_DB.CFG_STATUS   -> codigo de error MB_COMM_LOAD
+//   TEST_MODBUS_SLAVE7_DB.DONE         -> ultima lectura exitosa
+//   TEST_MODBUS_SLAVE7_DB.BUSY         -> MB_MASTER trabajando
+//   TEST_MODBUS_SLAVE7_DB.ERROR        -> error en lectura
+//   TEST_MODBUS_SLAVE7_DB.STATUS       -> codigo de error MB_MASTER
+//   TEST_MODBUS_SLAVE7_DB.READ_COUNT   -> cuantas lecturas exitosas acumula
+//   TEST_MODBUS_SLAVE7_DB.ERROR_COUNT  -> cuantos errores acumulo
+//   TEST_MODBUS_SLAVE7_DB.V_AB         -> tension L1-L2 del medidor [V]
+//   TEST_MODBUS_SLAVE7_DB.V_BC         -> tension L2-L3 del medidor [V]
+//   TEST_MODBUS_SLAVE7_DB.V_CA         -> tension L3-L1 del medidor [V]
+//   TEST_MODBUS_SLAVE7_DB.P_KW         -> potencia activa total [kW]
+//   TEST_MODBUS_SLAVE7_DB.HZ           -> frecuencia [Hz]
+// ============================================================================
+VERSION : 0.1
+
+   VAR_INPUT
+      FIRST_SCAN  : Bool;   // Conectar a %M800.0
+      SLAVE_ID    : UInt := 7;     // ID del powermeter a probar (default 7)
+      PORT_ID     : UInt := 271;   // HW ID CB 1241 RS485
+      BAUD_RATE   : UDInt := 19200;
+      PARITY      : UInt := 2;     // 2 = Even
+      RESP_TO     : UInt := 1000;  // [ms]
+   END_VAR
+
+   VAR_OUTPUT
+      // Estado configuracion puerto
+      CFG_DONE    : Bool;
+      CFG_ERROR   : Bool;
+      CFG_STATUS  : Word;
+      // Estado MB_MASTER ultima transaccion
+      DONE        : Bool;
+      BUSY        : Bool;
+      ERROR       : Bool;
+      STATUS      : Word;
+      // Contadores diagnostico
+      READ_COUNT  : DInt;
+      ERROR_COUNT : DInt;
+      // Mediciones parseadas del buffer (FLOAT32 big-endian desde reg 3000)
+      V_AB        : Real;   // reg 3020 [V]
+      V_BC        : Real;   // reg 3022 [V]
+      V_CA        : Real;   // reg 3024 [V]
+      P_KW        : Real;   // reg 3060 [kW]
+      HZ          : Real;   // reg 3110 [Hz]
+   END_VAR
+
+   VAR
+      portConfigured : Bool;
+      // Instancias Modbus
+      mbCommLoad  {InstructionName := 'MB_COMM_LOAD'; LibVersion := '1.2'} : MB_COMM_LOAD;
+      mbMaster    {InstructionName := 'MB_MASTER';    LibVersion := '1.4'} : MB_MASTER;
+      // Buffer de recepcion: 120 registros Word desde DATA_ADDR=43000 (FC03 reg 3000)
+      rxBuf       : Array[0..119] of Word;
+   END_VAR
+
+   VAR CONSTANT
+      DATA_ADDR   : UDInt := 43000; // FC03 holding reg 3000
+      DATA_LEN    : UInt  := 120;
+      MODE_READ   : USInt := 0;     // FC03
+   END_VAR
+
+
+BEGIN
+
+    // ========================================================================
+    // 1. MB_COMM_LOAD — configura el puerto UNA sola vez (en FIRST_SCAN)
+    //    Identico al Ladder funcional: 19200 baud, Even, PORT=271
+    // ========================================================================
+    #mbCommLoad(
+        REQ         := #FIRST_SCAN AND NOT #portConfigured,
+        PORT        := #PORT_ID,
+        BAUD        := #BAUD_RATE,
+        PARITY      := #PARITY,
+        FLOW_CTRL   := 0,
+        RTS_ON_DLY  := 0,
+        RTS_OFF_DLY := 0,
+        RESP_TO     := #RESP_TO,
+        MB_DB       := #mbMaster
+    );
+
+    IF #mbCommLoad.DONE AND NOT #mbCommLoad.ERROR THEN
+        #portConfigured := TRUE;
+        #CFG_DONE       := TRUE;
+        #CFG_ERROR      := FALSE;
+        #CFG_STATUS     := #mbCommLoad.STATUS;
+    ELSIF #mbCommLoad.ERROR THEN
+        #CFG_DONE       := FALSE;
+        #CFG_ERROR      := TRUE;
+        #CFG_STATUS     := #mbCommLoad.STATUS;
+    END_IF;
+
+
+    // ========================================================================
+    // 2. MB_MASTER — REQ siempre activo (igual que Ladder con AlwaysTrue %M800.2)
+    //    Se llama SIEMPRE en cada scan, fuera de cualquier IF.
+    //    MB_MASTER gestiona internamente el intervalo entre transacciones.
+    // ========================================================================
+    #mbMaster(
+        REQ       := #portConfigured,   // TRUE fijo cuando puerto OK
+        MB_ADDR   := #SLAVE_ID,
+        MODE      := #MODE_READ,
+        DATA_ADDR := #DATA_ADDR,
+        DATA_LEN  := #DATA_LEN,
+        DATA_PTR  := #rxBuf
+    );
+
+    // Leer salidas de MB_MASTER
+    #DONE   := #mbMaster.DONE;
+    #BUSY   := #mbMaster.BUSY;
+    #ERROR  := #mbMaster.ERROR;
+    #STATUS := #mbMaster.STATUS;
+
+
+    // ========================================================================
+    // 3. Procesar resultado de cada transaccion
+    // ========================================================================
+    IF #mbMaster.DONE AND NOT #mbMaster.ERROR THEN
+
+        // Lectura exitosa: parsear FLOAT32 big-endian desde rxBuf
+        // high word en offset N, low word en offset N+1
+        #V_AB  := DWORD_TO_REAL(SHL(IN := WORD_TO_DWORD(#rxBuf[20]), N := 16)
+                                 OR  WORD_TO_DWORD(#rxBuf[21]));   // reg 3020
+        #V_BC  := DWORD_TO_REAL(SHL(IN := WORD_TO_DWORD(#rxBuf[22]), N := 16)
+                                 OR  WORD_TO_DWORD(#rxBuf[23]));   // reg 3022
+        #V_CA  := DWORD_TO_REAL(SHL(IN := WORD_TO_DWORD(#rxBuf[24]), N := 16)
+                                 OR  WORD_TO_DWORD(#rxBuf[25]));   // reg 3024
+        #P_KW  := DWORD_TO_REAL(SHL(IN := WORD_TO_DWORD(#rxBuf[60]), N := 16)
+                                 OR  WORD_TO_DWORD(#rxBuf[61]));   // reg 3060
+        #HZ    := DWORD_TO_REAL(SHL(IN := WORD_TO_DWORD(#rxBuf[110]), N := 16)
+                                 OR  WORD_TO_DWORD(#rxBuf[111]));  // reg 3110
+
+        #READ_COUNT := #READ_COUNT + 1;
+
+    ELSIF #mbMaster.ERROR THEN
+
+        #ERROR_COUNT := #ERROR_COUNT + 1;
+        // STATUS contiene el codigo de error (ver tabla MB_MASTER errores):
+        //   16#8180 = no response (timeout) -> slave no responde o ID incorrecto
+        //   16#8281 = CRC error             -> ruido en linea
+        //   16#8380 = exception code 1      -> funcion no soportada
+        //   16#8480 = exception code 2      -> direccion invalida
+
+    END_IF;
+
+END_FUNCTION_BLOCK

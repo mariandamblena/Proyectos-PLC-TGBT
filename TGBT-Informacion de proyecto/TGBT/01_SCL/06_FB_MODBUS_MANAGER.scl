@@ -1,44 +1,38 @@
 ﻿FUNCTION_BLOCK "06_FB_MODBUS_MANAGER"
 { S7_Optimized_Access := 'FALSE' }
 // ============================================================================
-// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V5.0
+// FB: 06_FB_MODBUS_MANAGER  -- Gestor Modbus RTU  V5.1
 // ============================================================================
-// CAMBIO V5 (basado en proyecto Ladder TGBT_V1-0 que funciona):
-//   - Integra MB_COMM_LOAD + MB_MASTER reales (no stubs)
-//   - MB_COMM_LOAD se ejecuta una sola vez en FirstScan
-//   - MB_MASTER lee 120 registros desde DATA_ADDR=43000 (FC03 Holding Registers)
-//   - Buffer rxBuffer: Array[0..119] of Word (compatible con S7-300/400)
-//   - Polling round-robin: 7 PM5350P
-//   - Slave IDs: C02=10, C01-GD1=11, C01-GD2=12, C03=13, C04=14, C05=15, C06=16
-//   - Parametros puerto: BAUD=19200, PARITY=2(Even), PORT=271(CB_1241_RS485)
-//   - S7_Optimized_Access := FALSE para que DATA_PTR funcione con MB_MASTER
+// CAMBIO V5.1:
+//   - REQ siempre activo (AlwaysTrue), igual que Ladder TGBT_V1-0 que funciona.
+//     MB_MASTER gestiona internamente el BLOCKED_PROC_TIMEOUT entre transacciones.
+//     NO usar pulso/flanco — el medidor puede tardar varios segundos en responder.
+//   - Sin maquina de estados compleja ni timers de polling.
+//     Solo se avanza al siguiente slave cuando llega DONE o se agota MAX_RETRIES.
+//   - MB_COMM_LOAD una sola vez en FirstScan (igual que Ladder).
+//   - Inicializacion del primer slave en arranque.
 // ============================================================================
 VERSION : 0.1
    VAR_INPUT
       ENABLE         : Bool := TRUE;
-      FIRST_SCAN     : Bool;         // %M800.0 o "FirstScan" desde OB1
-      // Slave IDs de los 7 medidores (configurable desde DB_PARAMS)
-      SLAVE_C02      : UInt := 10;   // RED / QT1
-      SLAVE_C01_GD1  : UInt := 11;   // GD1 / QG1
-      SLAVE_C01_GD2  : UInt := 12;   // GD2 / QG2
+      FIRST_SCAN     : Bool;         // %M800.0 (primer ciclo de scan)
+      // Slave IDs de los 7 medidores
+      SLAVE_C02      : UInt := 10;
+      SLAVE_C01_GD1  : UInt := 11;
+      SLAVE_C01_GD2  : UInt := 12;
       SLAVE_C03      : UInt := 13;
       SLAVE_C04      : UInt := 14;
       SLAVE_C05      : UInt := 15;
-      SLAVE_C06      : UInt := 16;   // Q22
+      SLAVE_C06      : UInt := 16;
       // Configuracion puerto serial
-      PORT_ID        : UInt := 271;     // CB 1241 RS485: HW ID del puerto
-      BAUD_RATE      : UDInt := 19200;  // 19200 baud (igual que Ladder)
-      PARITY         : UInt := 2;       // 2 = Even (igual que Ladder)
-      RESP_TIMEOUT   : UInt := 1000;    // Timeout respuesta esclavo [ms]
-      // Timings de polling
-      T_POLL_CYCLE      : Time := T#500ms;
-      T_PAUSE_BETWEEN   : Time := T#200ms;
-      T_RETRY_DELAY     : Time := T#3s;
-      MAX_RETRIES       : Int  := 3;
+      PORT_ID        : UInt  := 271;    // HW ID CB 1241 RS485
+      BAUD_RATE      : UDInt := 19200;
+      PARITY         : UInt  := 2;      // 2 = Even
+      RESP_TIMEOUT   : UInt  := 1000;   // [ms] timeout respuesta esclavo
+      MAX_RETRIES    : Int   := 3;
    END_VAR
 
    VAR_OUTPUT
-      // Mediciones por tablero (indice 1..7 segun orden arriba)
       PM_V_L1L2      : Array[1..7] of Real;
       PM_V_L2L3      : Array[1..7] of Real;
       PM_V_L3L1      : Array[1..7] of Real;
@@ -46,301 +40,211 @@ VERSION : 0.1
       PM_P_TOTAL     : Array[1..7] of Real;
       PM_ALARM       : Array[1..7] of Bool;
       PM_COMM_OK     : Array[1..7] of Bool;
-      // Estado global
       COMM_OK        : Bool;
-      GRID_MEAS_OK   : Bool;   // TRUE cuando C02 tiene lectura valida reciente
+      GRID_MEAS_OK   : Bool;
       ACTIVE_DEVICE  : String[20];
       BUSY           : Bool;
       ERROR          : Bool;
       COMM_ERRORS    : Int;
-      // Diagnostico MB_COMM_LOAD
       PORT_CFG_DONE  : Bool;
       PORT_CFG_ERROR : Bool;
       PORT_CFG_STATUS : Word;
    END_VAR
 
    VAR
-      Step              : Int;
-      pollIndex         : Int;
+      pollIndex         : Int  := 1;    // Indice activo 1..7
       retryCount        : Int;
       currentSlaveAddr  : UInt;
-      pauseActive       : Bool;
-      retryDelayActive  : Bool;
-      pollCycleActive   : Bool;
-      portConfigured    : Bool;      // Puerto ya fue configurado con MB_COMM_LOAD
-      mbMasterReq       : Bool;      // REQ para MB_MASTER
-      // Salidas MB_MASTER (se leen despues de cada llamada)
+      portConfigured    : Bool;
+      initialized       : Bool;         // Primer slave asignado al arrancar
+      mbMasterReq       : Bool;
       mbDone            : Bool;
       mbBusy            : Bool;
       mbError           : Bool;
       mbStatus          : Word;
-      // Salidas MB_COMM_LOAD
       commLoadDone      : Bool;
       commLoadError     : Bool;
       commLoadStatus    : Word;
-      // Temporizadores
-      tonPauseBetween   {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      tonRetryDelay     {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      tonPollCycle      {InstructionName := 'TON_TIME'; LibVersion := '1.0'} : TON_TIME;
-      // Instancias Modbus (se asignan como instancias internas del FB)
-      MB_MASTER_Inst    {InstructionName := 'MB_MASTER'; LibVersion := '1.4'} : MB_MASTER;
+      MB_MASTER_Inst    {InstructionName := 'MB_MASTER';    LibVersion := '1.4'} : MB_MASTER;
       MB_COMM_LOAD_Inst {InstructionName := 'MB_COMM_LOAD'; LibVersion := '1.2'} : MB_COMM_LOAD;
-      // Buffer de recepcion PM5350P: 120 registros holding desde 43000
-      // Modbus address 43000 -> FC03 Holding Register 3000 (43000-40001+1=3000)
-      // Todos los valores PM5350P son FLOAT32 (2 regs c/u, big-endian)
+      // Buffer de recepcion: 120 registros holding (DATA_ADDR=43000 = reg 3000 del PM)
+      // Array of Word requerido por DATA_PTR de MB_MASTER (S7-300/400 compatible)
       rxBuffer          : Array[0..119] of Word;
    END_VAR
 
    VAR CONSTANT
-      N_DEVICES      : Int  := 7;
-      MB_DATA_ADDR   : UDInt := 43000;  // Holding register 3000 (40001+2999)
-      MB_DATA_LEN    : UInt := 120;     // 120 registros Word
-      MB_MODE_READ   : USInt := 0;      // MODE 0 = FC03 Read Holding Registers
-      ST_IDLE        : Int := 0;
-      ST_PREPARE     : Int := 1;
-      ST_WAIT_ACK    : Int := 2;
-      ST_EVAL        : Int := 3;
-      ST_PAUSE       : Int := 4;
-      ST_RETRY       : Int := 98;
-      ST_ERROR       : Int := 99;
+      N_DEVICES    : Int   := 7;
+      MB_DATA_ADDR : UDInt := 43000;  // Modbus addr 43000 = FC03 holding reg 3000
+      MB_DATA_LEN  : UInt  := 120;
+      MB_MODE_READ : USInt := 0;      // FC03 Read Holding Registers
    END_VAR
 
 
 BEGIN
     // ========================================================================
-    // TEMPORIZADORES — ejecutar siempre en cada ciclo de scan
+    // MB_COMM_LOAD — configurar puerto una sola vez en FirstScan
+    // Identico al Ladder funcional: PORT=271, BAUD=19200, PARITY=2(Even)
     // ========================================================================
-    #tonPauseBetween(IN := #pauseActive,      PT := #T_PAUSE_BETWEEN);
-    #tonRetryDelay(IN   := #retryDelayActive, PT := #T_RETRY_DELAY);
-    #tonPollCycle(IN    := #pollCycleActive,  PT := #T_POLL_CYCLE);
-
-
-    // ========================================================================
-    // MB_COMM_LOAD: Configurar puerto serial (solo en FirstScan)
-    // ========================================================================
-    // Se ejecuta UNA sola vez para configurar el puerto CB 1241 RS485.
-    // Parametros identicos al Ladder funcional:
-    //   PORT=271, BAUD=19200, PARITY=2(Even), FLOW_CTRL=0,
-    //   RTS_ON_DLY=0, RTS_OFF_DLY=0, RESP_TO=1000
-    // MB_DB apunta a la instancia interna de MB_MASTER.
-    // ========================================================================
-    #MB_COMM_LOAD_Inst(REQ       := #FIRST_SCAN AND NOT #portConfigured,
-                       PORT      := #PORT_ID,
-                       BAUD      := #BAUD_RATE,
-                       PARITY    := #PARITY,
-                       FLOW_CTRL := 0,
+    #MB_COMM_LOAD_Inst(REQ        := #FIRST_SCAN AND NOT #portConfigured,
+                       PORT       := #PORT_ID,
+                       BAUD       := #BAUD_RATE,
+                       PARITY     := #PARITY,
+                       FLOW_CTRL  := 0,
                        RTS_ON_DLY := 0,
                        RTS_OFF_DLY := 0,
-                       RESP_TO   := #RESP_TIMEOUT,
-                       MB_DB     := #MB_MASTER_Inst);
+                       RESP_TO    := #RESP_TIMEOUT,
+                       MB_DB      := #MB_MASTER_Inst);
 
     #commLoadDone   := #MB_COMM_LOAD_Inst.DONE;
     #commLoadError  := #MB_COMM_LOAD_Inst.ERROR;
     #commLoadStatus := #MB_COMM_LOAD_Inst.STATUS;
 
-    // Registrar resultado de la configuracion del puerto
     IF #commLoadDone AND NOT #commLoadError THEN
-        #portConfigured   := TRUE;
-        #PORT_CFG_DONE    := TRUE;
-        #PORT_CFG_ERROR   := FALSE;
-        #PORT_CFG_STATUS  := #commLoadStatus;
+        #portConfigured  := TRUE;
+        #PORT_CFG_DONE   := TRUE;
+        #PORT_CFG_ERROR  := FALSE;
+        #PORT_CFG_STATUS := #commLoadStatus;
     ELSIF #commLoadError THEN
-        #portConfigured   := FALSE;
-        #PORT_CFG_DONE    := FALSE;
-        #PORT_CFG_ERROR   := TRUE;
-        #PORT_CFG_STATUS  := #commLoadStatus;
+        #portConfigured  := FALSE;
+        #PORT_CFG_DONE   := FALSE;
+        #PORT_CFG_ERROR  := TRUE;
+        #PORT_CFG_STATUS := #commLoadStatus;
     END_IF;
 
 
     // ========================================================================
-    // PROTECCION: si ENABLE=FALSE o puerto no configurado, detener polling
+    // INICIALIZACION: asignar primer slave al arranque
     // ========================================================================
-    IF NOT #ENABLE OR NOT #portConfigured THEN
-        #Step             := #ST_IDLE;
-        #mbMasterReq      := FALSE;
-        #pauseActive      := FALSE;
-        #retryDelayActive := FALSE;
-        #pollCycleActive  := FALSE;
-        #BUSY             := FALSE;
+    IF #portConfigured AND NOT #initialized THEN
+        #pollIndex       := 1;
+        #currentSlaveAddr := #SLAVE_C02;
+        #ACTIVE_DEVICE   := 'C02_RED';
+        #initialized     := TRUE;
+    END_IF;
+
+
+    // ========================================================================
+    // REQ SIEMPRE ACTIVO — patron identico al Ladder funcional (AlwaysTrue)
+    // MB_MASTER gestiona BLOCKED_PROC_TIMEOUT internamente entre transacciones.
+    // No usar pulso/flanco: el medidor puede tardar varios segundos en responder.
+    // ========================================================================
+    #mbMasterReq := #ENABLE AND #portConfigured;
+
+
+    // ========================================================================
+    // PROCESAMIENTO DE RESPUESTAS — reaccionar a DONE / ERROR cada scan
+    // ========================================================================
+    IF #ENABLE AND #portConfigured THEN
+
+        IF #mbDone AND NOT #mbError THEN
+            // -----------------------------------------------------------------
+            // Lectura exitosa: parsear rxBuffer y avanzar al siguiente slave
+            // -----------------------------------------------------------------
+            // Fuente: PM51xx_PM53xx_PMC Register List (Schneider)
+            // Todos los valores son FLOAT32 (2 words, big-endian: high word primero)
+            // Mapa de offsets (offset = registro - 3000):
+            //   [20..21] reg 3020  V_L1L2 (Voltage A-B)  [V]
+            //   [22..23] reg 3022  V_L2L3 (Voltage B-C)  [V]
+            //   [24..25] reg 3024  V_L3L1 (Voltage C-A)  [V]
+            //   [60..61] reg 3060  Active Power Total     [kW]
+            //   [110..111] reg 3110  Frequency            [Hz]
+            // -----------------------------------------------------------------
+            #PM_V_L1L2[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[20]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[21]));
+            #PM_V_L2L3[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[22]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[23]));
+            #PM_V_L3L1[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[24]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[25]));
+            #PM_P_TOTAL[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[60]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[61]));
+            #PM_FREQ[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[110]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[111]));
+
+            #PM_COMM_OK[#pollIndex] := TRUE;
+            #COMM_OK                := TRUE;
+            #BUSY                   := FALSE;
+            #ERROR                  := FALSE;
+            #retryCount             := 0;
+
+            IF #pollIndex = 1 THEN
+                #GRID_MEAS_OK := TRUE;
+            END_IF;
+
+            // Avanzar al siguiente slave — MB_MASTER tomara la nueva direccion
+            // en su proximo ciclo (tras BLOCKED_PROC_TIMEOUT interno)
+            #pollIndex := #pollIndex + 1;
+            IF #pollIndex > #N_DEVICES THEN #pollIndex := 1; END_IF;
+
+            CASE #pollIndex OF
+                1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+                2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+                3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
+                4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
+                5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
+                6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
+                7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
+            ELSE
+                #currentSlaveAddr := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
+            END_CASE;
+
+        ELSIF #mbError THEN
+            // -----------------------------------------------------------------
+            // Error de comunicacion: reintentar MAX_RETRIES veces,
+            // luego avanzar al siguiente slave igualmente
+            // -----------------------------------------------------------------
+            #BUSY        := FALSE;
+            #ERROR       := TRUE;
+            #COMM_ERRORS := #COMM_ERRORS + 1;
+            #retryCount  := #retryCount + 1;
+
+            IF #retryCount >= #MAX_RETRIES THEN
+                // Marcar falla de este medidor y continuar al siguiente
+                #PM_COMM_OK[#pollIndex] := FALSE;
+                IF #pollIndex = 1 THEN
+                    #GRID_MEAS_OK := FALSE;
+                END_IF;
+                #retryCount := 0;
+
+                #pollIndex := #pollIndex + 1;
+                IF #pollIndex > #N_DEVICES THEN #pollIndex := 1; END_IF;
+
+                CASE #pollIndex OF
+                    1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+                    2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+                    3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
+                    4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
+                    5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
+                    6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
+                    7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
+                ELSE
+                    #currentSlaveAddr := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
+                END_CASE;
+            END_IF;
+
+        ELSIF #mbBusy THEN
+            #BUSY := TRUE;
+        END_IF;
+
+    ELSE
+        // ENABLE=FALSE o puerto no configurado
+        #mbMasterReq := FALSE;
+        #BUSY        := FALSE;
         IF NOT #ENABLE THEN
             #COMM_OK      := FALSE;
             #GRID_MEAS_OK := FALSE;
             #ERROR        := FALSE;
         END_IF;
-    ELSE
-
-        // ====================================================================
-        // MAQUINA DE ESTADOS — polling round-robin 7 PM5350P (solo lectura)
-        // ====================================================================
-        CASE #Step OF
-
-            // ----------------------------------------------------------------
-            // IDLE: esperar ciclo de polling
-            // ----------------------------------------------------------------
-            #ST_IDLE:
-                #BUSY       := FALSE;
-                #ERROR      := FALSE;
-                #retryCount := 0;
-                #mbMasterReq := FALSE;
-                #pollCycleActive := TRUE;
-
-                IF #tonPollCycle.Q THEN
-                    #pollCycleActive := FALSE;
-
-                    // Avanzar indice round-robin 1..7
-                    #pollIndex := #pollIndex + 1;
-                    IF #pollIndex > #N_DEVICES THEN
-                        #pollIndex := 1;
-                    END_IF;
-
-                    // Asignar SlaveID activo segun indice
-                    CASE #pollIndex OF
-                        1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
-                        2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
-                        3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
-                        4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
-                        5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
-                        6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
-                        7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
-                    ELSE
-                        #currentSlaveAddr := #SLAVE_C02; #ACTIVE_DEVICE := 'C02_RED';
-                    END_CASE;
-
-                    #Step := #ST_PREPARE;
-                END_IF;
-
-
-            // ----------------------------------------------------------------
-            // PREPARE: disparar lectura MB_MASTER
-            // ----------------------------------------------------------------
-            #ST_PREPARE:
-                #BUSY          := TRUE;
-                #mbMasterReq   := TRUE;   // Flanco positivo para MB_MASTER
-                #Step          := #ST_WAIT_ACK;
-
-
-            // ----------------------------------------------------------------
-            // WAIT_ACK: esperar DONE o ERROR de MB_MASTER
-            // ----------------------------------------------------------------
-            #ST_WAIT_ACK:
-                // Mantener REQ en TRUE mientras MB_MASTER trabaja
-                #mbMasterReq := TRUE;
-
-                IF #mbDone AND NOT #mbError THEN
-                    // Lectura exitosa -> parsear datos
-                    #mbMasterReq := FALSE;
-                    #Step := #ST_EVAL;
-                ELSIF #mbError THEN
-                    // Error en la comunicacion
-                    #mbMasterReq := FALSE;
-                    #COMM_ERRORS := #COMM_ERRORS + 1;
-                    #retryCount  := #retryCount + 1;
-                    IF #retryCount < #MAX_RETRIES THEN
-                        #retryDelayActive := TRUE;
-                        #Step := #ST_RETRY;
-                    ELSE
-                        #Step := #ST_ERROR;
-                    END_IF;
-                END_IF;
-                // Si BUSY sigue en TRUE, seguimos esperando (no hacer nada)
-
-
-            // ----------------------------------------------------------------
-            // EVAL: parsear rxBuffer (120 registros desde holding 3000)
-            // ----------------------------------------------------------------
-            // Fuente: PM51xx_PM53xx_PMC Register List (Schneider)
-            // Todos los registros son FLOAT32 (2 regs = 32 bits IEEE 754)
-            // Big-endian: high word en offset N, low word en offset N+1.
-            // Mapa de offsets (base = reg 3000, offset = reg - 3000):
-            //   +20  reg 3020  Voltage A-B (V_L1L2)  FLOAT32  [V]
-            //   +22  reg 3022  Voltage B-C (V_L2L3)  FLOAT32  [V]
-            //   +24  reg 3024  Voltage C-A (V_L3L1)  FLOAT32  [V]
-            //   +60  reg 3060  Active Power Total    FLOAT32  [kW]
-            //   +110 reg 3110  Frequency             FLOAT32  [Hz]
-            // ----------------------------------------------------------------
-            #ST_EVAL:
-                // Voltajes FLOAT32 [V] (big-endian: high word primero)
-                #PM_V_L1L2[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(#rxBuffer[20]), N := 16)
-                    OR WORD_TO_DWORD(#rxBuffer[21]));
-                #PM_V_L2L3[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(#rxBuffer[22]), N := 16)
-                    OR WORD_TO_DWORD(#rxBuffer[23]));
-                #PM_V_L3L1[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(#rxBuffer[24]), N := 16)
-                    OR WORD_TO_DWORD(#rxBuffer[25]));
-                // Potencia activa total FLOAT32 [kW] — offset +60 (reg 3060)
-                #PM_P_TOTAL[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(#rxBuffer[60]), N := 16)
-                    OR WORD_TO_DWORD(#rxBuffer[61]));
-                // Frecuencia FLOAT32 [Hz] — offset +110 (reg 3110)
-                #PM_FREQ[#pollIndex] := DWORD_TO_REAL(
-                    SHL(IN := WORD_TO_DWORD(#rxBuffer[110]), N := 16)
-                    OR WORD_TO_DWORD(#rxBuffer[111]));
-
-                #PM_COMM_OK[#pollIndex] := TRUE;
-                #COMM_OK                := TRUE;
-                // Marcar grid valido si es el medidor C02 (indice 1)
-                IF #pollIndex = 1 THEN
-                    #GRID_MEAS_OK := TRUE;
-                END_IF;
-                #pauseActive := TRUE;
-                #Step        := #ST_PAUSE;
-
-
-            // ----------------------------------------------------------------
-            // PAUSE: breve espera entre lecturas
-            // ----------------------------------------------------------------
-            #ST_PAUSE:
-                IF #tonPauseBetween.Q THEN
-                    #pauseActive := FALSE;
-                    #BUSY        := FALSE;
-                    #Step        := #ST_IDLE;
-                END_IF;
-
-
-            // ----------------------------------------------------------------
-            // RETRY: espera antes de reintentar
-            // ----------------------------------------------------------------
-            #ST_RETRY:
-                IF #tonRetryDelay.Q THEN
-                    #retryDelayActive := FALSE;
-                    #Step             := #ST_PREPARE;
-                END_IF;
-
-
-            // ----------------------------------------------------------------
-            // ERROR: fallo definitivo en el dispositivo activo
-            // ----------------------------------------------------------------
-            #ST_ERROR:
-                #BUSY                      := FALSE;
-                #ERROR                     := TRUE;
-                #PM_COMM_OK[#pollIndex]    := FALSE;
-                IF #pollIndex = 1 THEN
-                    #GRID_MEAS_OK := FALSE;
-                END_IF;
-                #mbMasterReq := FALSE;
-                // Continuar con el siguiente dispositivo tras el proximo ciclo
-                #pauseActive := TRUE;
-                #Step        := #ST_PAUSE;
-
-        END_CASE;
-
     END_IF;
 
 
     // ========================================================================
-    // MB_MASTER: Lectura de registros — se llama SIEMPRE en cada scan
-    // ========================================================================
-    // Debe ejecutarse fuera de IF/CASE, en cada ciclo, tal como indica
-    // la documentacion Siemens. La maquina de estados controla REQ.
-    //
-    // Parametros identicos al Ladder funcional:
-    //   MB_ADDR = slave activo (round-robin)
-    //   MODE    = 0 (FC03 Read Holding Registers)
-    //   DATA_ADDR = 43000 (reg 3000 del PM5350P)
-    //   DATA_LEN  = 120 registros Word
-    //   DATA_PTR  = rxBuffer (Array[0..119] of Word)
+    // MB_MASTER — llamar SIEMPRE en cada scan (fuera de IF/CASE)
+    // REQ siempre TRUE cuando activo: identico al Ladder funcional
     // ========================================================================
     #MB_MASTER_Inst(REQ       := #mbMasterReq,
                     MB_ADDR   := #currentSlaveAddr,
