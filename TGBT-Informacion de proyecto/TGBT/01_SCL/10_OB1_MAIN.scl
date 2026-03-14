@@ -44,18 +44,18 @@ BEGIN
         DI_QG2_FAULT      := %I1.3,
         DI_QG2_UV_OV      := %I1.4,
 
-        // ---- GD1 (CPU %I1.5, EXP %I8.0–%I8.1) ----
-        DI_GD1_READY      := %I1.5,
-        DI_GD1_RUNNING    := %I8.0,
-        DI_GD1_ALARM      := %I8.1,
+        // ---- GD1 (EXP %I8.2–%I8.4) ----
+        DI_GD1_READY      := %I8.2,
+        DI_GD1_RUNNING    := %I8.3,
+        DI_GD1_ALARM      := %I8.4,
 
-        // ---- GD2 (EXP %I8.2–%I8.4) ----
-        DI_GD2_READY      := %I8.2,
-        DI_GD2_RUNNING    := %I8.3,
-        DI_GD2_ALARM      := %I8.4,
+        // ---- GD2 (EXP %I8.5–%I8.7) ----
+        DI_GD2_READY      := %I8.5,
+        DI_GD2_RUNNING    := %I8.6,
+        DI_GD2_ALARM      := %I8.7,
 
-        // ---- Q22 (EXP %I8.5) ----
-        DI_Q22_REMOTE     := %I8.5,
+        // ---- Q22 (REMOTE en %I1.5) ----
+        DI_Q22_REMOTE     := %I1.5,
 
         // ---- Outputs -> DATA_BUFF ----
         MODE_AUTO         => "DATA_BUFF".MODE_AUTO,
@@ -90,8 +90,16 @@ BEGIN
         GD2_RUNNING       => "DATA_BUFF".GD2_RUNNING,
         GD2_ALARM         => "DATA_BUFF".GD2_ALARM,
 
-        Q22_REMOTE        => "DATA_BUFF".Q22_REMOTE_ALLOWED
+        Q22_REMOTE        => "DATA_BUFF".Q22_REMOTE
     );
+
+    // Permisos remotos base (V4): permitidos cuando selector fisico esta en REMOTO
+    "DATA_BUFF".QT1_REMOTE_ALLOWED := "DATA_BUFF".QT1_REMOTE;
+    "DATA_BUFF".QG1_REMOTE_ALLOWED := "DATA_BUFF".QG1_REMOTE;
+    "DATA_BUFF".QG2_REMOTE_ALLOWED := "DATA_BUFF".QG2_REMOTE;
+    "DATA_BUFF".Q22_REMOTE_ALLOWED := "DATA_BUFF".Q22_REMOTE;
+    "DATA_BUFF".Q22_CLOSED := %I8.0;
+    "DATA_BUFF".Q22_FAULT  := %I8.1;
 
 
     // ========================================================================
@@ -117,7 +125,7 @@ BEGIN
         QG2_CLOSED           := "DATA_BUFF".QG2_CLOSED,
         QG2_FAULT            := "DATA_BUFF".QG2_FAULT,
         QG2_REMOTE           := "DATA_BUFF".QG2_REMOTE,
-        Q22_CLOSED           := FALSE,       // TODO: cablear DI_Q22_CLOSE cuando disponible
+        Q22_CLOSED           := "DATA_BUFF".Q22_CLOSED,
 
         // Mediciones RED (PM5350P C02, indice 1)
         GRID_V_L1L2          := "DATA_BUFF".GRID_V_L1L2,
@@ -249,9 +257,9 @@ BEGIN
         QT1_CLOSED          := "DATA_BUFF".QT1_CLOSED,
         QG1_CLOSED          := "DATA_BUFF".QG1_CLOSED,
         QG2_CLOSED          := "DATA_BUFF".QG2_CLOSED,
-        QT1_REMOTE          := "DATA_BUFF".QT1_REMOTE,
-        QG1_REMOTE          := "DATA_BUFF".QG1_REMOTE,
-        QG2_REMOTE          := "DATA_BUFF".QG2_REMOTE,
+        QT1_REMOTE          := "DATA_BUFF".QT1_REMOTE_ALLOWED,
+        QG1_REMOTE          := "DATA_BUFF".QG1_REMOTE_ALLOWED,
+        QG2_REMOTE          := "DATA_BUFF".QG2_REMOTE_ALLOWED,
         Q22_REMOTE          := "DATA_BUFF".Q22_REMOTE_ALLOWED,
         BLOCK_LOCAL         => "DATA_BUFF".BLOCK_LOCAL,
         BLOCK_INTERLOCK     => "DATA_BUFF".BLOCK_INTERLOCK,
@@ -363,8 +371,8 @@ BEGIN
         QG1_FAULT      := "DATA_BUFF".QG1_FAULT,
         QG2_CLOSED     := "DATA_BUFF".QG2_CLOSED,
         QG2_FAULT      := "DATA_BUFF".QG2_FAULT,
-        Q22_CLOSED     := %I8.5,    // TODO: agregar DI_Q22_CLOSE al IO_NORMALIZE
-        Q22_FAULT      := FALSE,
+        Q22_CLOSED     := "DATA_BUFF".Q22_CLOSED,
+        Q22_FAULT      := "DATA_BUFF".Q22_FAULT,
         ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
         BLOCK_INTERLOCK := "DATA_BUFF".BLOCK_INTERLOCK,
         GRID_FAIL      := "DATA_BUFF".GRID_FAIL,
