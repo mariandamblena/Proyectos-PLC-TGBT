@@ -1,0 +1,25 @@
+DATA_BLOCK "TEST_AUTO_DB"
+// ============================================================
+// Instancia de TEST_AUTO_FB.
+// Valores iniciales ajustables antes de descargar al PLC.
+// ============================================================
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"TEST_AUTO_FB"
+
+BEGIN
+    ENABLE            := TRUE;
+    T_FASE_GRID_OK    := T#30s;    // 30 s en RED OK antes de simular falla
+    T_FASE_GRID_FAIL  := T#90s;    // 90 s con RED caída
+    T_BRK_CONFIRM     := T#600ms;  // Retardo confirmación interruptor
+    T_GD1_STARTUP     := T#8s;     // GD1 listo 8 s después del arranque
+    T_GD2_STARTUP     := T#8s;
+    FORCE_GRID_FAIL   := FALSE;    // Escribir TRUE desde Watch/HMI para forzar falla
+    FORCE_GRID_OK     := FALSE;    // Escribir TRUE desde Watch/HMI para restaurar red
+    FORCE_GD1_ALARM   := FALSE;    // Escribir TRUE para simular alarma GD1 en marcha
+    FORCE_GD2_ALARM   := FALSE;
+    FORCE_QT1_FAULT   := FALSE;    // Escribir TRUE para simular falla QT1 (apertura inmediata)
+    FORCE_QG1_FAULT   := FALSE;    // Escribir TRUE para simular falla QG1 (apertura inmediata)
+    FORCE_QG2_FAULT   := FALSE;    // Escribir TRUE para simular falla QG2 (apertura inmediata)
+    FORCE_Q22_FAULT   := FALSE;    // Escribir TRUE para simular falla Q22 (apertura inmediata)
+END_DATA_BLOCK

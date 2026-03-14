@@ -25,6 +25,7 @@ NON_RETAIN
 
       // ---- TIEMPOS DE TRANSFERENCIA RED->GD ----
       T_OPEN_QT1 : Time := T#3s;          // Tiempo máx esperado para confirmar apertura QT1
+      T_OPEN_Q22 : Time := T#3s;          // Tiempo máx esperado para confirmar apertura Q22
       T_START_GD_DELAY : Time := T#3s;    // Demora antes de arrancar generador
       T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD listo
       T_GD_STABILIZATION : Time := T#5s;  // Estabilización tensión GD antes de cerrar QGx
@@ -35,6 +36,8 @@ NON_RETAIN
       T_OPEN_QG1 : Time := T#3s;          // Tiempo máx para confirmar apertura QG1
       T_OPEN_QG2 : Time := T#3s;
       T_CLOSE_QT1 : Time := T#3s;         // Tiempo máx para confirmar cierre QT1
+      T_DELAY_CLOSE_Q22 : Time := T#10s;  // Espera antes de mandar cierre Q22
+      T_CLOSE_Q22 : Time := T#3s;         // Tiempo máx para confirmar cierre Q22
       T_GD_COOLDOWN : Time := T#60s;      // Enfriamiento GD tras apagado
 
       // ---- PULSO DE COMANDO DO (V4) ----

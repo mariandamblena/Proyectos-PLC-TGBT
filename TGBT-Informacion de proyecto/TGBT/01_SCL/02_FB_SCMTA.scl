@@ -28,6 +28,7 @@ VERSION : 0.1
       QG2_REMOTE : Bool;               // DI %I1.1
       Q22_CLOSED : Bool;               // DI posicion Q22 (cablear si disponible; FALSE = sin feedback)
       T_OPEN_Q22 : Time := T#3s;       // Tiempo max confirmacion apertura Q22
+    T_DELAY_CLOSE_Q22 : Time := T#0s;// Espera en estado CLOSE_Q22 antes de mandar cierre
       T_CLOSE_Q22 : Time := T#3s;      // Tiempo max confirmacion cierre Q22
       QT1_UV_OV_DI : Bool;             // DI %I0.3 (señal backup DO PM5350P C02)
       // ---- MEDICIONES RED desde PM5350P C02 (fuente principal) ----
@@ -273,6 +274,21 @@ BEGIN
             #STATE := #ST_ON_GD1; #activeGDInternal := 1;
         ELSIF #ENABLE_QG2 AND #QG2_CLOSED AND NOT #QG2_FAULT AND #GD2_RUNNING THEN
             #STATE := #ST_ON_GD2; #activeGDInternal := 2;
+        ELSIF #MODE_AUTO AND #GRID_OK AND #QG1_CLOSED AND NOT #GD_RUNNING THEN
+            // Arranque inconsistente: QG1 cerrado sin GD1 en marcha.
+            // Abrir QG1 primero para liberar enclavamiento antes de reconectar RED.
+            #activeGDInternal := 1;
+            #STATE := #ST_OPEN_ACTIVE_GD;
+        ELSIF #MODE_AUTO AND #GRID_OK AND #ENABLE_QG2 AND #QG2_CLOSED AND NOT #GD2_RUNNING THEN
+            // Arranque inconsistente: QG2 cerrado sin GD2 en marcha.
+            #activeGDInternal := 2;
+            #STATE := #ST_OPEN_ACTIVE_GD;
+        ELSIF #MODE_AUTO AND #GRID_OK THEN
+            // Arranque robusto: si QT1 inicia abierto, intentar recuperar RED.
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF #MODE_AUTO AND #GRID_FAIL THEN
+            // Arranque robusto: si la red ya esta en falla, iniciar transferencia.
+            #STATE := #ST_GRID_FAIL_DETECTED;
         END_IF;
         
     // ---- 1: NORMAL_ON_GRID ----
@@ -575,12 +591,12 @@ BEGIN
 
     // ---- 22: CLOSE_Q22 — cerrar Q22 al retornar a RED ----
     #ST_CLOSE_Q22:
-        IF NOT #cmdSent THEN
+        IF #Q22_CLOSED THEN
+            #STATE := #ST_GD_COOLDOWN;        // Q22 confirmado cerrado
+        ELSIF (#ELAPSED_TIME >= #T_DELAY_CLOSE_Q22) AND (NOT #cmdSent) THEN
             #REQ_SCMTA_CLOSE_Q22 := TRUE;
             #cmdSent := TRUE;
-        ELSIF #Q22_CLOSED THEN
-            #STATE := #ST_GD_COOLDOWN;        // Q22 confirmado cerrado
-        ELSIF #ELAPSED_TIME >= #T_CLOSE_Q22 THEN
+        ELSIF #ELAPSED_TIME >= (#T_DELAY_CLOSE_Q22 + #T_CLOSE_Q22) THEN
             #STATE := #ST_GD_COOLDOWN;        // Timeout (sin DI posicion): continuar igual
         END_IF;
 

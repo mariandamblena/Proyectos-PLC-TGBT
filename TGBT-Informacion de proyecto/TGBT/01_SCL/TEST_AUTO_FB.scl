@@ -1,0 +1,431 @@
+FUNCTION_BLOCK "TEST_AUTO_FB"
+// ============================================================
+// TEST_AUTO_FB  Ver 1.0  2026-03-13
+// Simulación de hardware para validar transferencia automática
+// RED ↔ GD sin necesidad de Modbus ni señales físicas reales.
+//
+// QUE SIMULA:
+//  1. Mediciones Red (PM5350P C02):
+//       - Fase GRID_OK  → 380 V L-L, 50 Hz, sin alarmas
+//       - Fase GRID_FAIL → 0 V, 0 Hz, PHASE_LOSS=TRUE, ALM_UV=TRUE
+//       - El ciclo GRID_OK → FAIL → GRID_OK se repite automáticamente.
+//
+//  2. Feedback interruptores (sin DI físicas):
+//       - Detecta flanco subida en %Q0.x (pulso DO del PULSE_EXPANDER).
+//       - Tras T_BRK_CONFIRM confirma apertura/cierre en DATA_BUFF.
+//         QT1 : %Q0.0=CLOSE  %Q0.1=OPEN
+//         QG1 : %Q0.2=CLOSE  %Q0.3=OPEN
+//         QG2 : %Q0.4=CLOSE  %Q0.5=OPEN
+//         Q22 : %Q0.6=CLOSE  %Q0.7=OPEN
+//
+//  3. Generadores GD1 / GD2:
+//       - Detecta %Q1.0/%Q1.1 (DO_GD_START directo de SCMTA).
+//       - Tras T_GDx_STARTUP inyecta READY+RUNNING en DATA_BUFF.
+//       - DATA_BUFF.GD_STOP_REQ → limpia READY/RUNNING GD1.
+//       - DATA_BUFF.GD2_STOP_REQ → limpia READY/RUNNING GD2.
+//
+//  4. Permisos y modo:
+//       - MODE_AUTO = TRUE, todos los REMOTE_ALLOWED = TRUE
+//         (excepto QG2 que no está instalado → FALSE).
+//
+// QUE NO SIMULA:
+//  - Comunicación Modbus (NO llama a 06_FB_MODBUS_MANAGER).
+//  - Lectura de %I físicas (no usa IO_NORMALIZE).
+//  - Fallas de interruptor (QTx_FAULT permanece FALSE en prueba básica).
+//
+// CONTROLES HMI disponibles (escribir en TEST_AUTO_DB):
+//   FORCE_GRID_FAIL  → fuerza inmediato paso a fase GRID_FAIL
+//   FORCE_GRID_OK    → fuerza inmediato retorno a fase GRID_OK
+//   FORCE_GD1_ALARM  → inyecta alarma GD1 (prueba de fallo en marcha)
+//   FORCE_GD2_ALARM  → inyecta alarma GD2
+// ============================================================
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+   VAR_INPUT
+      ENABLE            : Bool;          // FALSE = FB no actúa (mantiene último estado)
+      // --- Tiempos de la secuencia de simulación ---
+      T_FASE_GRID_OK    : Time := T#30s; // Duración fase RED OK antes de simular falla
+      T_FASE_GRID_FAIL  : Time := T#90s; // Duración fase RED CAÍDA
+      // --- Retardo simulado de confirmación interruptores ---
+      T_BRK_CONFIRM     : Time := T#600ms;
+      // --- Retardo de arranque generadores ---
+      T_GD1_STARTUP     : Time := T#8s;
+      T_GD2_STARTUP     : Time := T#8s;
+      // --- Controles manuales desde HMI ---
+      FORCE_GRID_FAIL   : Bool;          // Forzar falla de RED inmediata
+      FORCE_GRID_OK     : Bool;          // Forzar restauración de RED inmediata
+      FORCE_GD1_ALARM   : Bool;          // Simular alarma GD1
+      FORCE_GD2_ALARM   : Bool;          // Simular alarma GD2
+    FORCE_QT1_FAULT   : Bool;          // Simular falla QT1 (abre inmediato)
+    FORCE_QG1_FAULT   : Bool;          // Simular falla QG1 (abre inmediato)
+    FORCE_QG2_FAULT   : Bool;          // Simular falla QG2 (abre inmediato)
+    FORCE_Q22_FAULT   : Bool;          // Simular falla Q22 (abre inmediato)
+   END_VAR
+
+   VAR_OUTPUT
+      SIM_PHASE         : Int;           // 1=GRID_OK  2=GRID_FAIL
+      SIM_PHASE_NAME    : String[20];    // Texto descriptivo de fase actual
+      ELAPSED           : Time;          // Tiempo transcurrido en fase actual
+        DBG_GRID_GOOD     : Bool;
+        DBG_QT1_CLOSED_SIM : Bool;
+        DBG_QG1_CLOSED_SIM : Bool;
+        DBG_QG2_CLOSED_SIM : Bool;
+        DBG_Q22_CLOSED_SIM : Bool;
+        DBG_GD1_READY_SIM : Bool;
+        DBG_GD1_RUN_SIM   : Bool;
+        DBG_GD2_READY_SIM : Bool;
+        DBG_GD2_RUN_SIM   : Bool;
+        DBG_QT1_PENDING   : Bool;
+        DBG_QG1_PENDING   : Bool;
+        DBG_QG2_PENDING   : Bool;
+        DBG_Q22_PENDING   : Bool;
+        DBG_GD1_START_PENDING : Bool;
+        DBG_GD2_START_PENDING : Bool;
+        CNT_CMD_QT1_CLOSE : DInt;
+        CNT_CMD_QT1_OPEN  : DInt;
+        CNT_CMD_QG1_CLOSE : DInt;
+        CNT_CMD_QG1_OPEN  : DInt;
+        CNT_CMD_QG2_CLOSE : DInt;
+        CNT_CMD_QG2_OPEN  : DInt;
+        CNT_CMD_Q22_CLOSE : DInt;
+        CNT_CMD_Q22_OPEN  : DInt;
+        CNT_GD1_START_CMD : DInt;
+        CNT_GD2_START_CMD : DInt;
+   END_VAR
+
+   VAR
+      // --- Secuenciador de fases ---
+      simPhase          : Int  := 1;
+      simPhasePrev      : Int  := -1;
+      tonPhase   { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+
+      // --- Flancos comando interruptores (%Q0.x) ---
+      prevQT1Close      : Bool;
+      prevQT1Open       : Bool;
+      prevQG1Close      : Bool;
+      prevQG1Open       : Bool;
+      prevQG2Close      : Bool;
+      prevQG2Open       : Bool;
+      prevQ22Close      : Bool;
+      prevQ22Open       : Bool;
+
+      // --- Timers de confirmación interruptores ---
+      tonQT1 { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+      tonQG1 { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+      tonQG2 { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+      tonQ22 { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+
+      brkQT1Pending     : Bool;
+      brkQT1Target      : Bool;   // TRUE = cerrar, FALSE = abrir
+      brkQG1Pending     : Bool;
+      brkQG1Target      : Bool;
+      brkQG2Pending     : Bool;
+      brkQG2Target      : Bool;
+      brkQ22Pending     : Bool;
+      brkQ22Target      : Bool;
+
+      // --- Generadores ---
+      prevGd1Start      : Bool;
+      prevGd2Start      : Bool;
+      tonGd1 { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+      tonGd2 { InstructionName := 'TON_TIME'; LibVersion := '1.0' } : TON_TIME;
+
+      gd1StartPending   : Bool;
+      gd2StartPending   : Bool;
+
+      // --- Estados simulados (retenidos entre scans) ---
+      // Sistema arranca con: QT1 cerrado, QG1/QG2/Q22 según config inicial
+      sim_QT1_CLOSED    : Bool := TRUE;   // QT1 cerrado → sistema operando en RED
+      sim_QG1_CLOSED    : Bool := FALSE;  // QG1 abierto → GD1 desconectado
+      sim_QG2_CLOSED    : Bool := FALSE;  // QG2 abierto → GD2 desconectado
+      sim_Q22_CLOSED    : Bool := TRUE;   // Q22 cerrado → barra acoplada
+
+      sim_GD1_Ready     : Bool := FALSE;
+      sim_GD1_Running   : Bool := FALSE;
+      sim_GD2_Ready     : Bool := FALSE;
+      sim_GD2_Running   : Bool := FALSE;
+   END_VAR
+
+   VAR_TEMP
+      riseQT1Close      : Bool;
+      riseQT1Open       : Bool;
+      riseQG1Close      : Bool;
+      riseQG1Open       : Bool;
+      riseQG2Close      : Bool;
+      riseQG2Open       : Bool;
+      riseQ22Close      : Bool;
+      riseQ22Open       : Bool;
+      riseGd1Start      : Bool;
+      riseGd2Start      : Bool;
+      gridGood          : Bool;
+   END_VAR
+
+   VAR CONSTANT
+      PHASE_GRID_OK     : Int := 1;
+      PHASE_GRID_FAIL   : Int := 2;
+   END_VAR
+
+BEGIN
+
+    IF NOT #ENABLE THEN RETURN; END_IF;
+
+    // ===================================================================
+    // BLOQUE 1: DETECCIÓN DE FLANCOS EN SALIDAS DO DE COMANDO
+    // ===================================================================
+    // Interruptores
+    #riseQT1Close := %Q0.0 AND NOT #prevQT1Close;
+    #riseQT1Open  := %Q0.1 AND NOT #prevQT1Open;
+    #riseQG1Close := %Q0.2 AND NOT #prevQG1Close;
+    #riseQG1Open  := %Q0.3 AND NOT #prevQG1Open;
+    #riseQG2Close := %Q0.4 AND NOT #prevQG2Close;
+    #riseQG2Open  := %Q0.5 AND NOT #prevQG2Open;
+    #riseQ22Close := %Q0.6 AND NOT #prevQ22Close;
+    #riseQ22Open  := %Q0.7 AND NOT #prevQ22Open;
+    // Generadores
+    #riseGd1Start := %Q1.0 AND NOT #prevGd1Start;
+    #riseGd2Start := %Q1.1 AND NOT #prevGd2Start;
+
+    IF #riseQT1Close THEN #CNT_CMD_QT1_CLOSE := #CNT_CMD_QT1_CLOSE + 1; END_IF;
+    IF #riseQT1Open  THEN #CNT_CMD_QT1_OPEN  := #CNT_CMD_QT1_OPEN + 1; END_IF;
+    IF #riseQG1Close THEN #CNT_CMD_QG1_CLOSE := #CNT_CMD_QG1_CLOSE + 1; END_IF;
+    IF #riseQG1Open  THEN #CNT_CMD_QG1_OPEN  := #CNT_CMD_QG1_OPEN + 1; END_IF;
+    IF #riseQG2Close THEN #CNT_CMD_QG2_CLOSE := #CNT_CMD_QG2_CLOSE + 1; END_IF;
+    IF #riseQG2Open  THEN #CNT_CMD_QG2_OPEN  := #CNT_CMD_QG2_OPEN + 1; END_IF;
+    IF #riseQ22Close THEN #CNT_CMD_Q22_CLOSE := #CNT_CMD_Q22_CLOSE + 1; END_IF;
+    IF #riseQ22Open  THEN #CNT_CMD_Q22_OPEN  := #CNT_CMD_Q22_OPEN + 1; END_IF;
+    IF #riseGd1Start THEN #CNT_GD1_START_CMD := #CNT_GD1_START_CMD + 1; END_IF;
+    IF #riseGd2Start THEN #CNT_GD2_START_CMD := #CNT_GD2_START_CMD + 1; END_IF;
+
+    // Actualizar "prev" para el siguiente scan
+    #prevQT1Close := %Q0.0;   #prevQT1Open  := %Q0.1;
+    #prevQG1Close := %Q0.2;   #prevQG1Open  := %Q0.3;
+    #prevQG2Close := %Q0.4;   #prevQG2Open  := %Q0.5;
+    #prevQ22Close := %Q0.6;   #prevQ22Open  := %Q0.7;
+    #prevGd1Start := %Q1.0;   #prevGd2Start := %Q1.1;
+
+
+    // ===================================================================
+    // BLOQUE 2: SIMULACIÓN INTERRUPTORES — responde a pulsos %Q0.x
+    // Lógica: flanco sube → arma timer → al expirar → actualiza estado
+    // ===================================================================
+
+    // ---- QT1 ----
+    IF #riseQT1Close THEN #brkQT1Pending := TRUE; #brkQT1Target := TRUE;  END_IF;
+    IF #riseQT1Open  THEN #brkQT1Pending := TRUE; #brkQT1Target := FALSE; END_IF;
+    #tonQT1(IN := #brkQT1Pending, PT := #T_BRK_CONFIRM);
+    IF #tonQT1.Q THEN
+        #sim_QT1_CLOSED := #brkQT1Target;
+        #brkQT1Pending  := FALSE;
+    END_IF;
+
+    // ---- QG1 ----
+    IF #riseQG1Close THEN #brkQG1Pending := TRUE; #brkQG1Target := TRUE;  END_IF;
+    IF #riseQG1Open  THEN #brkQG1Pending := TRUE; #brkQG1Target := FALSE; END_IF;
+    #tonQG1(IN := #brkQG1Pending, PT := #T_BRK_CONFIRM);
+    IF #tonQG1.Q THEN
+        #sim_QG1_CLOSED := #brkQG1Target;
+        #brkQG1Pending  := FALSE;
+    END_IF;
+
+    // ---- QG2 ----
+    IF #riseQG2Close THEN #brkQG2Pending := TRUE; #brkQG2Target := TRUE;  END_IF;
+    IF #riseQG2Open  THEN #brkQG2Pending := TRUE; #brkQG2Target := FALSE; END_IF;
+    #tonQG2(IN := #brkQG2Pending, PT := #T_BRK_CONFIRM);
+    IF #tonQG2.Q THEN
+        #sim_QG2_CLOSED := #brkQG2Target;
+        #brkQG2Pending  := FALSE;
+    END_IF;
+
+    // ---- Q22 ----
+    IF #riseQ22Close THEN #brkQ22Pending := TRUE; #brkQ22Target := TRUE;  END_IF;
+    IF #riseQ22Open  THEN #brkQ22Pending := TRUE; #brkQ22Target := FALSE; END_IF;
+    #tonQ22(IN := #brkQ22Pending, PT := #T_BRK_CONFIRM);
+    IF #tonQ22.Q THEN
+        #sim_Q22_CLOSED := #brkQ22Target;
+        #brkQ22Pending  := FALSE;
+    END_IF;
+
+    // Falla de interruptor simulada: al entrar en falla se abre inmediatamente.
+    IF #FORCE_QT1_FAULT THEN
+        #brkQT1Pending  := FALSE;
+        #sim_QT1_CLOSED := FALSE;
+    END_IF;
+    IF #FORCE_QG1_FAULT THEN
+        #brkQG1Pending  := FALSE;
+        #sim_QG1_CLOSED := FALSE;
+    END_IF;
+    IF #FORCE_QG2_FAULT THEN
+        #brkQG2Pending  := FALSE;
+        #sim_QG2_CLOSED := FALSE;
+    END_IF;
+    IF #FORCE_Q22_FAULT THEN
+        #brkQ22Pending  := FALSE;
+        #sim_Q22_CLOSED := FALSE;
+    END_IF;
+
+
+    // ===================================================================
+    // BLOQUE 3: SIMULACIÓN GENERADORES — responde a %Q1.0 / %Q1.1
+    // Rising edge %Q1.x → GDx Start sequence inicia.
+    // Tras T_GDx_STARTUP → GDx READY + RUNNING.
+    // GD_STOP_REQ / GD2_STOP_REQ → limpia estado.
+    // ===================================================================
+
+    // ---- GD1 ----
+    IF #riseGd1Start THEN
+        #gd1StartPending := TRUE;
+    END_IF;
+    IF "DATA_BUFF".GD_STOP_REQ THEN
+        #gd1StartPending  := FALSE;
+        #sim_GD1_Ready    := FALSE;
+        #sim_GD1_Running  := FALSE;
+    END_IF;
+    // Timer corre mientras arrancando y aún no está listo
+    #tonGd1(IN := #gd1StartPending AND NOT #sim_GD1_Running,
+            PT := #T_GD1_STARTUP);
+    IF #tonGd1.Q THEN
+        #sim_GD1_Running := TRUE;
+        #sim_GD1_Ready   := TRUE;
+    END_IF;
+
+    // ---- GD2 ----
+    IF #riseGd2Start THEN
+        #gd2StartPending := TRUE;
+    END_IF;
+    IF "DATA_BUFF".GD2_STOP_REQ THEN
+        #gd2StartPending  := FALSE;
+        #sim_GD2_Ready    := FALSE;
+        #sim_GD2_Running  := FALSE;
+    END_IF;
+    #tonGd2(IN := #gd2StartPending AND NOT #sim_GD2_Running,
+            PT := #T_GD2_STARTUP);
+    IF #tonGd2.Q THEN
+        #sim_GD2_Running := TRUE;
+        #sim_GD2_Ready   := TRUE;
+    END_IF;
+
+
+    // ===================================================================
+    // BLOQUE 4: SECUENCIADOR DE FASES  (GRID_OK ↔ GRID_FAIL)
+    // ===================================================================
+    IF #simPhase <> #simPhasePrev THEN
+        // Cambio de fase → reset timer
+        #simPhasePrev := #simPhase;
+        #tonPhase(IN := FALSE, PT := T#1s);
+    END_IF;
+
+    CASE #simPhase OF
+
+        #PHASE_GRID_OK:
+            #SIM_PHASE_NAME := 'GRID OK';
+            #tonPhase(IN := TRUE, PT := #T_FASE_GRID_OK);
+            IF #tonPhase.Q OR #FORCE_GRID_FAIL THEN
+                #simPhase := #PHASE_GRID_FAIL;
+            END_IF;
+
+        #PHASE_GRID_FAIL:
+            #SIM_PHASE_NAME := 'GRID FAIL';
+            #tonPhase(IN := TRUE, PT := #T_FASE_GRID_FAIL);
+            IF #tonPhase.Q OR #FORCE_GRID_OK THEN
+                #simPhase := #PHASE_GRID_OK;
+            END_IF;
+
+        ELSE
+            #simPhase := #PHASE_GRID_OK;
+    END_CASE;
+
+    #SIM_PHASE := #simPhase;
+    #ELAPSED   := #tonPhase.ET;
+
+
+    // ===================================================================
+    // BLOQUE 5: INYECCIÓN EN DATA_BUFF
+    // Sobreescribe las variables que normalmente fija IO_NORMALIZE
+    // y las mediciones que normalmente lee Modbus.
+    // ===================================================================
+
+    // Este FB inyecta RED simulada y señales GD simuladas.
+    // La confirmación de interruptores debe venir por DI reales (IO_NORMALIZE).
+
+    // Inyección opcional de falla de interruptores para pruebas de fault.
+    // Cuando hay falla simulada, forzar apertura inmediata del interruptor.
+    IF #FORCE_QT1_FAULT THEN
+        "DATA_BUFF".QT1_FAULT  := TRUE;
+        "DATA_BUFF".QT1_CLOSED := FALSE;
+        "DATA_BUFF".QT1_OPEN   := TRUE;
+    END_IF;
+    IF #FORCE_QG1_FAULT THEN
+        "DATA_BUFF".QG1_FAULT  := TRUE;
+        "DATA_BUFF".QG1_CLOSED := FALSE;
+        "DATA_BUFF".QG1_OPEN   := TRUE;
+    END_IF;
+    IF #FORCE_QG2_FAULT THEN
+        "DATA_BUFF".QG2_FAULT  := TRUE;
+        "DATA_BUFF".QG2_CLOSED := FALSE;
+        "DATA_BUFF".QG2_OPEN   := TRUE;
+    END_IF;
+    IF #FORCE_Q22_FAULT THEN
+        "DATA_BUFF".Q22_FAULT  := TRUE;
+        "DATA_BUFF".Q22_CLOSED := FALSE;
+    END_IF;
+
+    // --- Señales GD1 ---
+    "DATA_BUFF".GD_READY     := #sim_GD1_Ready;     // alias activo (GD1 es el principal)
+    "DATA_BUFF".GD_RUNNING   := #sim_GD1_Running;
+    "DATA_BUFF".GD_ALARM     := #FORCE_GD1_ALARM;
+    "DATA_BUFF".GD1_READY    := #sim_GD1_Ready;     // para HMI
+    "DATA_BUFF".GD1_RUNNING  := #sim_GD1_Running;
+    "DATA_BUFF".GD1_ALARM    := #FORCE_GD1_ALARM;
+
+    // --- Señales GD2 ---
+    "DATA_BUFF".GD2_READY    := #sim_GD2_Ready;
+    "DATA_BUFF".GD2_RUNNING  := #sim_GD2_Running;
+    "DATA_BUFF".GD2_ALARM    := #FORCE_GD2_ALARM;
+
+    // --- Mediciones RED (PM5350P C02 simulado, sin Modbus) ---
+    "DATA_BUFF".GRID_MEASUREMENT_OK := TRUE;   // Marca que "hay medidor" para que SCMTA use tensión
+    #gridGood := (#simPhase = #PHASE_GRID_OK) AND NOT #FORCE_GRID_FAIL;
+
+    IF #gridGood THEN
+        // ---- RED NORMAL ----
+        "DATA_BUFF".GRID_V_L1L2     := 380.0;
+        "DATA_BUFF".GRID_V_L2L3     := 380.0;
+        "DATA_BUFF".GRID_V_L3L1     := 380.0;
+        "DATA_BUFF".GRID_FREQ       := 50.0;
+        "DATA_BUFF".GRID_ALM_UV     := FALSE;
+        "DATA_BUFF".GRID_ALM_OV     := FALSE;
+        "DATA_BUFF".GRID_PHASE_LOSS := FALSE;
+    ELSE
+        // ---- FALLA DE RED ----
+        "DATA_BUFF".GRID_V_L1L2     := 0.0;
+        "DATA_BUFF".GRID_V_L2L3     := 0.0;
+        "DATA_BUFF".GRID_V_L3L1     := 0.0;
+        "DATA_BUFF".GRID_FREQ       := 0.0;
+        "DATA_BUFF".GRID_ALM_UV     := TRUE;
+        "DATA_BUFF".GRID_ALM_OV     := FALSE;
+        "DATA_BUFF".GRID_PHASE_LOSS := TRUE;
+    END_IF;
+
+    // PM_COMM_OK[1]: indica que el "medidor" de red está comunicando (simulado OK)
+    "DATA_BUFF".PM_COMM_OK          := TRUE;
+    "DATA_BUFF".GRID_MEASUREMENT_OK := TRUE;
+
+    // Debug outputs para seguimiento online
+    #DBG_GRID_GOOD        := #gridGood;
+    #DBG_QT1_CLOSED_SIM   := #sim_QT1_CLOSED;
+    #DBG_QG1_CLOSED_SIM   := #sim_QG1_CLOSED;
+    #DBG_QG2_CLOSED_SIM   := #sim_QG2_CLOSED;
+    #DBG_Q22_CLOSED_SIM   := #sim_Q22_CLOSED;
+    #DBG_GD1_READY_SIM    := #sim_GD1_Ready;
+    #DBG_GD1_RUN_SIM      := #sim_GD1_Running;
+    #DBG_GD2_READY_SIM    := #sim_GD2_Ready;
+    #DBG_GD2_RUN_SIM      := #sim_GD2_Running;
+    #DBG_QT1_PENDING      := #brkQT1Pending;
+    #DBG_QG1_PENDING      := #brkQG1Pending;
+    #DBG_QG2_PENDING      := #brkQG2Pending;
+    #DBG_Q22_PENDING      := #brkQ22Pending;
+    #DBG_GD1_START_PENDING := #gd1StartPending;
+    #DBG_GD2_START_PENDING := #gd2StartPending;
+
+END_FUNCTION_BLOCK
