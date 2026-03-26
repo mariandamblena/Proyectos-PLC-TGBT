@@ -111,6 +111,12 @@ VAR
     instArbiter : "04_FB_CMD_ARBITER";
 END_VAR
 
+VAR_TEMP
+    gd1MeasOk : Bool;
+    gd1V : Real;
+    gd1Freq : Real;
+END_VAR
+
 BEGIN
 
     // ====================================================================
@@ -358,14 +364,17 @@ BEGIN
         DI_QG2_CLOSE    := #simQG2_CLOSED,
         DI_QG2_FAULT    := #simQG2_FAULT,
         DI_QG2_UV_OV    := FALSE,
-        DI_GD1_READY    := #simGD1_READY,
-        DI_GD1_RUNNING  := #simGD1_RUNNING,
-        DI_GD1_ALARM    := #simGD1_ALARM,
-        DI_GD2_READY    := #simGD2_READY,
-        DI_GD2_RUNNING  := #simGD2_RUNNING,
-        DI_GD2_ALARM    := #simGD2_ALARM,
         DI_Q22_REMOTE   := #simQ22_REMOTE
     );
+
+    #gd1MeasOk := #simGD1_READY AND #simGD1_RUNNING AND NOT #simGD1_ALARM;
+    IF #gd1MeasOk THEN
+        #gd1V := 380.0;
+        #gd1Freq := 50.0;
+    ELSE
+        #gd1V := 0.0;
+        #gd1Freq := 0.0;
+    END_IF;
 
 
     // ====================================================================
@@ -401,12 +410,16 @@ BEGIN
         GRID_ALM_UV        := #simGridAlmUV,
         GRID_ALM_OV        := #simGridAlmOV,
 
-        GD_READY           := #instIO.GD_READY,
-        GD_RUNNING         := #instIO.GD_RUNNING,
-        GD_ALARM           := #instIO.GD_ALARM,
-        GD2_READY          := #instIO.GD2_READY,
-        GD2_RUNNING        := #instIO.GD2_RUNNING,
-        GD2_ALARM          := #instIO.GD2_ALARM,
+        GD1_V_L1L2         := #gd1V,
+        GD1_V_L2L3         := #gd1V,
+        GD1_V_L3L1         := #gd1V,
+        GD1_FREQ           := #gd1Freq,
+        GD1_MEASUREMENT_OK := #gd1MeasOk,
+        GD2_V_L1L2         := 0.0,
+        GD2_V_L2L3         := 0.0,
+        GD2_V_L3L1         := 0.0,
+        GD2_FREQ           := 0.0,
+        GD2_MEASUREMENT_OK := FALSE,
 
         V_NOM              := 380.0,
         V_MIN_PCT          := 85.0,
@@ -425,7 +438,7 @@ BEGIN
         // Delays de proceso: reducidos para test
         T_START_GD_DELAY   := T#2s,
         T_GD_READY_TIMEOUT := T#30s,
-        T_GD_STABILIZATION := T#3s,
+        T_GD_STABILIZATION := T#30s,
         T_GRID_STABLE      := T#5s,    // Normalmente 120s
         T_GD_COOLDOWN      := T#5s,    // Normalmente 60s
         T_GRID_FAIL_FILTER := T#2s,

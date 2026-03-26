@@ -32,8 +32,6 @@ VERSION : 0.1
       ALM_INTERLOCK_VIOLATION : Bool;
       BLOCK_INTERLOCK : Bool;
       GRID_FAIL    : Bool;
-      GD_ALARM     : Bool;
-      GD2_ALARM    : Bool;
       ACK_ALARM    : Bool;
    END_VAR
 
@@ -168,31 +166,28 @@ BEGIN
     // ========================================================================
     // NETWORK 4: GESTION DE ALARMAS
     // ========================================================================
-    #alarmActive := #IS_FAULT OR #ALM_INTERLOCK_VIOLATION OR #GD_ALARM OR #GD2_ALARM;
+    #alarmActive := #IS_FAULT OR #ALM_INTERLOCK_VIOLATION;
 
     IF #IS_FAULT THEN
         CASE #FAULT_CODE OF
             101: #alarmText := 'TIMEOUT: Abrir QT1 fallido';
-            102: #alarmText := 'TIMEOUT: GD no alcanzo READY';
+            102: #alarmText := 'TIMEOUT: GD1 sin tension/frec + Modbus OK';
             103: #alarmText := 'TIMEOUT: Cerrar QG1 fallido';
             104: #alarmText := 'TIMEOUT: Abrir QG1 fallido';
             105: #alarmText := 'TIMEOUT: Cerrar QT1 fallido';
-            106: #alarmText := 'ALARMA: Falla Grupo Diesel GD1';
+            106: #alarmText := 'FALLA: GD1 no disponible en operacion';
             107: #alarmText := 'ALARMA: Violacion enclavamiento';
             108: #alarmText := 'FALLA: Estado maquina desconocido';
             109: #alarmText := 'TIMEOUT: Cerrar QG2 fallido';
             110: #alarmText := 'FALLA: Ambos GD no disponibles';
             111: #alarmText := 'FALLA: QT1 no esta en REMOTO';
             112: #alarmText := 'FALLA: QG1 no esta en REMOTO';
+            206: #alarmText := 'FALLA: GD2 no disponible en operacion';
         ELSE
             #alarmText := 'FALLA: Codigo desconocido';
         END_CASE;
     ELSIF #ALM_INTERLOCK_VIOLATION THEN
         #alarmText := 'ALARMA: Multiples fuentes cerradas';
-    ELSIF #GD_ALARM THEN
-        #alarmText := 'ALARMA: Falla Grupo Diesel 1';
-    ELSIF #GD2_ALARM THEN
-        #alarmText := 'ALARMA: Falla Grupo Diesel 2';
     ELSE
         #alarmText := '';
     END_IF;

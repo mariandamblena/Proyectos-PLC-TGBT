@@ -26,8 +26,8 @@ VERSION : 0.1
       T_OPEN_QT1 : Time := T#3s;          // Tiempo máx esperado para confirmar apertura QT1
       T_OPEN_Q22 : Time := T#3s;          // Tiempo máx esperado para confirmar apertura Q22
       T_START_GD_DELAY : Time := T#3s;    // Demora antes de arrancar generador
-      T_GD_READY_TIMEOUT : Time := T#30s; // Timeout espera GD listo
-      T_GD_STABILIZATION : Time := T#5s;  // Estabilización tensión GD antes de cerrar QGx
+      T_GD_READY_TIMEOUT : Time := T#30s; // Tiempo max para detectar por primera vez GD con medicion valida
+      T_GD_STABILIZATION : Time := T#30s; // Requisito: mantener Modbus OK + tension/frec OK durante 30 s antes de cerrar QGx
       T_CLOSE_QG1 : Time := T#3s;         // Tiempo máx para confirmar cierre QG1
       T_CLOSE_QG2 : Time := T#3s;         // Tiempo máx para confirmar cierre QG2
 

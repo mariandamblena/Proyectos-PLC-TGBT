@@ -1,5 +1,61 @@
 # Suite de Tests SCMTA TGBT V4
 
+## Actualizacion 2026-03-26 (GD1/GD2 con unica senal RUN)
+
+Se elimina el uso de senales externas `READY/RUNNING/ALARM` por generador en la logica de transferencia automatica.
+
+Nuevo criterio para permitir cierre de QG1/QG2:
+
+- `DO_GD_START` o `DO_GD2_START` activo (senal RUN existente)
+- `GDx_MEASUREMENT_OK = TRUE` (Modbus medidor GDx OK)
+- `GDx_V_L1L2/L2L3/L3L1` dentro de rango
+- `GDx_FREQ` dentro de rango
+- Condiciones anteriores sostenidas durante `T_GD_STABILIZATION = 30 s`
+
+Si no se detecta fuente valida en el tiempo de arranque (`T_GD_READY_TIMEOUT`), SCMTA entra en falla de arranque.
+La sirena queda mapeada a `%Q1.2` (salida siguiente a `GD2 RUN` en `%Q1.1`).
+
+---
+
+## Tests solicitados para este cambio
+
+### Test A - Operacion normal RED -> GD -> RED (exitoso)
+
+Objetivo: validar transferencia completa con el nuevo criterio de medicion/modbus.
+
+1. Estado inicial: RED estable, `QT1` cerrado, `QG1/QG2` abiertos.
+2. Forzar condicion de transferencia (falla de RED).
+3. Verificar que SCMTA activa `DO_GD_START` (`%Q1.0`).
+4. Simular en GD1: `GD1_MEASUREMENT_OK=TRUE`, tension y frecuencia en rango.
+5. Verificar espera de 30 s continuos (`T_GD_STABILIZATION`).
+6. Confirmar cierre de `QG1` y estado `ON_GD1`.
+7. Restaurar RED y esperar retorno automatico segun temporizaciones.
+8. Verificar estado final: `ON_GRID`, `QT1` cerrado, `QG1/QG2` abiertos, sin falla.
+
+Criterio de aceptacion:
+
+- No se cierran dos fuentes a la vez (exclusion QT1/QG1/QG2 siempre valida).
+- La transferencia a GD ocurre solo despues de 30 s de medicion GD valida + Modbus OK.
+- El retorno a RED conserva interlocks existentes.
+
+### Test B - Falla de arranque a GD por ausencia de tension
+
+Objetivo: validar que el sistema falla correctamente si no aparece fuente electrica del GD.
+
+1. Estado inicial en RED estable.
+2. Forzar condicion de transferencia (falla de RED).
+3. Verificar `DO_GD_START = TRUE` (`%Q1.0`).
+4. Mantener `GD1_MEASUREMENT_OK=FALSE` o tension/frecuencia fuera de rango.
+5. Esperar vencimiento de `T_GD_READY_TIMEOUT`.
+6. Verificar entrada a `FAULT_LOCKOUT` con codigo de falla de arranque GD.
+7. Verificar activacion de sirena `%Q1.2`.
+
+Criterio de aceptacion:
+
+- No se cierra `QG1` ni `QG2` sin criterio electrico valido.
+- Se genera alarma/falla de arranque.
+- La salida de sirena `%Q1.2` se activa en falla.
+
 ## Descripcion
 Suite de tests automatizados y simulacion interactiva para el sistema SCMTA TGBT V4.
 Interfaz Bool DI, un solo generador (GD1), sin SHED, sin GD2 failover.

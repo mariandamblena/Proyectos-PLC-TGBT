@@ -40,9 +40,17 @@ VERSION : 0.1
       GRID_PHASE_LOSS : Bool;          // Alarma pérdida de fase PM5350P
       GRID_ALM_UV : Bool;              // Alarma subtensión PM5350P
       GRID_ALM_OV : Bool;              // Alarma sobretensión PM5350P
-      // ---- GENERADORES ----
-      GD_READY : Bool;      GD_RUNNING : Bool;     GD_ALARM : Bool;
-      GD2_READY : Bool;     GD2_RUNNING : Bool;    GD2_ALARM : Bool;
+    // ---- GENERADORES (criterio por medicion electrica + Modbus OK) ----
+    GD1_V_L1L2 : Real;
+    GD1_V_L2L3 : Real;
+    GD1_V_L3L1 : Real;
+    GD1_FREQ : Real;
+    GD1_MEASUREMENT_OK : Bool;
+    GD2_V_L1L2 : Real;
+    GD2_V_L2L3 : Real;
+    GD2_V_L3L1 : Real;
+    GD2_FREQ : Real;
+    GD2_MEASUREMENT_OK : Bool;
       // (Eliminados: QT1_STATE/QG1_STATE/QG2_STATE Int — ahora son Bool DI)
       // ---- PARÁMETROS CONFIGURABLES ----
       V_NOM : Real := 380.0;
@@ -106,7 +114,8 @@ VERSION : 0.1
       faultCodeLatch : Int;
       gridOkRaw : Bool;
       gridFailRaw : Bool;
-      gdReadyStable : Bool;
+    gd1SourceOk : Bool;
+    gd2SourceOk : Bool;
       activeGDInternal : Int;
       cmdSent : Bool;                 // Flag: pulso de comando ya emitido en estado actual
       timeoutDetected : Bool;
@@ -156,13 +165,13 @@ VERSION : 0.1
       FAULT_TIMEOUT_CLOSE_QG1 : Int := 103;
       FAULT_TIMEOUT_OPEN_QG1 : Int := 104;
       FAULT_TIMEOUT_CLOSE_QT1 : Int := 105;
-      FAULT_GD1_ALARM : Int := 106;
+    FAULT_GD1_UNAVAILABLE : Int := 106;
       FAULT_INTERLOCK_VIOLATION : Int := 107;
       FAULT_UNKNOWN_STATE : Int := 108;
       FAULT_GD2_NOT_READY : Int := 202;
       FAULT_TIMEOUT_CLOSE_QG2 : Int := 203;
       FAULT_TIMEOUT_OPEN_QG2 : Int := 204;
-      FAULT_GD2_ALARM : Int := 206;
+    FAULT_GD2_UNAVAILABLE : Int := 206;
       FAULT_BOTH_GD_UNAVAILABLE : Int := 209;
       FAULT_TIMEOUT_OPEN_SWITCH : Int := 210;
       FAULT_QT1_NOT_REMOTE : Int := 111;
@@ -198,10 +207,25 @@ BEGIN
     
     
     // ========================================================================
-    // NETWORK 2: DISPONIBILIDAD GD
+    // NETWORK 2: DISPONIBILIDAD GD + CRITERIO DE TENSION/FRECUENCIA
+    // Se elimina READY/RUNNING/ALARM externos por GD.
+    // Transferencia habilitada solo con: Modbus OK AND tension/frecuencia en rango.
     // ========================================================================
-    #GD1_AVAILABLE := NOT #GD_ALARM;
-    #GD2_AVAILABLE := #ENABLE_QG2 AND NOT #GD2_ALARM;
+    #gd1SourceOk := #GD1_MEASUREMENT_OK AND
+                    (#GD1_V_L1L2 >= #vMin AND #GD1_V_L1L2 <= #vMax) AND
+                    (#GD1_V_L2L3 >= #vMin AND #GD1_V_L2L3 <= #vMax) AND
+                    (#GD1_V_L3L1 >= #vMin AND #GD1_V_L3L1 <= #vMax) AND
+                    (#GD1_FREQ >= #FREQ_MIN AND #GD1_FREQ <= #FREQ_MAX);
+
+    #gd2SourceOk := #GD2_MEASUREMENT_OK AND
+                    (#GD2_V_L1L2 >= #vMin AND #GD2_V_L1L2 <= #vMax) AND
+                    (#GD2_V_L2L3 >= #vMin AND #GD2_V_L2L3 <= #vMax) AND
+                    (#GD2_V_L3L1 >= #vMin AND #GD2_V_L3L1 <= #vMax) AND
+                    (#GD2_FREQ >= #FREQ_MIN AND #GD2_FREQ <= #FREQ_MAX);
+
+    // Disponibilidad de selección de equipo (no depende de DI de alarma externas)
+    #GD1_AVAILABLE := TRUE;
+    #GD2_AVAILABLE := #ENABLE_QG2;
     
     
     // ========================================================================
@@ -270,16 +294,16 @@ BEGIN
         #IS_ON_GD1  := FALSE; #IS_ON_GD2 := FALSE;
         IF #GRID_OK AND #QT1_CLOSED AND NOT #QT1_FAULT THEN
             #STATE := #ST_NORMAL_ON_GRID;
-        ELSIF #QG1_CLOSED AND NOT #QG1_FAULT AND #GD_RUNNING THEN
+        ELSIF #QG1_CLOSED AND NOT #QG1_FAULT AND #gd1SourceOk THEN
             #STATE := #ST_ON_GD1; #activeGDInternal := 1;
-        ELSIF #ENABLE_QG2 AND #QG2_CLOSED AND NOT #QG2_FAULT AND #GD2_RUNNING THEN
+        ELSIF #ENABLE_QG2 AND #QG2_CLOSED AND NOT #QG2_FAULT AND #gd2SourceOk THEN
             #STATE := #ST_ON_GD2; #activeGDInternal := 2;
-        ELSIF #MODE_AUTO AND #GRID_OK AND #QG1_CLOSED AND NOT #GD_RUNNING THEN
+        ELSIF #MODE_AUTO AND #GRID_OK AND #QG1_CLOSED AND NOT #gd1SourceOk THEN
             // Arranque inconsistente: QG1 cerrado sin GD1 en marcha.
             // Abrir QG1 primero para liberar enclavamiento antes de reconectar RED.
             #activeGDInternal := 1;
             #STATE := #ST_OPEN_ACTIVE_GD;
-        ELSIF #MODE_AUTO AND #GRID_OK AND #ENABLE_QG2 AND #QG2_CLOSED AND NOT #GD2_RUNNING THEN
+        ELSIF #MODE_AUTO AND #GRID_OK AND #ENABLE_QG2 AND #QG2_CLOSED AND NOT #gd2SourceOk THEN
             // Arranque inconsistente: QG2 cerrado sin GD2 en marcha.
             #activeGDInternal := 2;
             #STATE := #ST_OPEN_ACTIVE_GD;
@@ -348,15 +372,7 @@ BEGIN
     // ---- 6: WAIT_GD1_READY ----
     #ST_WAIT_GD1_READY:
         #DO_GD_START := TRUE;
-        IF #GD_ALARM THEN
-            #DO_GD_START := FALSE;
-            IF #ENABLE_QG2 AND #GD2_AVAILABLE THEN
-                #STATE := #ST_START_GD2_DELAY;
-            ELSE
-                #faultCodeLatch := #FAULT_GD1_ALARM;
-                #STATE := #ST_FAULT_LOCKOUT;
-            END_IF;
-        ELSIF #GD_READY AND #GD_RUNNING THEN
+        IF #gd1SourceOk THEN
             #tonGdStabilization(IN := TRUE, PT := #T_GD_STABILIZATION);
             IF #tonGdStabilization.Q THEN
                 #STATE := #ST_CLOSE_QG1;
@@ -393,13 +409,13 @@ BEGIN
         #ACTIVE_GD  := 1;    #activeGDInternal := 1;
         // Tiempo mínimo de permanencia en GD (protección motor)
         #tonMinGdStay(IN := TRUE, PT := #T_MIN_GD_STAY);
-        IF #GD_ALARM THEN
+        IF NOT #gd1SourceOk THEN
             // Alarma: no hay tiempo mínimo, la seguridad tiene prioridad
             #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
             IF #ENABLE_QG2 AND #GD2_AVAILABLE THEN
                 #STATE := #ST_OPEN_GD_FOR_SWITCH;
             ELSE
-                #faultCodeLatch := #FAULT_GD1_ALARM;
+                #faultCodeLatch := #FAULT_GD1_UNAVAILABLE;
                 #STATE := #ST_FAULT_LOCKOUT;
             END_IF;
         ELSIF #QG1_FAULT THEN
@@ -525,11 +541,7 @@ BEGIN
         
     #ST_WAIT_GD2_READY:
         #DO_GD2_START := TRUE;
-        IF #GD2_ALARM THEN
-            #DO_GD2_START := FALSE;
-            #faultCodeLatch := #FAULT_GD2_ALARM;
-            #STATE := #ST_FAULT_LOCKOUT;
-        ELSIF #GD2_READY AND #GD2_RUNNING THEN
+        IF #gd2SourceOk THEN
             #tonGdStabilization(IN := TRUE, PT := #T_GD_STABILIZATION);
             IF #tonGdStabilization.Q THEN #STATE := #ST_CLOSE_QG2; END_IF;
         ELSE
@@ -557,10 +569,10 @@ BEGIN
         #IS_ON_GRID := FALSE; #IS_IN_TRANSFER := FALSE; #ACTIVE_GD := 2;
         // Tiempo mínimo de permanencia en GD (protección motor)
         #tonMinGdStay(IN := TRUE, PT := #T_MIN_GD_STAY);
-        IF #GD2_ALARM THEN
+        IF NOT #gd2SourceOk THEN
             // Alarma: no hay tiempo mínimo, la seguridad tiene prioridad
             #tonMinGdStay(IN := FALSE, PT := #T_MIN_GD_STAY);
-            #faultCodeLatch := #FAULT_GD2_ALARM;
+            #faultCodeLatch := #FAULT_GD2_UNAVAILABLE;
             #STATE := #ST_FAULT_LOCKOUT;
         ELSIF #QG2_FAULT THEN
             #faultCodeLatch := #FAULT_INTERLOCK_VIOLATION;

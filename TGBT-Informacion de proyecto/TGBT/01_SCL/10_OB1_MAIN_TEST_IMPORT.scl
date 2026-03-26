@@ -83,14 +83,6 @@ BEGIN
         DI_QG2_FAULT      := %I1.3,
         DI_QG2_UV_OV      := %I1.4,
 
-        // GD1/GD2 (EXPANSION)
-        DI_GD1_READY      := %I8.2,
-        DI_GD1_RUNNING    := %I8.3,
-        DI_GD1_ALARM      := %I8.4,
-        DI_GD2_READY      := %I8.5,
-        DI_GD2_RUNNING    := %I8.6,
-        DI_GD2_ALARM      := %I8.7,
-
         // Q22 remoto (CPU)
         DI_Q22_REMOTE     := %I1.5,
 
@@ -117,13 +109,6 @@ BEGIN
         QG2_FAULT         => "DATA_BUFF".QG2_FAULT,
         QG2_REMOTE        => "DATA_BUFF".QG2_REMOTE,
         QG2_UV_OV_DI      => "DATA_BUFF".QG2_UV_OV_DI,
-
-        GD_READY          => "DATA_BUFF".GD_READY,
-        GD_RUNNING        => "DATA_BUFF".GD_RUNNING,
-        GD_ALARM          => "DATA_BUFF".GD_ALARM,
-        GD2_READY         => "DATA_BUFF".GD2_READY,
-        GD2_RUNNING       => "DATA_BUFF".GD2_RUNNING,
-        GD2_ALARM         => "DATA_BUFF".GD2_ALARM,
 
         Q22_REMOTE        => "DATA_BUFF".Q22_REMOTE
     );
@@ -184,13 +169,17 @@ BEGIN
         GRID_ALM_UV          := "DATA_BUFF".GRID_ALM_UV,
         GRID_ALM_OV          := "DATA_BUFF".GRID_ALM_OV,
 
-        // Señales GD (provistos por TEST_AUTO_FB)
-        GD_READY             := "DATA_BUFF".GD_READY,
-        GD_RUNNING           := "DATA_BUFF".GD_RUNNING,
-        GD_ALARM             := "DATA_BUFF".GD_ALARM,
-        GD2_READY            := "DATA_BUFF".GD2_READY,
-        GD2_RUNNING          := "DATA_BUFF".GD2_RUNNING,
-        GD2_ALARM            := "DATA_BUFF".GD2_ALARM,
+        // Criterio GD por medicion electrica + Modbus OK (simulado por TEST_AUTO_FB)
+        GD1_V_L1L2           := "DATA_BUFF".GD1_V_L1L2,
+        GD1_V_L2L3           := "DATA_BUFF".GD1_V_L2L3,
+        GD1_V_L3L1           := "DATA_BUFF".GD1_V_L3L1,
+        GD1_FREQ             := "DATA_BUFF".GD1_FREQ,
+        GD1_MEASUREMENT_OK   := "DATA_BUFF".GD1_MEASUREMENT_OK,
+        GD2_V_L1L2           := "DATA_BUFF".GD2_V_L1L2,
+        GD2_V_L2L3           := "DATA_BUFF".GD2_V_L2L3,
+        GD2_V_L3L1           := "DATA_BUFF".GD2_V_L3L1,
+        GD2_FREQ             := "DATA_BUFF".GD2_FREQ,
+        GD2_MEASUREMENT_OK   := "DATA_BUFF".GD2_MEASUREMENT_OK,
 
         // Parámetros nominales de red (valores reales)
         V_NOM                := 380.0,
@@ -207,7 +196,7 @@ BEGIN
         T_CLOSE_Q22          := T#3s,
         T_START_GD_DELAY     := T#3s,
         T_GD_READY_TIMEOUT   := T#30s,
-        T_GD_STABILIZATION   := T#5s,
+        T_GD_STABILIZATION   := T#30s,
         T_CLOSE_QG1          := T#3s,
         T_CLOSE_QG2          := T#3s,
         T_CMD_CONFIRM        := T#2s,
@@ -384,8 +373,6 @@ BEGIN
         ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
         BLOCK_INTERLOCK := "DATA_BUFF".BLOCK_INTERLOCK,
         GRID_FAIL      := "DATA_BUFF".GRID_FAIL,
-        GD_ALARM       := "DATA_BUFF".GD_ALARM,
-        GD2_ALARM      := "DATA_BUFF".GD2_ALARM,
         ACK_ALARM      := "DATA_BUFF".ACK_ALARM,
         DO_PILOT_ON_GRID    => "DATA_BUFF".PILOT_ON_GRID,
         DO_PILOT_ON_GD      => "DATA_BUFF".PILOT_ON_GD,
@@ -402,7 +389,7 @@ BEGIN
         DO_PILOT_Q22_OPEN   => "DATA_BUFF".PILOT_Q22_OPEN,
         DO_PILOT_Q22_CLOSED => "DATA_BUFF".PILOT_Q22_CLOSED,
         DO_PILOT_Q22_FAULT  => "DATA_BUFF".PILOT_Q22_FAULT,
-        DO_ALARM_BEACON     => "DATA_BUFF".PILOT_FAULT,
+        DO_ALARM_BEACON     => %Q1.2,
         HMI_STATUS_TEXT     => "DATA_BUFF".SCMTA_STATE_NAME,
         HMI_ALARM_ACTIVE    => "DATA_BUFF".HMI_ALARM_ACTIVE,
         HMI_ALARM_TEXT      => "DATA_BUFF".HMI_ALARM_TEXT

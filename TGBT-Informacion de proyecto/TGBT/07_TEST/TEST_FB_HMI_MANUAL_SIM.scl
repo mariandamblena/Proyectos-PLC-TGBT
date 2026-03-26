@@ -192,12 +192,6 @@ BEGIN
         DI_QG2_CLOSE    := #simQG2_CLOSED,
         DI_QG2_FAULT    := #SIM_QG2_FAULT,
         DI_QG2_UV_OV    := FALSE,
-        DI_GD1_READY    := #simGD1_Ready,
-        DI_GD1_RUNNING  := #simGD1_Running,
-        DI_GD1_ALARM    := #SIM_GD_ALARM,
-        DI_GD2_READY    := #simGD2_Ready,
-        DI_GD2_RUNNING  := #simGD2_Running,
-        DI_GD2_ALARM    := #SIM_GD2_ALARM,
         DI_Q22_REMOTE   := NOT #SIM_Q22_LOCAL
     );
 
@@ -227,16 +221,16 @@ BEGIN
 
     "DATA_BUFF".Q22_REMOTE_ALLOWED := #instIO.Q22_REMOTE;
 
-    "DATA_BUFF".GD_READY := #instIO.GD_READY;
-    "DATA_BUFF".GD_RUNNING := #instIO.GD_RUNNING;
-    "DATA_BUFF".GD_ALARM := #instIO.GD_ALARM;
+    "DATA_BUFF".GD_READY := #simGD1_Ready;
+    "DATA_BUFF".GD_RUNNING := #simGD1_Running;
+    "DATA_BUFF".GD_ALARM := FALSE;
     "DATA_BUFF".GD1_READY := #simGD1_Ready;
     "DATA_BUFF".GD1_RUNNING := #simGD1_Running;
     "DATA_BUFF".GD1_ALARM := #SIM_GD_ALARM;
 
     "DATA_BUFF".GD2_READY := #simGD2_Ready;
     "DATA_BUFF".GD2_RUNNING := #simGD2_Running;
-    "DATA_BUFF".GD2_ALARM := #SIM_GD2_ALARM;
+    "DATA_BUFF".GD2_ALARM := FALSE;
 
     // Mediciones simuladas RED
     "DATA_BUFF".GRID_V_L1L2 := #simGridV;
@@ -420,8 +414,6 @@ BEGIN
         ALM_INTERLOCK_VIOLATION := "DATA_BUFF".ALM_INTERLOCK_VIOLATION,
         BLOCK_INTERLOCK     := "DATA_BUFF".BLOCK_INTERLOCK,
         GRID_FAIL           := #SIM_GRID_FAIL,
-        GD_ALARM            := #SIM_GD_ALARM,
-        GD2_ALARM           := #SIM_GD2_ALARM,
         ACK_ALARM           := "DATA_BUFF".ACK_ALARM,
         // Outputs piloto
         DO_PILOT_ON_GRID    => "DATA_BUFF".PILOT_ON_GRID,

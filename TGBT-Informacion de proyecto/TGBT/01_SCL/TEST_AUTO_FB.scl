@@ -370,18 +370,45 @@ BEGIN
         "DATA_BUFF".Q22_CLOSED := FALSE;
     END_IF;
 
-    // --- Señales GD1 ---
-    "DATA_BUFF".GD_READY     := #sim_GD1_Ready;     // alias activo (GD1 es el principal)
+    // --- Señales legacy GD (compatibilidad HMI) ---
+    "DATA_BUFF".GD_READY     := #sim_GD1_Ready;
     "DATA_BUFF".GD_RUNNING   := #sim_GD1_Running;
-    "DATA_BUFF".GD_ALARM     := #FORCE_GD1_ALARM;
-    "DATA_BUFF".GD1_READY    := #sim_GD1_Ready;     // para HMI
+    "DATA_BUFF".GD_ALARM     := FALSE;
+    "DATA_BUFF".GD1_READY    := #sim_GD1_Ready;
     "DATA_BUFF".GD1_RUNNING  := #sim_GD1_Running;
-    "DATA_BUFF".GD1_ALARM    := #FORCE_GD1_ALARM;
-
-    // --- Señales GD2 ---
+    "DATA_BUFF".GD1_ALARM    := FALSE;
     "DATA_BUFF".GD2_READY    := #sim_GD2_Ready;
     "DATA_BUFF".GD2_RUNNING  := #sim_GD2_Running;
-    "DATA_BUFF".GD2_ALARM    := #FORCE_GD2_ALARM;
+    "DATA_BUFF".GD2_ALARM    := FALSE;
+
+    // --- Criterio nuevo SCMTA: Modbus OK + tension/frecuencia OK del GD ---
+    IF #sim_GD1_Running AND (NOT #FORCE_GD1_ALARM) THEN
+        "DATA_BUFF".GD1_V_L1L2 := 380.0;
+        "DATA_BUFF".GD1_V_L2L3 := 380.0;
+        "DATA_BUFF".GD1_V_L3L1 := 380.0;
+        "DATA_BUFF".GD1_FREQ   := 50.0;
+        "DATA_BUFF".GD1_MEASUREMENT_OK := TRUE;
+    ELSE
+        "DATA_BUFF".GD1_V_L1L2 := 0.0;
+        "DATA_BUFF".GD1_V_L2L3 := 0.0;
+        "DATA_BUFF".GD1_V_L3L1 := 0.0;
+        "DATA_BUFF".GD1_FREQ   := 0.0;
+        "DATA_BUFF".GD1_MEASUREMENT_OK := FALSE;
+    END_IF;
+
+    IF #sim_GD2_Running AND (NOT #FORCE_GD2_ALARM) THEN
+        "DATA_BUFF".GD2_V_L1L2 := 380.0;
+        "DATA_BUFF".GD2_V_L2L3 := 380.0;
+        "DATA_BUFF".GD2_V_L3L1 := 380.0;
+        "DATA_BUFF".GD2_FREQ   := 50.0;
+        "DATA_BUFF".GD2_MEASUREMENT_OK := TRUE;
+    ELSE
+        "DATA_BUFF".GD2_V_L1L2 := 0.0;
+        "DATA_BUFF".GD2_V_L2L3 := 0.0;
+        "DATA_BUFF".GD2_V_L3L1 := 0.0;
+        "DATA_BUFF".GD2_FREQ   := 0.0;
+        "DATA_BUFF".GD2_MEASUREMENT_OK := FALSE;
+    END_IF;
 
     // --- Mediciones RED (PM5350P C02 simulado, sin Modbus) ---
     "DATA_BUFF".GRID_MEASUREMENT_OK := TRUE;   // Marca que "hay medidor" para que SCMTA use tensión
