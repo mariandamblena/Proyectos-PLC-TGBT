@@ -101,6 +101,9 @@ NON_RETAIN
       GD2_V_L1L2 : Real;
       GD2_V_L2L3 : Real;
       GD2_V_L3L1 : Real;
+      GD2_I_L1 : Real;
+      GD2_I_L2 : Real;
+      GD2_I_L3 : Real;
       GD2_FREQ : Real;
       GD2_P_TOTAL : Real;
       GD2_LoadPct : Real;

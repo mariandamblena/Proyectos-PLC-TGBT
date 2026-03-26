@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MANUAL DE USUARIO HMI - TGBT SCMTA V4.0</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
+
+  .cover {
+    page-break-after: always;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 60px 40px;
+    background: linear-gradient(160deg, #0a2a5e 0%, #1a4a8e 60%, #2a6abf 100%);
+    color: #fff;
+  }
+  .cover .logo-bar {
+    font-size: 10pt;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #a0c4ff;
+    margin-bottom: 34px;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .cover h2 {
+    font-size: 15pt;
+    font-weight: 400;
+    color: #c8e0ff;
+    margin-bottom: 34px;
+  }
+  .cover .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.45);
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 12pt;
+    font-weight: 600;
+    letter-spacing: 2px;
+    margin-bottom: 36px;
+  }
+  .cover-table {
+    margin-top: 16px;
+    border-collapse: collapse;
+    width: 460px;
+    max-width: 92%;
+    font-size: 10pt;
+    color: #fff;
+  }
+  .cover-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.24);
+  }
+  .cover-table td:first-child { font-weight: 700; text-align: right; color: #90caff; padding-right: 18px; }
+  .cover-table td:last-child { text-align: left; }
+
+  .content { max-width: 980px; margin: 0 auto; padding: 44px 50px; }
+
+  h1 { font-size: 18pt; color: #0a2a5e; border-bottom: 3px solid #0a2a5e; padding-bottom: 6px; margin: 34px 0 16px 0; }
+  h2 { font-size: 13pt; color: #1a4a8e; border-left: 4px solid #1a4a8e; padding-left: 10px; margin: 24px 0 10px 0; }
+  h3 { font-size: 11pt; color: #2a6abf; margin: 16px 0 8px 0; }
+
+  p { line-height: 1.65; margin-bottom: 10px; }
+  ul, ol { margin: 10px 0 14px 24px; }
+  li { margin-bottom: 4px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px 0; font-size: 10pt; }
+  th { background: #0a2a5e; color: #fff; padding: 9px 12px; text-align: left; font-weight: 600; }
+  td { padding: 8px 12px; border-bottom: 1px solid #dde3ee; vertical-align: top; }
+  tr:nth-child(even) td { background: #f4f7fc; }
+  tr:hover td { background: #e8eef8; }
+
+  code { background: #eef2fa; color: #0a2a5e; border-radius: 3px; padding: 1px 5px; font-size: 9.5pt; font-family: 'Consolas', 'Courier New', monospace; }
+  pre { background: #f8fafd; border: 1px solid #ccd6ee; border-radius: 8px; padding: 14px; overflow-x: auto; margin: 14px 0; }
+  pre code { background: transparent; padding: 0; }
+
+  blockquote {
+    border-left: 4px solid #2a6abf;
+    background: #f0f5fd;
+    padding: 10px 14px;
+    margin: 14px 0;
+    border-radius: 0 6px 6px 0;
+  }
+
+  #TOC {
+    border: 1px solid #ccd6ee;
+    background: #f8fafd;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 26px;
+  }
+  #TOC > ul { margin-left: 18px; }
+  #TOC a { color: #1a4a8e; text-decoration: none; }
+  #TOC a:hover { text-decoration: underline; }
+
+  .doc-footer {
+    margin-top: 40px;
+    padding-top: 12px;
+    border-top: 1px solid #ccd6ee;
+    font-size: 9pt;
+    color: #777;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  @media print {
+    body { font-size: 10pt; }
+    .cover { min-height: 100vh; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #TOC, table, blockquote, pre { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div style="margin-bottom:28px;">
+    <img src="indgrade-dark.svg" alt="INDGRADE" style="height:68px; width:auto;" />
+  </div>
+  <div class="logo-bar">Automatizacion Industrial · Proyecto IND-26-PTE-15</div>
+  <h1>Manual De Usuario HMI</h1>
+  <h2>TGBT SCMTA V4.0 · Operacion de Pantallas y Maniobras</h2>
+  <div class="badge">OPERACION DE CAMPO</div>
+  <table class="cover-table">
+    <tr><td>Proyecto</td><td>TGBT IND-26-PTE-15</td></tr>
+    <tr><td>Version</td><td>1.0</td></tr>
+    <tr><td>Fecha</td><td>24 de marzo de 2026</td></tr>
+    <tr><td>Base</td><td>HMI V4 + Logica SCL real</td></tr>
+  </table>
+</div>
+
+<div class="content">
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#manual-de-usuario-hmi"
+id="toc-manual-de-usuario-hmi">MANUAL DE USUARIO HMI</a>
+<ul>
+<li><a href="#tgbt-scmta-v40---operacion-de-pantallas-y-maniobras"
+id="toc-tgbt-scmta-v40---operacion-de-pantallas-y-maniobras">TGBT SCMTA
+V4.0 - Operacion de Pantallas y Maniobras</a></li>
+<li><a href="#1-objetivo-del-manual" id="toc-1-objetivo-del-manual">1.
+Objetivo del manual</a></li>
+<li><a href="#2-alcance-y-criterio-de-operacion-v4"
+id="toc-2-alcance-y-criterio-de-operacion-v4">2. Alcance y criterio de
+operacion V4</a></li>
+<li><a href="#3-roles-de-usuario-recomendados"
+id="toc-3-roles-de-usuario-recomendados">3. Roles de usuario
+recomendados</a></li>
+<li><a href="#4-reglas-de-seguridad-antes-de-maniobrar"
+id="toc-4-reglas-de-seguridad-antes-de-maniobrar">4. Reglas de seguridad
+antes de maniobrar</a></li>
+<li><a href="#5-mapa-de-navegacion-hmi"
+id="toc-5-mapa-de-navegacion-hmi">5. Mapa de navegacion HMI</a></li>
+<li><a href="#51-validacion-visual-contra-pdf-de-pantallas"
+id="toc-51-validacion-visual-contra-pdf-de-pantallas">5.1 Validacion
+visual contra PDF de pantallas</a></li>
+<li><a href="#6-pantalla-1---sinoptico-principal-lectura-rapida"
+id="toc-6-pantalla-1---sinoptico-principal-lectura-rapida">6. Pantalla 1
+- Sinoptico Principal (lectura rapida)</a></li>
+<li><a href="#61-que-mirar-primero-orden-recomendado"
+id="toc-61-que-mirar-primero-orden-recomendado">6.1 Que mirar primero
+(orden recomendado)</a></li>
+<li><a href="#62-como-interpretar-colores-de-interruptores"
+id="toc-62-como-interpretar-colores-de-interruptores">6.2 Como
+interpretar colores de interruptores</a></li>
+<li><a href="#63-dato-clave-de-decision"
+id="toc-63-dato-clave-de-decision">6.3 Dato clave de decision</a></li>
+<li><a href="#7-pantalla-2---estado-scmta-diagnostico-de-secuencia"
+id="toc-7-pantalla-2---estado-scmta-diagnostico-de-secuencia">7.
+Pantalla 2 - Estado SCMTA (diagnostico de secuencia)</a></li>
+<li><a href="#71-campos-clave" id="toc-71-campos-clave">7.1 Campos
+clave</a></li>
+<li><a href="#72-estados-operativos-mas-importantes"
+id="toc-72-estados-operativos-mas-importantes">7.2 Estados operativos
+mas importantes</a></li>
+<li><a href="#73-cuando-usar-reset-falla"
+id="toc-73-cuando-usar-reset-falla">7.3 Cuando usar RESET FALLA</a></li>
+<li><a href="#8-pantalla-3---mediciones-pm5350p"
+id="toc-8-pantalla-3---mediciones-pm5350p">8. Pantalla 3 - Mediciones
+PM5350P</a></li>
+<li><a href="#81-donde-ver-calidad-de-red"
+id="toc-81-donde-ver-calidad-de-red">8.1 Donde ver calidad de
+red</a></li>
+<li><a href="#82-como-interpretar-en-operacion"
+id="toc-82-como-interpretar-en-operacion">8.2 Como interpretar en
+operacion</a></li>
+<li><a href="#83-uso-recomendado-antes-de-transferir-a-gd"
+id="toc-83-uso-recomendado-antes-de-transferir-a-gd">8.3 Uso recomendado
+antes de transferir a GD</a></li>
+<li><a href="#9-pantalla-4---control-manual-maniobras"
+id="toc-9-pantalla-4---control-manual-maniobras">9. Pantalla 4 - Control
+Manual (maniobras)</a></li>
+<li><a href="#91-condiciones-de-habilitacion-de-botones"
+id="toc-91-condiciones-de-habilitacion-de-botones">9.1 Condiciones de
+habilitacion de botones</a></li>
+<li><a href="#92-bloqueos-que-puede-mostrar"
+id="toc-92-bloqueos-que-puede-mostrar">9.2 Bloqueos que puede
+mostrar</a></li>
+<li><a href="#93-alcance-de-maniobra-manual-en-hmi"
+id="toc-93-alcance-de-maniobra-manual-en-hmi">9.3 Alcance de maniobra
+manual en HMI</a></li>
+<li><a href="#10-pantalla-5---parametros-del-sistema"
+id="toc-10-pantalla-5---parametros-del-sistema">10. Pantalla 5 -
+Parametros del Sistema</a></li>
+<li><a href="#101-parametros-que-mas-impactan-la-operacion"
+id="toc-101-parametros-que-mas-impactan-la-operacion">10.1 Parametros
+que mas impactan la operacion</a></li>
+<li><a href="#102-buenas-practicas" id="toc-102-buenas-practicas">10.2
+Buenas practicas</a></li>
+<li><a href="#11-pantalla-6---alarmas-y-eventos"
+id="toc-11-pantalla-6---alarmas-y-eventos">11. Pantalla 6 - Alarmas y
+Eventos</a></li>
+<li><a href="#111-uso-operativo" id="toc-111-uso-operativo">11.1 Uso
+operativo</a></li>
+<li><a href="#112-codigos-de-falla-mas-frecuentes"
+id="toc-112-codigos-de-falla-mas-frecuentes">11.2 Codigos de falla mas
+frecuentes</a></li>
+<li><a href="#12-procedimiento---transferencia-manual-red---gd1"
+id="toc-12-procedimiento---transferencia-manual-red---gd1">12.
+Procedimiento - Transferencia manual RED -&gt; GD1</a></li>
+<li><a href="#121-precondiciones" id="toc-121-precondiciones">12.1
+Precondiciones</a></li>
+<li><a href="#122-secuencia-recomendada"
+id="toc-122-secuencia-recomendada">12.2 Secuencia recomendada</a></li>
+<li><a href="#123-criterios-de-detencion"
+id="toc-123-criterios-de-detencion">12.3 Criterios de detencion</a></li>
+<li><a href="#13-procedimiento---transferencia-manual-gd---red"
+id="toc-13-procedimiento---transferencia-manual-gd---red">13.
+Procedimiento - Transferencia manual GD -&gt; RED</a></li>
+<li><a href="#131-precondiciones" id="toc-131-precondiciones">13.1
+Precondiciones</a></li>
+<li><a href="#132-secuencia-recomendada"
+id="toc-132-secuencia-recomendada">13.2 Secuencia recomendada</a></li>
+<li><a href="#14-operacion-en-auto-resumen-para-operador"
+id="toc-14-operacion-en-auto-resumen-para-operador">14. Operacion en
+AUTO (resumen para operador)</a></li>
+<li><a href="#141-comportamiento-esperado"
+id="toc-141-comportamiento-esperado">14.1 Comportamiento
+esperado</a></li>
+<li><a href="#142-que-debe-hacer-el-operador"
+id="toc-142-que-debe-hacer-el-operador">14.2 Que debe hacer el
+operador</a></li>
+<li><a href="#15-guia-rapida-de-diagnostico"
+id="toc-15-guia-rapida-de-diagnostico">15. Guia rapida de
+diagnostico</a></li>
+<li><a href="#16-checklist-operativo"
+id="toc-16-checklist-operativo">16. Checklist operativo</a></li>
+<li><a href="#161-antes-de-turno" id="toc-161-antes-de-turno">16.1 Antes
+de turno</a></li>
+<li><a href="#162-durante-evento" id="toc-162-durante-evento">16.2
+Durante evento</a></li>
+<li><a href="#163-cierre-de-evento" id="toc-163-cierre-de-evento">16.3
+Cierre de evento</a></li>
+<li><a href="#17-notas-para-capacitacion"
+id="toc-17-notas-para-capacitacion">17. Notas para capacitacion</a></li>
+<li><a href="#18-anexo-rapido---variables-clave-visibles-en-hmi"
+id="toc-18-anexo-rapido---variables-clave-visibles-en-hmi">18. Anexo
+rapido - Variables clave visibles en HMI</a></li>
+<li><a href="#19-cierre" id="toc-19-cierre">19. Cierre</a></li>
+</ul></li>
+</ul>
+</nav>
+
+<h1 id="manual-de-usuario-hmi">MANUAL DE USUARIO HMI</h1>
+<h2 id="tgbt-scmta-v40---operacion-de-pantallas-y-maniobras">TGBT SCMTA
+V4.0 - Operacion de Pantallas y Maniobras</h2>
+<p><strong>Proyecto:</strong> TGBT IND-26-PTE-15<br />
+<strong>Sistema:</strong> SCMTA (Sistema de Conmutacion Manual con
+Transferencia Automatica)<br />
+<strong>Base documental:</strong> DEFINICION_PANTALLAS_HMI_V4 + logica
+SCL real V4 + evidencia visual de pantallas
+(<code>03_DOCS/Untitled presentation.pdf</code>)<br />
+<strong>Version manual:</strong> 1.0<br />
+<strong>Fecha:</strong> 2026-03-24</p>
+<hr />
+<h2 id="1-objetivo-del-manual">1. Objetivo del manual</h2>
+<p>Este manual explica como operar el HMI del TGBT SCMTA en campo:</p>
+<ul>
+<li>Donde encontrar cada informacion clave.</li>
+<li>Como navegar pantalla por pantalla.</li>
+<li>Como operar en AUTO y en MANUAL.</li>
+<li>Como hacer una transferencia manual RED &lt;-&gt; GD.</li>
+<li>Como actuar frente a fallas, bloqueos e interlocks.</li>
+</ul>
+<p>El enfoque es operativo (operador/tecnico), no de programacion.</p>
+<hr />
+<h2 id="2-alcance-y-criterio-de-operacion-v4">2. Alcance y criterio de
+operacion V4</h2>
+<p>En V4 el control principal de interruptores se hace por E/S
+digitales:</p>
+<ul>
+<li>QT1, QG1, QG2 y Q22 se confirman por DI de posicion.</li>
+<li>Los comandos salen como pulsos DO de 300 ms.</li>
+<li>Modbus se usa para medidores PM5350P (lectura de calidad de red y
+potencia).</li>
+</ul>
+<p>Importante para operacion:</p>
+<ul>
+<li>Enclavamiento de fuente unica: no se permite cerrar dos fuentes a la
+vez.</li>
+<li>Modo AUTO: la secuencia la manda SCMTA.</li>
+<li>Modo MANUAL: los comandos manuales se arbitran y se bloquean si hay
+condiciones inseguras.</li>
+<li>Si un interruptor no esta en REMOTO, el comando desde HMI queda
+bloqueado.</li>
+</ul>
+<hr />
+<h2 id="3-roles-de-usuario-recomendados">3. Roles de usuario
+recomendados</h2>
+<table>
+<thead>
+<tr>
+<th>Rol</th>
+<th>Uso principal</th>
+<th>Pantallas</th>
+<th>Permisos recomendados</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Operador</td>
+<td>Supervisar estado y alarmas</td>
+<td>1, 2, 3, 6</td>
+<td>Solo lectura + ACK alarmas segun politica</td>
+</tr>
+<tr>
+<td>Tecnico</td>
+<td>Maniobras y ajustes</td>
+<td>Todas</td>
+<td>Maniobras manuales + parametros</td>
+</tr>
+<tr>
+<td>Administrador</td>
+<td>Mantenimiento y comisionamiento</td>
+<td>Todas</td>
+<td>Total</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-reglas-de-seguridad-antes-de-maniobrar">4. Reglas de seguridad
+antes de maniobrar</h2>
+<ol type="1">
+<li>Verificar permiso operativo y procedimiento interno de seguridad del
+sitio.</li>
+<li>Confirmar que los interruptores a maniobrar estan en REMOTO.</li>
+<li>Verificar en sinoptico que solo una fuente este cerrada
+(enclavamiento).</li>
+<li>Confirmar estado del generador antes de transferir a GD:
+<ul>
+<li>GD READY = TRUE</li>
+<li>GD RUNNING = TRUE</li>
+<li>GD ALARM = FALSE</li>
+</ul></li>
+<li>No operar en MANUAL sin necesidad operacional clara.</li>
+<li>Si hay FAULT activa, identificar codigo de falla antes de
+resetear.</li>
+</ol>
+<hr />
+<h2 id="5-mapa-de-navegacion-hmi">5. Mapa de navegacion HMI</h2>
+<table>
+<thead>
+<tr>
+<th>Pantalla</th>
+<th>Para que sirve</th>
+<th>Cuando usarla</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. Sinoptico Principal</td>
+<td>Vista general del sistema y fuente activa</td>
+<td>Monitoreo continuo</td>
+</tr>
+<tr>
+<td>2. Estado SCMTA</td>
+<td>Estado de maquina, flags y falla</td>
+<td>Diagnostico de secuencia</td>
+</tr>
+<tr>
+<td>3. Mediciones PM5350P</td>
+<td>Tensiones, frecuencia, potencia, comunicacion</td>
+<td>Verificar calidad de red/GD</td>
+</tr>
+<tr>
+<td>4. Control Manual</td>
+<td>Comandos de apertura/cierre en MANUAL</td>
+<td>Maniobra asistida</td>
+</tr>
+<tr>
+<td>5. Parametros del Sistema</td>
+<td>Umbrales y tiempos</td>
+<td>Ajustes tecnicos</td>
+</tr>
+<tr>
+<td>6. Alarmas y Eventos</td>
+<td>Alarmas activas, ACK y reset</td>
+<td>Atencion de eventos</td>
+</tr>
+</tbody>
+</table>
+<h2 id="51-validacion-visual-contra-pdf-de-pantallas">5.1 Validacion
+visual contra PDF de pantallas</h2>
+<p>Se valido este manual con el documento visual de referencia:</p>
+<ul>
+<li><code>03_DOCS/Untitled presentation.pdf</code> (9 paginas de
+pantallas HMI)</li>
+</ul>
+<p>Puntos de coherencia confirmados con ese PDF:</p>
+<ul>
+<li>Uso de estados de color para condicion de interruptores y permisos
+de operacion.</li>
+<li>Restriccion de operacion remota cuando el selector no esta en
+REMOTO.</li>
+<li>Navegacion por modo (AUTO/MANUAL), pantalla de parametros,
+mediciones y alarmas.</li>
+<li>Logica de operacion manual por botones de abrir/cerrar condicionada
+al modo y permisos.</li>
+</ul>
+<p>Si en campo hubiera diferencia entre HMI cargado y este manual,
+prevalece la pantalla en runtime y se debe registrar la discrepancia
+para actualizar este documento.</p>
+<hr />
+<h2 id="6-pantalla-1---sinoptico-principal-lectura-rapida">6. Pantalla 1
+- Sinoptico Principal (lectura rapida)</h2>
+<h2 id="61-que-mirar-primero-orden-recomendado">6.1 Que mirar primero
+(orden recomendado)</h2>
+<ol type="1">
+<li>Modo actual: AUTO o MANUAL.</li>
+<li>Fuente activa:
+<ul>
+<li>IS_ON_GRID = en red.</li>
+<li>IS_ON_GD = en generador.</li>
+</ul></li>
+<li>Estado textual SCMTA (STATE_NAME).</li>
+<li>Codigo de falla (si existe).</li>
+<li>Estado visual de QT1, QG1, QG2, Q22.</li>
+</ol>
+<h2 id="62-como-interpretar-colores-de-interruptores">6.2 Como
+interpretar colores de interruptores</h2>
+<table>
+<thead>
+<tr>
+<th>Condicion</th>
+<th>Significado operativo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Verde solido</td>
+<td>Cerrado sin falla</td>
+</tr>
+<tr>
+<td>Gris solido</td>
+<td>Abierto sin falla</td>
+</tr>
+<tr>
+<td>Rojo parpadeante</td>
+<td>Falla del interruptor</td>
+</tr>
+<tr>
+<td>Naranja (sin remoto)</td>
+<td>Bloqueado para mando remoto</td>
+</tr>
+</tbody>
+</table>
+<h2 id="63-dato-clave-de-decision">6.3 Dato clave de decision</h2>
+<p>Si estas por maniobrar manualmente, desde esta pantalla validas:</p>
+<ul>
+<li>Que no haya alarma activa critica.</li>
+<li>Que la fuente actual sea la esperada.</li>
+<li>Que el equipo a operar tenga REMOTO habilitado.</li>
+</ul>
+<hr />
+<h2 id="7-pantalla-2---estado-scmta-diagnostico-de-secuencia">7.
+Pantalla 2 - Estado SCMTA (diagnostico de secuencia)</h2>
+<p>Esta pantalla es la referencia para entender que esta haciendo la
+logica automatica.</p>
+<h2 id="71-campos-clave">7.1 Campos clave</h2>
+<table>
+<thead>
+<tr>
+<th>Campo</th>
+<th>Que indica</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>STATE_NAME</td>
+<td>Estado actual de la maquina de transferencia</td>
+</tr>
+<tr>
+<td>ELAPSED_TIME</td>
+<td>Tiempo en el estado actual</td>
+</tr>
+<tr>
+<td>FAULT_CODE</td>
+<td>Codigo de falla actual</td>
+</tr>
+<tr>
+<td>MODE_AUTO</td>
+<td>Seleccion AUTO/MANUAL</td>
+</tr>
+<tr>
+<td>GRID_OK / GRID_FAIL</td>
+<td>Calidad de red evaluada por logica</td>
+</tr>
+<tr>
+<td>IS_IN_TRANSFER</td>
+<td>Secuencia de conmutacion en curso</td>
+</tr>
+<tr>
+<td>IS_ON_GRID / IS_ON_GD</td>
+<td>Fuente activa</td>
+</tr>
+</tbody>
+</table>
+<h2 id="72-estados-operativos-mas-importantes">7.2 Estados operativos
+mas importantes</h2>
+<table>
+<thead>
+<tr>
+<th>Estado</th>
+<th>Significado practico</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NORMAL_ON_GRID</td>
+<td>Operacion estable en red</td>
+</tr>
+<tr>
+<td>GRID_FAIL_OPEN_QT1</td>
+<td>Inicio transferencia por falla de red</td>
+</tr>
+<tr>
+<td>WAIT_GD1_READY / WAIT_GD2_READY</td>
+<td>Espera disponibilidad de generador</td>
+</tr>
+<tr>
+<td>CLOSE_QG1 / CLOSE_QG2</td>
+<td>Cierre de fuente GD</td>
+</tr>
+<tr>
+<td>ON_GD1 / ON_GD2</td>
+<td>Operacion estable en generador</td>
+</tr>
+<tr>
+<td>WAIT_GRID_STABLE</td>
+<td>Espera red estable para retorno</td>
+</tr>
+<tr>
+<td>CLOSE_QT1</td>
+<td>Retorno a red en proceso</td>
+</tr>
+<tr>
+<td>FAULT_LOCKOUT</td>
+<td>Bloqueo por falla; requiere atencion</td>
+</tr>
+</tbody>
+</table>
+<h2 id="73-cuando-usar-reset-falla">7.3 Cuando usar RESET FALLA</h2>
+<p>Usar RESET FALLA solo cuando:</p>
+<ol type="1">
+<li>Ya se identifico y corrigio la causa.</li>
+<li>Las condiciones de red/fuente son seguras.</li>
+<li>El personal de operacion autoriza reintento.</li>
+</ol>
+<hr />
+<h2 id="8-pantalla-3---mediciones-pm5350p">8. Pantalla 3 - Mediciones
+PM5350P</h2>
+<h2 id="81-donde-ver-calidad-de-red">8.1 Donde ver calidad de red</h2>
+<p>La referencia principal de red es C02 (RED):</p>
+<ul>
+<li>V L1-L2, V L2-L3, V L3-L1</li>
+<li>FREQ</li>
+<li>COMM_OK</li>
+</ul>
+<h2 id="82-como-interpretar-en-operacion">8.2 Como interpretar en
+operacion</h2>
+<ol type="1">
+<li>Si GRID_MEAS_OK = TRUE, SCMTA usa medicion PM5350 para calidad de
+red.</li>
+<li>Si GRID_MEAS_OK = FALSE, la logica usa respaldo por DI UV/OV.</li>
+<li>Si COMM de un medidor esta en OFF, tratar la lectura como no
+confiable para decision operativa.</li>
+</ol>
+<h2 id="83-uso-recomendado-antes-de-transferir-a-gd">8.3 Uso recomendado
+antes de transferir a GD</h2>
+<ul>
+<li>Confirmar que la red realmente esta fuera de rango o inestable, o
+que la transferencia manual es requerida por procedimiento.</li>
+<li>Confirmar mediciones validas del tablero asociado al GD objetivo (si
+aplica).</li>
+</ul>
+<hr />
+<h2 id="9-pantalla-4---control-manual-maniobras">9. Pantalla 4 - Control
+Manual (maniobras)</h2>
+<p>Disponible solo en modo MANUAL.</p>
+<h2 id="91-condiciones-de-habilitacion-de-botones">9.1 Condiciones de
+habilitacion de botones</h2>
+<p>Un comando solo se ejecuta si se cumplen todas las condiciones:</p>
+<ol type="1">
+<li>MODE_MANUAL = TRUE</li>
+<li>Interruptor objetivo en REMOTO</li>
+<li>Sin conflicto OPEN+CLOSE simultaneo</li>
+<li>Sin violacion de enclavamiento de fuente unica</li>
+</ol>
+<h2 id="92-bloqueos-que-puede-mostrar">9.2 Bloqueos que puede
+mostrar</h2>
+<table>
+<thead>
+<tr>
+<th>Bloqueo</th>
+<th>Causa tipica</th>
+<th>Accion</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BLOCK_LOCAL</td>
+<td>Interruptor en LOCAL</td>
+<td>Pasar selector a REMOTO</td>
+</tr>
+<tr>
+<td>BLOCK_INTERLOCK</td>
+<td>Cierre inseguro por otra fuente cerrada</td>
+<td>Abrir primero la fuente activa que bloquea</td>
+</tr>
+<tr>
+<td>BLOCK_CONFLICT</td>
+<td>Se pidio abrir y cerrar a la vez</td>
+<td>Repetir comando unico</td>
+</tr>
+</tbody>
+</table>
+<h2 id="93-alcance-de-maniobra-manual-en-hmi">9.3 Alcance de maniobra
+manual en HMI</h2>
+<p>Comandos manuales disponibles en HMI V4:</p>
+<ul>
+<li>ABRIR/CERRAR QT1</li>
+<li>ABRIR/CERRAR QG1</li>
+<li>ABRIR/CERRAR QG2 (si ENABLE_QG2)</li>
+<li>ABRIR/CERRAR Q22</li>
+</ul>
+<p>Nota operativa:</p>
+<ul>
+<li>El estado de GD (READY/RUNNING/ALARM) se monitorea en HMI.</li>
+<li>Si el arranque/parada de GD no esta implementado como comando HMI en
+tu proyecto de panel, hacerlo desde el sistema del generador segun
+procedimiento de planta.</li>
+</ul>
+<hr />
+<h2 id="10-pantalla-5---parametros-del-sistema">10. Pantalla 5 -
+Parametros del Sistema</h2>
+<p>Pantalla de uso tecnico.</p>
+<h2 id="101-parametros-que-mas-impactan-la-operacion">10.1 Parametros
+que mas impactan la operacion</h2>
+<table>
+<thead>
+<tr>
+<th>Parametro</th>
+<th>Efecto en campo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T_GRID_FAIL_FILTER</td>
+<td>Evita transferencias por perturbaciones breves</td>
+</tr>
+<tr>
+<td>T_GD_READY_TIMEOUT</td>
+<td>Tiempo maximo de espera de GD listo</td>
+</tr>
+<tr>
+<td>T_GRID_STABLE</td>
+<td>Tiempo de red estable antes del retorno</td>
+</tr>
+<tr>
+<td>T_CMD_PULSE</td>
+<td>Duracion del pulso de mando a interruptor</td>
+</tr>
+<tr>
+<td>ENABLE_QG2</td>
+<td>Habilita o deshabilita camino GD2</td>
+</tr>
+<tr>
+<td>ENABLE_SCMTA</td>
+<td>Habilita automatismo de transferencia</td>
+</tr>
+</tbody>
+</table>
+<h2 id="102-buenas-practicas">10.2 Buenas practicas</h2>
+<ol type="1">
+<li>Cambiar parametros solo por personal autorizado.</li>
+<li>Registrar valor anterior y valor nuevo (trazabilidad).</li>
+<li>Probar cambios en ventana controlada cuando sea posible.</li>
+<li>No modificar multiples tiempos criticos al mismo tiempo durante una
+emergencia.</li>
+</ol>
+<hr />
+<h2 id="11-pantalla-6---alarmas-y-eventos">11. Pantalla 6 - Alarmas y
+Eventos</h2>
+<h2 id="111-uso-operativo">11.1 Uso operativo</h2>
+<ol type="1">
+<li>Detectar alarma activa.</li>
+<li>Leer codigo y descripcion.</li>
+<li>Ejecutar accion correctiva en campo.</li>
+<li>Reconocer alarma (ACK).</li>
+<li>Resetear falla solo cuando corresponda.</li>
+</ol>
+<h2 id="112-codigos-de-falla-mas-frecuentes">11.2 Codigos de falla mas
+frecuentes</h2>
+<table>
+<thead>
+<tr>
+<th>Codigo</th>
+<th>Diagnostico rapido</th>
+<th>Accion recomendada</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>101</td>
+<td>QT1 no abrio en tiempo</td>
+<td>Revisar remoto, mecanismo y confirmacion DI</td>
+</tr>
+<tr>
+<td>102</td>
+<td>GD1 no listo en tiempo</td>
+<td>Revisar arranque, combustible, alarmas GD</td>
+</tr>
+<tr>
+<td>103</td>
+<td>QG1 no cerro en tiempo</td>
+<td>Revisar interlock y estado del interruptor</td>
+</tr>
+<tr>
+<td>105</td>
+<td>QT1 no cerro en retorno</td>
+<td>Revisar remoto/permiso y estado mecanico</td>
+</tr>
+<tr>
+<td>111</td>
+<td>QT1 no en remoto</td>
+<td>Poner QT1 en REMOTO</td>
+</tr>
+<tr>
+<td>112</td>
+<td>QG1 no en remoto</td>
+<td>Poner QG1 en REMOTO</td>
+</tr>
+<tr>
+<td>202</td>
+<td>GD2 no listo en tiempo</td>
+<td>Revisar disponibilidad GD2</td>
+</tr>
+<tr>
+<td>203</td>
+<td>QG2 no cerro en tiempo</td>
+<td>Revisar QG2 e interlocks</td>
+</tr>
+<tr>
+<td>209</td>
+<td>Ambos GD no disponibles</td>
+<td>Intervencion tecnica prioritaria</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="12-procedimiento---transferencia-manual-red---gd1">12.
+Procedimiento - Transferencia manual RED -&gt; GD1</h2>
+<p>Este procedimiento se usa cuando se decide maniobra manual asistida
+por HMI.</p>
+<h2 id="121-precondiciones">12.1 Precondiciones</h2>
+<ol type="1">
+<li>Permiso de maniobra autorizado.</li>
+<li>Modo del sistema en MANUAL.</li>
+<li>QT1, QG1 y Q22 en REMOTO.</li>
+<li>Sin alarma activa que impida maniobra segura.</li>
+<li>GD1 disponible (READY/RUNNING sin ALARM).</li>
+</ol>
+<h2 id="122-secuencia-recomendada">12.2 Secuencia recomendada</h2>
+<ol type="1">
+<li>Desde pantalla 2, confirmar MODE_MANUAL = TRUE.</li>
+<li>Desde pantalla 1 o 4, verificar QT1 actualmente cerrado (si se esta
+en red).</li>
+<li>En pantalla 4, ejecutar ABRIR QT1.</li>
+<li>Confirmar por DI que QT1 quedo abierto.</li>
+<li>Ejecutar ABRIR Q22 (segun estrategia de acople de tu tablero).</li>
+<li>Confirmar GD1 en marcha estable (READY + RUNNING).</li>
+<li>Ejecutar CERRAR QG1.</li>
+<li>Confirmar QG1 cerrado.</li>
+<li>Verificar estado global:
+<ul>
+<li>IS_ON_GD = TRUE</li>
+<li>IS_ON_GRID = FALSE</li>
+</ul></li>
+<li>Registrar hora y resultado de maniobra.</li>
+</ol>
+<h2 id="123-criterios-de-detencion">12.3 Criterios de detencion</h2>
+<p>Detener maniobra y pasar a diagnostico si ocurre cualquiera de
+estos:</p>
+<ul>
+<li>BLOCK_INTERLOCK persistente.</li>
+<li>Falla de interruptor (rojo parpadeante / codigo activo).</li>
+<li>Perdida de remoto en equipo objetivo.</li>
+<li>Condicion anomala de generador.</li>
+</ul>
+<hr />
+<h2 id="13-procedimiento---transferencia-manual-gd---red">13.
+Procedimiento - Transferencia manual GD -&gt; RED</h2>
+<h2 id="131-precondiciones">13.1 Precondiciones</h2>
+<ol type="1">
+<li>Red disponible y estable segun mediciones.</li>
+<li>Modo MANUAL activo.</li>
+<li>QT1 y QG1 en REMOTO.</li>
+<li>Sin falla bloqueante activa.</li>
+</ol>
+<h2 id="132-secuencia-recomendada">13.2 Secuencia recomendada</h2>
+<ol type="1">
+<li>En pantalla 3, validar calidad de red (tension/frecuencia en
+rango).</li>
+<li>En pantalla 4, ejecutar ABRIR QG1 (o QG2 si estaba activo).</li>
+<li>Confirmar interruptor GD abierto.</li>
+<li>Ejecutar CERRAR QT1.</li>
+<li>Confirmar QT1 cerrado.</li>
+<li>Ejecutar CERRAR Q22 si tu esquema lo requiere al retorno.</li>
+<li>Verificar estado global:
+<ul>
+<li>IS_ON_GRID = TRUE</li>
+<li>IS_ON_GD = FALSE</li>
+</ul></li>
+<li>Confirmar que GD queda en condicion definida por procedimiento de
+planta.</li>
+</ol>
+<hr />
+<h2 id="14-operacion-en-auto-resumen-para-operador">14. Operacion en
+AUTO (resumen para operador)</h2>
+<h2 id="141-comportamiento-esperado">14.1 Comportamiento esperado</h2>
+<ol type="1">
+<li>En red normal: estado NORMAL_ON_GRID.</li>
+<li>Si falla red (filtrada): abre QT1, abre Q22, arranca GD y cierra
+QGx.</li>
+<li>En retorno: espera red estable, abre GD activo, cierra QT1, cierra
+Q22 y pasa a cooldown.</li>
+</ol>
+<h2 id="142-que-debe-hacer-el-operador">14.2 Que debe hacer el
+operador</h2>
+<ul>
+<li>Supervisar, no intervenir salvo contingencia.</li>
+<li>Validar que la secuencia avance por estados coherentes.</li>
+<li>Atender alarmas y escalar si queda en FAULT_LOCKOUT.</li>
+</ul>
+<hr />
+<h2 id="15-guia-rapida-de-diagnostico">15. Guia rapida de
+diagnostico</h2>
+<table>
+<thead>
+<tr>
+<th>Sintoma</th>
+<th>Donde mirar</th>
+<th>Posible causa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No deja cerrar QT1/QG1/QG2</td>
+<td>Pantalla 4 + bloqueos</td>
+<td>Interlock activo o equipo en LOCAL</td>
+</tr>
+<tr>
+<td>Se queda en WAIT_GD_READY</td>
+<td>Pantalla 2 + estado GD</td>
+<td>GD no alcanza READY/RUNNING</td>
+</tr>
+<tr>
+<td>Vuelve a GD durante retorno</td>
+<td>Pantalla 2 (WAIT_GRID_STABLE)</td>
+<td>Red inestable (GRID_OK no sostenido)</td>
+</tr>
+<tr>
+<td>No responde comando manual</td>
+<td>Pantalla 4 + REMOTO + alarmas</td>
+<td>BLOCK_LOCAL, conflicto o falla activa</td>
+</tr>
+<tr>
+<td>Alarmas recurrentes de timeout</td>
+<td>Pantalla 6 + parametros</td>
+<td>Tiempos cortos o confirmacion DI deficiente</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="16-checklist-operativo">16. Checklist operativo</h2>
+<h2 id="161-antes-de-turno">16.1 Antes de turno</h2>
+<ol type="1">
+<li>Verificar estado sinoptico general.</li>
+<li>Confirmar ausencia de fallas activas no resueltas.</li>
+<li>Validar comunicacion PM5350 (si aplica).</li>
+</ol>
+<h2 id="162-durante-evento">16.2 Durante evento</h2>
+<ol type="1">
+<li>Confirmar modo de operacion correcto.</li>
+<li>Ejecutar maniobra segun secuencia aprobada.</li>
+<li>Verificar feedback DI tras cada comando.</li>
+</ol>
+<h2 id="163-cierre-de-evento">16.3 Cierre de evento</h2>
+<ol type="1">
+<li>Confirmar fuente final correcta.</li>
+<li>Revisar historial de alarmas/eventos.</li>
+<li>Registrar incidencia y acciones realizadas.</li>
+</ol>
+<hr />
+<h2 id="17-notas-para-capacitacion">17. Notas para capacitacion</h2>
+<p>Se recomienda formar a operadores con tres ejercicios:</p>
+<ol type="1">
+<li>Recorrido completo de pantallas y tags criticos.</li>
+<li>Simulacion de transferencia manual RED -&gt; GD.</li>
+<li>Simulacion de falla con FAULT_LOCKOUT y recuperacion
+controlada.</li>
+</ol>
+<hr />
+<h2 id="18-anexo-rapido---variables-clave-visibles-en-hmi">18. Anexo
+rapido - Variables clave visibles en HMI</h2>
+<table>
+<thead>
+<tr>
+<th>Categoria</th>
+<th>Variables clave</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Modo</td>
+<td>MODE_AUTO, MODE_MANUAL</td>
+</tr>
+<tr>
+<td>Fuente activa</td>
+<td>IS_ON_GRID, IS_ON_GD, IS_ON_GD1, IS_ON_GD2</td>
+</tr>
+<tr>
+<td>Calidad de red</td>
+<td>GRID_OK, GRID_FAIL, GRID_MEASUREMENT_OK, GRID_FREQ</td>
+</tr>
+<tr>
+<td>Estado SCMTA</td>
+<td>SCMTA_STATE, SCMTA_STATE_NAME, ELAPSED_TIME</td>
+</tr>
+<tr>
+<td>Fallas</td>
+<td>IS_FAULT, FAULT_CODE, HMI_ALARM_ACTIVE, HMI_ALARM_TEXT</td>
+</tr>
+<tr>
+<td>Bloqueos</td>
+<td>BLOCK_LOCAL, BLOCK_INTERLOCK, BLOCK_CONFLICT</td>
+</tr>
+<tr>
+<td>Maniobra manual</td>
+<td>REQ_MAN_QT1_<em>, REQ_MAN_QG1_</em>, REQ_MAN_QG2_<em>,
+REQ_MAN_Q22_</em></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="19-cierre">19. Cierre</h2>
+<p>Este manual esta pensado para operacion diaria y contingencias
+reales.<br />
+Si quieres, el siguiente paso es convertir este contenido en:</p>
+<ol type="1">
+<li>Version PDF para impresion (operador en sala electrica).</li>
+<li>Version resumida de 2 paginas (chuleta de maniobras).</li>
+<li>Version tipo presentacion para capacitacion de turno.</li>
+</ol>
+
+<div class="doc-footer">
+  <span>TGBT SCMTA · Manual de Usuario HMI</span>
+  <span>Proyecto IND-26-PTE-15</span>
+</div>
+</div>
+</body>
+</html>

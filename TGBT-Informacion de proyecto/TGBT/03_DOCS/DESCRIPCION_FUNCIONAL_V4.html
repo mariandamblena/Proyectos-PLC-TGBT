@@ -147,7 +147,7 @@
   <div class="badge">DESCRIPCIÓN FUNCIONAL</div>
   <table class="cover-table">
     <tr><td>Versión</td><td>4.0</td></tr>
-    <tr><td>Fecha</td><td>4 de marzo de 2026</td></tr>
+    <tr><td>Fecha</td><td>24 de marzo de 2026 (actualizado)</td></tr>
     <tr><td>Plataforma</td><td>Siemens TIA Portal V18 · S7-1215C</td></tr>
     <tr><td>Lenguaje</td><td>SCL (Structured Control Language)</td></tr>
     <tr><td>Estado</td><td>Desarrollo — compilado sin errores</td></tr>
@@ -199,13 +199,13 @@
   <tr><td><code>%I1.2</code></td><td>QG2_CLOSED</td><td>Posición QG2 cerrado</td></tr>
   <tr><td><code>%I1.3</code></td><td>QG2_FAULT</td><td>Falla QG2</td></tr>
   <tr><td><code>%I1.4</code></td><td>QG2_UV_OV_DI</td><td>Alarma UV/OV QG2</td></tr>
-  <tr><td><code>%I1.5</code></td><td>GD1_READY</td><td>GD1 listo para arrancar</td></tr>
-  <tr><td><code>%I8.0</code></td><td>GD1_RUNNING</td><td>GD1 en marcha</td></tr>
-  <tr><td><code>%I8.1</code></td><td>GD1_ALARM</td><td>Alarma GD1</td></tr>
-  <tr><td><code>%I8.2</code></td><td>GD2_READY</td><td>GD2 listo</td></tr>
-  <tr><td><code>%I8.3</code></td><td>GD2_RUNNING</td><td>GD2 en marcha</td></tr>
-  <tr><td><code>%I8.4</code></td><td>GD2_ALARM</td><td>Alarma GD2</td></tr>
-  <tr><td><code>%I8.5</code></td><td>Q22_REMOTE</td><td>Q22 en modo remoto</td></tr>
+  <tr><td><code>%I8.2</code></td><td>GD1_READY</td><td>GD1 listo para arrancar</td></tr>
+  <tr><td><code>%I8.3</code></td><td>GD1_RUNNING</td><td>GD1 en marcha</td></tr>
+  <tr><td><code>%I8.4</code></td><td>GD1_ALARM</td><td>Alarma GD1</td></tr>
+  <tr><td><code>%I8.5</code></td><td>GD2_READY</td><td>GD2 listo</td></tr>
+  <tr><td><code>%I8.6</code></td><td>GD2_RUNNING</td><td>GD2 en marcha</td></tr>
+  <tr><td><code>%I8.7</code></td><td>GD2_ALARM</td><td>Alarma GD2</td></tr>
+  <tr><td><code>%I1.5</code></td><td>Q22_REMOTE</td><td>Q22 en modo remoto</td></tr>
   <tr><td><code>%Q0.0</code></td><td>DO_QT1_CLOSE_CMD</td><td>Pulso cierre QT1 (300 ms)</td></tr>
   <tr><td><code>%Q0.1</code></td><td>DO_QT1_OPEN_CMD</td><td>Pulso apertura QT1 (300 ms)</td></tr>
   <tr><td><code>%Q0.2</code></td><td>DO_QG1_CLOSE_CMD</td><td>Pulso cierre QG1 (300 ms)</td></tr>
@@ -319,13 +319,13 @@
 </table>
 
 <h2 class="sub">4.6 Monitoreo Modbus (PM5350P)</h2>
-<p>El FB_MODBUS_MANAGER realiza un polling round-robin de los 7 medidores (Slave ID 10–16), con una sola lectura de 120 registros FLOAT32 por dispositivo. El ciclo de poll completo es de 1 segundo por dispositivo.</p>
+<p>El FB_MODBUS_MANAGER realiza un polling round-robin de los 7 medidores (Slave ID 1–7), con una sola lectura de 120 registros FLOAT32 por dispositivo. El ciclo de poll completo es de 1 segundo por dispositivo.</p>
 <table>
   <tr><th>Índice</th><th>Slave ID</th><th>Tablero</th><th>Uso en SCMTA</th></tr>
-  <tr><td>1</td><td>10</td><td>C02 / QT1</td><td><span class="chip chip-blue">Fuente principal detección falla RED</span></td></tr>
-  <tr><td>2</td><td>11</td><td>C01 GD1 / QG1</td><td>Monitoreo potencia GD1, cálculo %carga</td></tr>
-  <tr><td>3</td><td>12</td><td>C01 GD2 / QG2</td><td>Monitoreo potencia GD2</td></tr>
-  <tr><td>4–7</td><td>13–16</td><td>C03, C04, C05, C06</td><td>Monitoreo feeders (solo lectura)</td></tr>
+  <tr><td>1</td><td>1</td><td>C02 / QT1</td><td><span class="chip chip-blue">Fuente principal detección falla RED</span></td></tr>
+  <tr><td>2</td><td>2</td><td>C01 GD1 / QG1</td><td>Monitoreo potencia GD1, cálculo %carga</td></tr>
+  <tr><td>3</td><td>3</td><td>C01 GD2 / QG2</td><td>Monitoreo potencia GD2</td></tr>
+  <tr><td>4–7</td><td>4–7</td><td>C03, C04, C05, C06</td><td>Monitoreo feeders (solo lectura)</td></tr>
 </table>
 
 <h2 class="sub">4.7 Modos de operación</h2>
@@ -493,9 +493,9 @@ stateDiagram-v2
   <tr><th>#</th><th>Ítem</th><th>Archivo a modificar</th><th>Estado</th></tr>
   <tr>
     <td>1</td>
-    <td>Conectar DI de posición Q22 (<code>Q22_CLOSED</code>). Actualmente fijo en FALSE — el sistema envía el pulso y sigue por timeout.</td>
-    <td><code>10_OB1_MAIN.scl</code> línea Q22_CLOSED</td>
-    <td><span class="chip chip-orange">Pendiente</span></td>
+    <td>DI de posición Q22 (<code>Q22_CLOSED</code>) ya mapeada en OB1 como <code>%I8.0</code>. Mantener verificación de cableado y polaridad en campo.</td>
+    <td><code>10_OB1_MAIN.scl</code></td>
+    <td><span class="chip chip-green">Implementado (validar en campo)</span></td>
   </tr>
   <tr>
     <td>2</td>
@@ -517,7 +517,7 @@ stateDiagram-v2
   </tr>
   <tr>
     <td>5</td>
-    <td>Verificar Slave IDs Modbus (10–16) contra cableado físico del panel RS-485.</td>
+    <td>Verificar Slave IDs Modbus (1–7) contra cableado físico del panel RS-485.</td>
     <td><code>09_DB_PARAMS.scl</code></td>
     <td><span class="chip chip-orange">Pendiente comisionamiento</span></td>
   </tr>

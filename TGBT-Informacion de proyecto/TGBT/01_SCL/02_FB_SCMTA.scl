@@ -301,6 +301,10 @@ BEGIN
         IF #QT1_FAULT THEN
             #faultCodeLatch := #FAULT_TIMEOUT_OPEN_QT1;
             #STATE := #ST_FAULT_LOCKOUT;
+        ELSIF #MODE_AUTO AND #GRID_OK AND NOT #QT1_CLOSED THEN
+            // Recuperacion en servicio: si pasan a AUTO con QT1 abierto,
+            // intentar reconectar RED cerrando QT1.
+            #STATE := #ST_CLOSE_QT1;
         ELSIF #MODE_AUTO AND #GRID_FAIL THEN
             #STATE := #ST_GRID_FAIL_DETECTED;
         END_IF;

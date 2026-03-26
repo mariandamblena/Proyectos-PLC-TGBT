@@ -11,7 +11,6 @@
 // ============================================================
 { S7_Optimized_Access := 'FALSE' }
 VERSION : 0.1
-NON_RETAIN
    STRUCT 
       // ---- PARAMETROS TENSION/FRECUENCIA RED ----
       V_NOM : Real := 380.0;       // Tensión nominal línea-línea [V]

@@ -46,6 +46,10 @@
 | **LISTADO_EQUIPOS.md** | 39 equipos del tablero, tipos a/b/c/d, mapeo índices [1..19] | Todos |
 | **LISTADO_IO.md** | Mapeo completo DI/DO/%I/%Q, Modbus, HMI, módulos expansión | Programador |
 | **README_SCMTA.md** | Documentación técnica master (~30 páginas, 15 secciones) | Programador |
+| **MANUAL_USUARIO_HMI_SCMTA_V4.md** | Manual operativo detallado de pantallas HMI y maniobras manuales/auto | Operador / Tecnico |
+| **MANUAL_USUARIO_HMI_SCMTA_V4.html** | Manual de usuario en formato HTML para visualización en navegador | Operador / Tecnico |
+| **MANUAL_USUARIO_HMI_SCMTA_V4.pdf** | Manual de usuario en formato PDF para impresión/distribución | Operador / Tecnico |
+| **GUIA_OPERADOR_TURNO_SCMTA_V4.md** | Guía rápida de turno con checks, maniobras y respuesta a alarmas | Operador de Turno |
 
 ### Documentos de Referencia
 
@@ -57,6 +61,7 @@
 | GUIA_COMPLETA_SCL_LADDER.md | Comparación SCL vs LADDER, recomendaciones | Decisión |
 | INTRODUCCION_TECNICA_INGENIERO.md | Guía onboarding ingeniero nuevo (plan 20 días) | Nuevo miembro |
 | VALIDACION_SCL_TIA_V18.md | Validación compatibilidad código SCL con TIA V18 | QA |
+| DESCRIPCION_FUNCIONAL_V4.html | Descripción funcional del sistema V4 actualizada | Todos |
 | INDEX.md | **Este archivo** | Todos |
 
 ---

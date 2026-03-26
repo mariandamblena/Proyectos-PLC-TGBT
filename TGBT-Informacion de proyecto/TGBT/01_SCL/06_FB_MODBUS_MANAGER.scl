@@ -30,6 +30,9 @@ VERSION : 0.1
    END_VAR
 
    VAR_OUTPUT
+        PM_I_L1        : Array[1..7] of Real;
+        PM_I_L2        : Array[1..7] of Real;
+        PM_I_L3        : Array[1..7] of Real;
       PM_V_L1L2      : Array[1..7] of Real;
       PM_V_L2L3      : Array[1..7] of Real;
       PM_V_L3L1      : Array[1..7] of Real;
@@ -168,12 +171,24 @@ BEGIN
             // Fuente: PM51xx_PM53xx_PMC Register List (Schneider)
             // Todos los valores son FLOAT32 (2 words, big-endian: high word primero)
             // Mapa de offsets (offset = registro - 3000):
+            //   [0..1]   reg 3000  Current A (I_L1)      [A]
+            //   [2..3]   reg 3002  Current B (I_L2)      [A]
+            //   [4..5]   reg 3004  Current C (I_L3)      [A]
             //   [20..21] reg 3020  V_L1L2 (Voltage A-B)  [V]
             //   [22..23] reg 3022  V_L2L3 (Voltage B-C)  [V]
             //   [24..25] reg 3024  V_L3L1 (Voltage C-A)  [V]
             //   [60..61] reg 3060  Active Power Total     [kW]
             //   [110..111] reg 3110  Frequency            [Hz]
             // -----------------------------------------------------------------
+            #PM_I_L1[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[0]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[1]));
+            #PM_I_L2[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[2]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[3]));
+            #PM_I_L3[#pollIndex] := DWORD_TO_REAL(
+                SHL(IN := WORD_TO_DWORD(#rxBuffer[4]), N := 16)
+                OR  WORD_TO_DWORD(#rxBuffer[5]));
             #PM_V_L1L2[#pollIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[20]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[21]));

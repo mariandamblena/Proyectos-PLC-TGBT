@@ -184,16 +184,16 @@ Lecturas de los 7 medidores PM5350P conectados via Modbus RTU. Permite verificar
 │  ◄ INICIO     MEDICIONES PM5350P                   Estado Modbus:  │
 │                                                    [COMM: OK ●]    │
 ├──────────┬──────────┬──────────┬──────────┬────────────────────────┤
-│ Tablero  │ V L1-L2  │ V L2-L3  │ V L3-L1  │  FREQ    P_TOTAL  COM │
-├──────────┼──────────┼──────────┼──────────┼──────────┬───────┬─────┤
-│ C02 (RED)│  4160 V  │  4160 V  │  4160 V  │  60.0 Hz │ --- kW│ ● │
-│ C01-GD1  │  4140 V  │  4142 V  │  4138 V  │  59.9 Hz │  85 kW│ ● │
-│ C01-GD2  │   --- V  │   --- V  │   --- V  │  --- Hz  │ --- kW│ ○ │
-│ C03      │  4158 V  │  4160 V  │  4159 V  │  60.0 Hz │  40 kW│ ● │
-│ C04      │  4155 V  │  4157 V  │  4156 V  │  60.0 Hz │  55 kW│ ● │
-│ C05      │  4150 V  │  4153 V  │  4152 V  │  60.0 Hz │  30 kW│ ● │
-│ C06/Q22  │  4145 V  │  4148 V  │  4147 V  │  59.9 Hz │  20 kW│ ● │
-└──────────┴──────────┴──────────┴──────────┴──────────┴───────┴─────┘
+│ Tablero  │ I L1 │ I L2 │ I L3 │ V L1-L2 │ V L2-L3 │ V L3-L1 │ FREQ │ P_TOTAL │ COM │
+├──────────┼──────┼──────┼──────┼─────────┼─────────┼─────────┼──────┼─────────┼─────┤
+│ C02 (RED)│ 120A │ 118A │ 121A │ 4160 V  │ 4160 V  │ 4160 V  │ 60.0 │ --- kW  │ ●   │
+│ C01-GD1  │  82A │  79A │  81A │ 4140 V  │ 4142 V  │ 4138 V  │ 59.9 │  85 kW  │ ●   │
+│ C01-GD2  │  --- │  --- │  --- │ --- V   │ --- V   │ --- V   │ ---  │ --- kW  │ ○   │
+│ C03      │  45A │  44A │  46A │ 4158 V  │ 4160 V  │ 4159 V  │ 60.0 │  40 kW  │ ●   │
+│ C04      │  58A │  56A │  57A │ 4155 V  │ 4157 V  │ 4156 V  │ 60.0 │  55 kW  │ ●   │
+│ C05      │  33A │  32A │  34A │ 4150 V  │ 4153 V  │ 4152 V  │ 60.0 │  30 kW  │ ●   │
+│ C06/Q22  │  24A │  23A │  25A │ 4145 V  │ 4148 V  │ 4147 V  │ 59.9 │  20 kW  │ ●   │
+└──────────┴──────┴──────┴──────┴─────────┴─────────┴─────────┴──────┴─────────┴─────┘
                                                   ● = Comunicación OK
                                                   ○ = Sin comunicación
 
@@ -205,12 +205,33 @@ Lecturas de los 7 medidores PM5350P conectados via Modbus RTU. Permite verificar
 | Elemento | Variable | Índice | Nota |
 |----------|----------|--------|------|
 | V_L1L2 C02 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[1]` | 1=C02 | Muestra en V |
+| I_L1 C02 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[1]` | 1=C02 | Muestra en A |
+| I_L2 C02 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[1]` | 1=C02 | Muestra en A |
+| I_L3 C02 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[1]` | 1=C02 | Muestra en A |
 | V_L1L2 C01-GD1 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[2]` | 2=C01-GD1 | |
+| I_L1 C01-GD1 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[2]` | 2=C01-GD1 | Muestra en A |
+| I_L2 C01-GD1 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[2]` | 2=C01-GD1 | Muestra en A |
+| I_L3 C01-GD1 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[2]` | 2=C01-GD1 | Muestra en A |
 | V_L1L2 C01-GD2 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[3]` | 3=C01-GD2 | |
+| I_L1 C01-GD2 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[3]` | 3=C01-GD2 | Muestra en A |
+| I_L2 C01-GD2 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[3]` | 3=C01-GD2 | Muestra en A |
+| I_L3 C01-GD2 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[3]` | 3=C01-GD2 | Muestra en A |
 | V_L1L2 C03 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[4]` | | |
+| I_L1 C03 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[4]` | | Muestra en A |
+| I_L2 C03 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[4]` | | Muestra en A |
+| I_L3 C03 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[4]` | | Muestra en A |
 | V_L1L2 C04 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[5]` | | |
+| I_L1 C04 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[5]` | | Muestra en A |
+| I_L2 C04 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[5]` | | Muestra en A |
+| I_L3 C04 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[5]` | | Muestra en A |
 | V_L1L2 C05 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[6]` | | |
+| I_L1 C05 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[6]` | | Muestra en A |
+| I_L2 C05 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[6]` | | Muestra en A |
+| I_L3 C05 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[6]` | | Muestra en A |
 | V_L1L2 C06 | `06_FB_MODBUS_MANAGER_DB.PM_V_L1L2[7]` | | |
+| I_L1 C06 | `06_FB_MODBUS_MANAGER_DB.PM_I_L1[7]` | | Muestra en A |
+| I_L2 C06 | `06_FB_MODBUS_MANAGER_DB.PM_I_L2[7]` | | Muestra en A |
+| I_L3 C06 | `06_FB_MODBUS_MANAGER_DB.PM_I_L3[7]` | | Muestra en A |
 | FREQ C02 | `06_FB_MODBUS_MANAGER_DB.PM_FREQ[1]` | | Hz |
 | P_TOTAL C01-GD1 | `06_FB_MODBUS_MANAGER_DB.PM_P_TOTAL[2]` | | kW |
 | P_TOTAL C01-GD2 | `06_FB_MODBUS_MANAGER_DB.PM_P_TOTAL[3]` | | kW |

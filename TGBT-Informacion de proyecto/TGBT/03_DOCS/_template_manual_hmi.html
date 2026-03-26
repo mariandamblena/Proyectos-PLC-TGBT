@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>$if(title)$$title$$else$Manual HMI SCMTA$endif$</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #fff; }
+
+  .cover {
+    page-break-after: always;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 60px 40px;
+    background: linear-gradient(160deg, #0a2a5e 0%, #1a4a8e 60%, #2a6abf 100%);
+    color: #fff;
+  }
+  .cover .logo-bar {
+    font-size: 10pt;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #a0c4ff;
+    margin-bottom: 34px;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .cover h2 {
+    font-size: 15pt;
+    font-weight: 400;
+    color: #c8e0ff;
+    margin-bottom: 34px;
+  }
+  .cover .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.45);
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 12pt;
+    font-weight: 600;
+    letter-spacing: 2px;
+    margin-bottom: 36px;
+  }
+  .cover-table {
+    margin-top: 16px;
+    border-collapse: collapse;
+    width: 460px;
+    max-width: 92%;
+    font-size: 10pt;
+    color: #fff;
+  }
+  .cover-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.24);
+  }
+  .cover-table td:first-child { font-weight: 700; text-align: right; color: #90caff; padding-right: 18px; }
+  .cover-table td:last-child { text-align: left; }
+
+  .content { max-width: 980px; margin: 0 auto; padding: 44px 50px; }
+
+  h1 { font-size: 18pt; color: #0a2a5e; border-bottom: 3px solid #0a2a5e; padding-bottom: 6px; margin: 34px 0 16px 0; }
+  h2 { font-size: 13pt; color: #1a4a8e; border-left: 4px solid #1a4a8e; padding-left: 10px; margin: 24px 0 10px 0; }
+  h3 { font-size: 11pt; color: #2a6abf; margin: 16px 0 8px 0; }
+
+  p { line-height: 1.65; margin-bottom: 10px; }
+  ul, ol { margin: 10px 0 14px 24px; }
+  li { margin-bottom: 4px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px 0; font-size: 10pt; }
+  th { background: #0a2a5e; color: #fff; padding: 9px 12px; text-align: left; font-weight: 600; }
+  td { padding: 8px 12px; border-bottom: 1px solid #dde3ee; vertical-align: top; }
+  tr:nth-child(even) td { background: #f4f7fc; }
+  tr:hover td { background: #e8eef8; }
+
+  code { background: #eef2fa; color: #0a2a5e; border-radius: 3px; padding: 1px 5px; font-size: 9.5pt; font-family: 'Consolas', 'Courier New', monospace; }
+  pre { background: #f8fafd; border: 1px solid #ccd6ee; border-radius: 8px; padding: 14px; overflow-x: auto; margin: 14px 0; }
+  pre code { background: transparent; padding: 0; }
+
+  blockquote {
+    border-left: 4px solid #2a6abf;
+    background: #f0f5fd;
+    padding: 10px 14px;
+    margin: 14px 0;
+    border-radius: 0 6px 6px 0;
+  }
+
+  #TOC {
+    border: 1px solid #ccd6ee;
+    background: #f8fafd;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 26px;
+  }
+  #TOC > ul { margin-left: 18px; }
+  #TOC a { color: #1a4a8e; text-decoration: none; }
+  #TOC a:hover { text-decoration: underline; }
+
+  .doc-footer {
+    margin-top: 40px;
+    padding-top: 12px;
+    border-top: 1px solid #ccd6ee;
+    font-size: 9pt;
+    color: #777;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  @media print {
+    body { font-size: 10pt; }
+    .cover { min-height: 100vh; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #TOC, table, blockquote, pre { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div style="margin-bottom:28px;">
+    <img src="indgrade-dark.svg" alt="INDGRADE" style="height:68px; width:auto;" />
+  </div>
+  <div class="logo-bar">Automatizacion Industrial · Proyecto IND-26-PTE-15</div>
+  <h1>Manual De Usuario HMI</h1>
+  <h2>TGBT SCMTA V4.0 · Operacion de Pantallas y Maniobras</h2>
+  <div class="badge">OPERACION DE CAMPO</div>
+  <table class="cover-table">
+    <tr><td>Proyecto</td><td>TGBT IND-26-PTE-15</td></tr>
+    <tr><td>Version</td><td>1.0</td></tr>
+    <tr><td>Fecha</td><td>24 de marzo de 2026</td></tr>
+    <tr><td>Base</td><td>HMI V4 + Logica SCL real</td></tr>
+  </table>
+</div>
+
+<div class="content">
+$if(toc)$
+<nav id="TOC" role="doc-toc">
+$toc$
+</nav>
+$endif$
+
+$body$
+
+<div class="doc-footer">
+  <span>TGBT SCMTA · Manual de Usuario HMI</span>
+  <span>Proyecto IND-26-PTE-15</span>
+</div>
+</div>
+</body>
+</html>
