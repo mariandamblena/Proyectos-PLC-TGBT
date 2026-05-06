@@ -230,6 +230,15 @@ BEGIN
             IF #retryCount >= #MAX_RETRIES THEN
                 // Marcar falla de este medidor y continuar al siguiente
                 #PM_COMM_OK[#pollIndex] := FALSE;
+                #PM_I_L1[#pollIndex] := 0.0;
+                #PM_I_L2[#pollIndex] := 0.0;
+                #PM_I_L3[#pollIndex] := 0.0;
+                #PM_V_L1L2[#pollIndex] := 0.0;
+                #PM_V_L2L3[#pollIndex] := 0.0;
+                #PM_V_L3L1[#pollIndex] := 0.0;
+                #PM_FREQ[#pollIndex] := 0.0;
+                #PM_P_TOTAL[#pollIndex] := 0.0;
+                #PM_ALARM[#pollIndex] := FALSE;
                 IF #pollIndex = 1 THEN
                     #GRID_MEAS_OK := FALSE;
                 END_IF;

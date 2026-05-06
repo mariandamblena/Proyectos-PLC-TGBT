@@ -197,10 +197,14 @@ BEGIN
         #gridAlarmFree := NOT #GRID_PHASE_LOSS AND NOT #GRID_ALM_UV AND NOT #GRID_ALM_OV;
         #gridOkRaw     := #phaseVoltsOk AND #freqOk AND #gridAlarmFree;
     ELSE
-        // Sin comunicación Modbus con PM5350P: fallback a DI backup
-        #gridOkRaw := NOT #QT1_UV_OV_DI;
+        // Sin comunicación Modbus con PM5350P C02: no confiar en valores retenidos
+        // ni en el backup QT1_UV_OV_DI. Tratar la red como fallada de forma fail-safe.
+        #gridOkRaw  := FALSE;
+        #gridFailRaw := TRUE;
     END_IF;
-    #gridFailRaw := NOT #gridOkRaw;
+    IF #GRID_MEASUREMENT_OK THEN
+        #gridFailRaw := NOT #gridOkRaw;
+    END_IF;
     
     #tonGridFailFilter(IN := #gridFailRaw, PT := #T_GRID_FAIL_FILTER, Q => #GRID_FAIL);
     #tonGridStableFilter(IN := #gridOkRaw, PT := #T_GRID_FAIL_FILTER, Q => #GRID_OK);
