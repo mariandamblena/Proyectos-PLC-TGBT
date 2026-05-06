@@ -1,0 +1,1626 @@
+FILE: S7-1200 Programmable controller - TIA Portal como programar un user defined page web server.pdf
+PAGES: 97
+
+===== PAGE 1 =====
+S7-1200 Programmable controller
+Web server
+20.00.00.00
+---
+
+===== PAGE 2 =====
+materiales.
+Si se dan varios niveles de peligro se usa siempre la consigna de seguridad más estricta en cada
+caso. Si en una consigna de seguridad con triángulo de advertencia de alarma de posibles daños
+---
+
+===== PAGE 4 =====
+Tabla de contenido
+1  Web server
+1.1  Web server overview
+---
+1.2  Enabling the Web server
+---
+1.3  Web server user management
+---
+1.3.1  Assigning Web server user privileges for V4.7 con?gured CPUs
+---
+1.3.2  Assigning Web server user privileges for CPU project con?gurations earlier than V4.7
+---
+1.3.3  User con?guration compatibility
+---
+1.6  Using a CP module to access Web pages
+1.7  Web server security certi?cates
+1.8  Standard Web pages
+---
+1.9.2  Creating HTML pages
+1.9.3  AWP commands supported by the S7-1200 Web server
+1.9.3.1  AWP commands supported by the S7-1200 web server
+---
+1.9.3.2  Reading variables
+---
+1.9.3.3  Writing variables
+---
+1.9.3.4  Reading special variables
+---
+1.9.3.5  Writing special variables
+---
+
+===== PAGE 5 =====
+1.9.3.7  De?ning enum types
+1.9.3.8  Referencing CPU variables with an enum type
+1.9.3.9  Creating fragments
+---
+1.9.10.4  Writing user input to the controller
+1.9.10.5  Writing a special variable
+1.9.10.6  Reference: HTML listing of remote wind turbine monitor Web page
+---
+
+===== PAGE 7 =====
+, 11/2024 7
+1.1 Web server overview
+The Web server for the S7-1200 provides Web page access to data about your CPU and process
+---
+data.
+---
+You can access the S7-1200 Web pages from a PC or from a mobile device. For
+devices with small screens, the Web server supports a collection of basic pages.
+You use a Web browser to access the IP address of the S7?1200 CPU or the IP
+---
+address of a Web server-enabled CP (communications processor) module in the
+local rack with the CPU to establish the connection. The S7?1200 supports multiple
+---
+concurrent connections.
+Note: Web server multiple concurrent connectionsThe S7-1200 Web server allows for 30
+concurrent connections (assuming that you have enough dynamic connections). Open
+---
+browser instances can consume between 2 to 8 connections each. The Web server allows up
+to 7 logged-in users but Siemens recommends that you keep the number of concurrent
+---
+Introduction - entry point to the standard Web pages
+Start Page - general information about the CPU
+Diagnostics - detailed information about the CPU including serial, order, and version
+---
+diagnostic information
+Tag status - CPU variables and I/O, accessible by address or PLC tag name
+Watch tables - watch tables that you configured in STEP 7
+---
+Web server 1
+---
+
+===== PAGE 8 =====
+your PLC
+User-defined pages - create user-defined Web pages to access CPU data
+File Browser - browser for files stored internally in the CPU or on a memory card, for
+---
+data. You can develop these pages with the HTML authoring software of your choice, and
+include pre-de?ned "AWP" (Automation Web Programming) commands in your HTML code to
+access CPU data. Refer to the User-de?ned Web pages chapter for speci?c information on the
+---
+basic Web pages. You can also con?gure one of your user-de?ned Web pages to be the entry
+page for the Web server.
+Web API
+---
+Web browser requirement
+Siemens has tested the Web server standard pages and veri?es support of the following Web
+browsers:
+---
+
+===== PAGE 9 =====
+Mobile Safari and Chrome for iOS V12.5.1 and V16.5
+When using the HTML Browser control in a WinCC project, the Web server supports the
+following Siemens HMI Panels for the standard pages:
+---
+Web pages, see the Constraints section.
+Web server performance
+Many factors can a?ect the performance of the Web server. The S7-1200 CPU and the
+---
+programming device must share time with other tasks that consume resources and processing
+---
+time. If you have poor performance with the Web server, try these adjustments to improve Web
+server performance:
+---
+Increase the "Update interval" time in TIA Portal from the default 10s.
+Use the S7-1200 CPU's Ethernet interface instead of a CP module to access the Web server.
+1.2 Enabling the Web server
+---
+You enable the Web server in STEP 7 from Device Con?guration for the CPU to which you intend
+---
+to connect.
+---
+To enable the Web server, follow these steps:
+1. Select the CPU in the Device Configuration view.
+---
+2. In the inspector window, select "Web server" from the CPU properties.
+3. Select the check box for "Activate web server on all modules of this device".
+---
+---
+
+===== PAGE 10 =====
+4. For increased security, ensure that "Permit access only with HTTPS" is selected to require
+secure access to the Web server over TLS. To use HTTPS for secure communication, you must
+configure a Web server certificate. Configure Web server certificates from Device
+---
+configuration for the CPU. From the CPU properties, select Web server > Security to
+---
+configure Web server certificates.
+---
+5. If you select "Enable automatic update" for "Automatic update", standard Web pages will
+---
+seconds for the "Update interval" field.
+6. Depending upon the type of interface access used, you must ensure that Web server access
+is enabled for that interface:
+---
+PLC PROFINET: Ensure that the "Enable Web server for the IP address of this interface"
+property is enabled on the PLC for the Web server to be accessible through the PLC
+---
+PROFINET interface.
+---
+WanCP PROFINET port: If you are using a WanCP device, ensure that the property "Enable
+Web server for the IP address of this interface" property is checked in order to have the
+Web server accessible through the particular WanCP PROFINET port.
+---
+Note: Warning:Unauthorized access to a CPUUsers with CPU full access or full
+---
+access (incl. fail-safe) privileges have privileges to read and write PLC
+variables. Regardless of the access level for the CPU, Web server or OPC UA
+users can have privileges to modify PLC data and execute functions.
+---
+
+===== PAGE 11 =====
+, 11/2024 11
+Enable access to the Web server only with the HTTPS protocol.
+Perform error-checking and range-checking on your variables in your
+---
+program logic because Web server or OPC UA users can change PLC
+---
+variables to invalid values.
+---
+For the OPC UA server: In your STEP 7 Device configuration, navigate to
+---
+After you download the device con?guration, you can use the standard Web pages to access the
+Introduction and Start page of the CPU. To access additional pages, you must con?gure one or
+more Web server users.
+---
+If you created and enabled user-de?ned Web pages, you can access them from the standard or
+---
+V3.0 CPU with a V4.x CPU and convert your V3.0 project to a V4.x project, note that STEP 7
+and the V4.x CPU retain the Web server settings for
+"Activate web server on all modules of this device"
+---
+"Permit access only with HTTPS"
+---
+Note: If a "Download in RUN" is in progress, standard and user-defined Web pages do not
+update data values or permit you to write data values until the download is complete. The
+---
+Web server discards any attempts to write data values while a download is in progress.
+1.3 Web server user management
+---
+1.3.1 Assigning Web server user privileges for V4.7 con?gured CPUs
+---
+If the ?rmware version of the CPU in your STEP 7 project is V4.7 or later, you can assign user
+---
+
+===== PAGE 12 =====
+4. Select the check box next to the role(s) you want to assign to the user.
+After you download the con?guration to the CPU, only authorized users can access Web server
+functions for which they have privileges.
+---
+Web server access levels
+The default "Anonymous" user is disabled for security. You can enable the Anonymous user by
+---
+Read diagnostics
+Change web server default page
+Change operating mode
+---
+
+===== PAGE 13 =====
+, 11/2024 13
+Open user-defined web pages
+Update firmware
+---
+Write process data
+Write process data via automation webpage programming (AWP) command
+Write process data of watch tables
+---
+1 Available for Failsafe CPUs only.
+Note that If you have set a user-de?ned Web page to be the entry page for the Web server, the
+user must have the "Open user-de?ned web pages" privilege.
+---
+See below an example of user roles and rights con?gured for a Web server user in the STEP 7
+project for an S7-1200 V4.7 Failsafe CPU:
+---
+
+===== PAGE 14 =====
+access (incl. fail-safe) privileges have privileges to read and write PLC
+variables. Regardless of the access level for the CPU, Web server or OPC UA
+users can have privileges to modify PLC data and execute functions.
+---
+
+===== PAGE 15 =====
+from a location outside your protected network.
+Enable access to the Web server only with the HTTPS protocol.
+Perform error-checking and range-checking on your variables in your
+---
+program logic because Web server or OPC UA users can change PLC
+---
+variables to invalid values.
+---
+For the OPC UA server: In your STEP 7 Device configuration, navigate to
+---
+Note: Update password encryption for device exchange to V4.xAfter a device exchange
+to V4.x, you must update the Web server user password encryption. From the CPU's device
+configuration in the TIA Portal, click the "Upgrade password encryption" button in the Web
+---
+server user management.
+1.3.2 Assigning Web server user privileges for CPU project con?gurations earlier than V4.7
+User Management & Access Control (UMAC) is only available when the con?gured ?rmware
+---
+If you have a CPU con?gured in your STEP 7 project to use a ?rmware version earlier than V4.7,
+you assign Web server users with various privilege levels under "Properties > Web server > User
+management". Enter user names, access levels, and passwords for the user logins that you want
+---
+to provide.
+After you download the con?guration to the CPU, only authorized users can access Web server
+functions for which they have privileges.
+---
+Web server access levels
+STEP 7 provides a default user named "Everybody" with no password. By default, this user has no
+---
+
+===== PAGE 16 =====
+Write tag status
+Open user-defined web pages
+Write in user-defined web pages
+---
+Read files
+---
+Change application parameter
+If you have set a user-de?ned Web page to be the entry page for the Web server, the Everybody
+user must have the "Open user-de?ned web pages" privilege.
+---
+access (incl. fail-safe) privileges have privileges to read and write PLC
+variables. Regardless of the access level for the CPU, Web server or OPC UA
+users can have privileges to modify PLC data and execute functions.
+---
+from a location outside your protected network.
+Enable access to the Web server only with the HTTPS protocol.
+Perform error-checking and range-checking on your variables in your
+---
+program logic because Web server or OPC UA users can change PLC
+---
+variables to invalid values.
+---
+---
+
+===== PAGE 17 =====
+Note: Update password encryption for device exchange to V4.xAfter a device exchange
+to V4.x, you must update the Web server user password encryption. From the CPU's device
+configuration in the TIA Portal, click the "Upgrade password encryption" button in the Web
+---
+
+===== PAGE 18 =====
+18 , 11/2024
+For more information about Web server user privileges when upgrading ?rmware in the STEP 7
+project, see "Editing devices and networks > Con?guring devices and networks > Creating
+---
+
+===== PAGE 19 =====
+, 11/2024 19
+For more information about Web server user privileges when downgrading ?rmware in the STEP
+7 project, see "Editing devices and networks > Con?guring devices and networks > Creating
+---
+You can access the S7-1200 standard Web pages from a PC or from a mobile device through the
+IP address of the S7?1200 CPU or the IP address of any Web server-enabled CP in the local rack.
+To access the S7-1200 standard Web pages from a PC, follow these steps:
+---
+user-de?ned Web pages if you con?gured it to be the entry page.
+Note: Use a secure Virtual Private Network (VPN) to connect to the S7-1200 PLC Web server
+from a location outside your protected network. Be aware also of any constraints that your
+---
+
+===== PAGE 20 =====
+page is blank
+https://ww.xx.yy.zz/start.html - start page with general information about the CPU
+https://ww.xx.yy.zz/identification.html - identifying information about the CPU including
+---
+statistics
+https://ww.xx.yy.zz/variable.html - CPU variables (tags) and I/O, accessible by address, PLC
+tag name, or data block tag name
+---
+Secure access
+Use a secure Virtual Private Network (VPN) to connect to the S7-1200 PLC Web server from a
+location outside your protected network. Require and use https:// instead of http:// for secure
+---
+access to the standard Web pages. When you connect to the S7-1200 with https://, the Web site
+encrypts the session with a digital certi?cate. The Web server transmits the data securely and it
+is not accessible for anyone to view. You typically get a security warning that you can con?rm
+---
+
+===== PAGE 21 =====
+connects to the Internet or to a local wireless access point. Use a secure Virtual Private Network
+(VPN) to connect a mobile device to the S7?1200 PLC Web server. You can use port forwarding in
+the wireless router to map the IP address of the PLC to an address by which a mobile device can
+---
+For local access through a local wireless access point, enter the IP address of the S7?1200 CPU or
+a Web server-enabled CP in the local rack:
+http://ww.xx.yy.zz or https://ww.xx.yy.zz to access the standard Web pages
+---
+
+===== PAGE 22 =====
+http://ww.xx.yy.zz/basic or https://ww.xx.yy.zz/basic to access the basic Web pages
+For increased security, con?gure the Web server to be accessible only by secure access (HTTPS).
+1.6 Using a CP module to access Web pages
+---
+Regardless of whether you access the Web server from a PC or a mobile device, you can connect
+to standard Web pages through one of the following CP modules when you have con?gured it in
+---
+You use the Start standard Web page to access the Web pages through these CP modules. The
+Start page displays all con?gured and installed CP modules that you have in your local rack, but
+you can only access Web pages from the ones listed above.
+---
+Note: Access to standard Web pages when Web server-enabled CPs are in the local
+rackYou might observe delays up to one or two minutes when connecting to the S7-1200
+---
+standard Web pages when Web server-enabled CPs are in the local rack. If the pages do not
+appear to be available, or you get errors, just wait one or two minutes and refresh the page.
+---
+1.7 Web server security certi?cates
+You can create certi?cates for the CPU in the device con?guration of an S7-1200 CPU. This
+---
+the device.
+You can create certi?cates for the Web server from "Web server > Security" in the device
+con?guration for the CPU. Web server certi?cates are software downloaded, which enables you
+---
+to use your own custom certi?cate.
+---
+Note: S7-1200 certificate limitThe S7-1200 has a system certificate limit of 64.All
+certificates count against this number (for example, Web server certificates, OPC UA
+certificates, and OUC certificates).If the Web server certificate has been signed by a
+---
+Certificate authority (CA) certificate and present in the TIA Portal, then 2 certificates are used
+---
+by the Web server (one for the Web server certificate and one for its downloaded CA
+certificate).If you have more than 64 certificates, the TIA Portal displays an error that states
+---
+
+===== PAGE 23 =====
+Introduction page to download the Siemens security certi?cate to your PC. The procedure for
+downloading and importing varies according to which Web browser you use. The "download
+certi?cate" link is not active when using self-signed certi?cates.
+---
+options for your Web browser content, you do not have to verify a security prompt when you
+access the Web server with https:// ww.xx.yy.zz.
+1.8 Standard Web pages
+---
+controls. Regardless of whether you are viewing the page on a PC or on a mobile device, each
+page has the same content area, but the layout and navigation controls vary based on the
+screen size and resolution of the device. On a standard PC or large mobile device the layout of a
+---
+standard Web page appears as follows:
+? Web server header with selector to display PLC Local time or UTC time, and a selector for
+the display language
+---
+
+===== PAGE 24 =====
+1.8.2 Basic pages
+The Web server provides basic pages intended for use on mobile devices. You access the basic
+pages using the IP address of the device and appending "basic" to the URL:
+---
+
+===== PAGE 25 =====
+Change operating mode
+Change web server default page
+Read diagnostics
+---
+Write process data of the watch tables
+Open user-defined web pages
+Write process data through commands of the automation web page programming (AWP)
+---
+Read files
+---
+
+===== PAGE 26 =====
+Note that if you have set the protection level of the CPU to "Complete protection (no access)",
+then the "Anonymous" user does not have permission to access the Web server, regardless of the
+Web server user permission settings.
+---
+Note: Warning:Unauthorized access to a CPUUsers with CPU full access or full
+---
+access (incl. fail-safe) privileges have privileges to read and write PLC
+variables. Regardless of the access level for the CPU, Web server or OPC UA
+users can have privileges to modify PLC data and execute functions.
+---
+from a location outside your protected network.
+Enable access to the Web server only with the HTTPS protocol.
+Perform error-checking and range-checking on your variables in your
+---
+program logic because Web server or OPC UA users can change PLC
+---
+variables to invalid values.
+---
+For the OPC UA server: In your STEP 7 Device configuration, navigate to
+---
+
+===== PAGE 28 =====
+privileges for that page.
+Note: Log off prior to closing Web serverIf you have logged in to the Web server, be sure
+to log off prior to closing your Web browser. The Web server supports a maximum of seven
+---
+concurrent logins.
+---
+
+===== PAGE 29 =====
+1.8.5 Start
+The Start page displays a representation of the CPU or CP to which you are connected and lists
+general information about the device and the TIA Portal version you used to download the
+---
+?ash the LEDs, if you have logged in with the "Change operating mode" privilege.
+The bottom portion of the screen is visible if you have con?gured and installed Web server-
+enabled CP modules in the local rack with the S7?1200 CPU. You can hover over and click a Web
+---
+module when you hover over it.
+The Web server also displays any other CM and CP modules in the local rack, but you cannot click
+them as they do not contain Web pages. The module appearance for these CMs and CPs are light
+---
+
+===== PAGE 32 =====
+to the PLC. This con?guration is available in the PLC properties under "Multilingual support".
+Each language downloaded must be associated with a supported webserver language. The PLC
+is limited to 2 downloaded languages.
+---
+
+===== PAGE 33 =====
+button to save the diagnostics bu?er to a CSV
+?le. By default, the Web server saves the comma-separated ?le to ASLog.csv in your Downloads
+folder. The ?le contains the complete diagnostics bu?er at the time of the save operation. You
+---
+
+===== PAGE 35 =====
+module. Modules with submodules have links for each submodule. The type of information that
+is displayed varies with the module selected. For example, the module information dialog
+initially displays the name of the S7?1200 station, a status indicator, and a comment. If you click
+---
+
+===== PAGE 37 =====
+the update completes, the page displays the article number and version number of the updated
+?rmware. If you updated the ?rmware for the CPU or a signal board, the Web server restarts the
+CPU.
+---
+or the S7-1200 CPU. You cannot append data, for example, to add components.
+Note: Potential problems with performing a firmware update from the Web serverIn
+the event of a communications disruption during a firmware update from the Web server,
+---
+your Web browser could display a message asking whether you want to leave or stay on the
+---
+
+===== PAGE 38 =====
+38 , 11/2024
+Web server, you will be unable to change the operating mode of the CPU to RUN mode. If
+this situation happens, you must cycle power to the CPU to be able to change the CPU to
+---
+
+===== PAGE 42 =====
+can bookmark the page and return to the bookmark to see the same entries. If you do not
+bookmark the page, you must re-enter the variables.
+For values you frequently monitor or modify, consider using a Watch table instead.
+---
+UInt.
+The maximum number of variable entries per page is 50.
+If a tag name displays special characters such that it is rejected as an entry on the Tag
+---
+
+===== PAGE 43 =====
+1.8.12 Watch tables
+The Web server allows you to access watch tables that you have con?gured in STEP 7 and
+downloaded to the CPU. Watch tables with 50 or fewer entries o?er the best performance in the
+---
+Web server. Exceeding 50 entries might degrade system performance or cause watch table
+access errors.
+---
+STEP 7 con?guration to select watch tables for the Web server
+From the Device con?guration of the CPU in STEP 7, you can add the watch tables that you want
+---
+the Web server to be able to display. For each watch table that you select from the list of existing
+watch tables, you select Read or Read/Write privileges for it in STEP 7. When downloaded to the
+---
+modify watch table tags when you select the Read/Write privilege.
+After you complete the watch table con?guration in the Web server section of the device
+con?guration, download your hardware con?guration to the CPU.
+---
+Viewing watch tables from the Web server
+From the Web server, if you have the "Read process data of the watch tables" privilege, you can
+---
+select "Watch tables" from the navigation menu to access the watch tables that you have
+---
+con?gured and downloaded to the CPU. If you have downloaded more than one watch table,
+you can select the one you want to display from the drop-down list. The Web server displays the
+watch table that you created in STEP 7 and the current values according to the display format.
+---
+You can change the display format if you choose, but when you return to the watch table page
+the Web server defaults to the display formats in the STEP 7 watch table.
+---
+
+===== PAGE 44 =====
+44 , 11/2024
+Modifying watch table tags from the Web server
+If you downloaded a watch table with the "Read/Write" access level, you must log in to the Web
+---
+process data of the watch tables" privilege can modify to only those tags in the configured
+Web server watch tables.The Tag Status page, on the other hand, allows any user with the
+"write tag status" privilege to write to any tag or data block tag in the CPU.By careful
+---
+configuration of the Web server user management privileges, you can help safeguard access
+to your PLC data.
+---
+restoring a backup, place the PLC in STOP mode and cease all communication with the PLC such
+as HMI access and Web server access. If your CPU is not in STOP mode, the backup and restore
+functions prompt for con?rmation to place the CPU in STOP mode before continuing.
+---
+Automation Tool also provides backup and restore capability.When you back files up from
+the Web server, your PC or device saves the backup files in the default folder for downloads.
+When you back files up from STEP 7, STEP 7 stores the files within the STEP 7 project. You
+---
+
+===== PAGE 45 =====
+, 11/2024 45
+cannot restore STEP 7 backup files from the Web server and you cannot restore Web server
+backup files from STEP 7. You can, however, save STEP 7 backup files directly to the
+---
+download folder of your PC or device. If you do so, then you can restore these files from the
+Web server.
+Backup PLC
+---
+Restore PLC
+From the Restore PLC section of the page, enter the Web server user password and click the
+"Browse" or "Choose File" button (depending on your browser) to select a previously saved
+---
+
+===== PAGE 46 =====
+backup with unknown content, you can cause malfunctions or program
+errors. In addition, if you restore a backup that does not have the Web server
+enabled in the device configuration of the CPU, you will not be able to
+---
+access the CPU from the Web server.Make sure that the backup consists of a
+configuration with known content.Malfunctions or program errors can cause
+---
+a backup where the CPU IP address in the backup is different from the IP address of the
+current CPU, the Web server cannot display the message that the restore is complete. After
+you see the "Reset CPU" message for greater than five minutes, enter the new IP address
+---
+that corresponds to the address in the backup file. The CPU now has this address, and you
+can resume Web server access.
+1.8.14 Data Logs
+---
+
+===== PAGE 47 =====
+Note: Data log managementKeep no more than 1000 data logs in a file system. Exceeding
+this number can prevent the Web server from having enough CPU resources to display the
+data logs.If you find that the Data Logs Web page is not able to display the data logs, then
+---
+be manually altered by the user.
+If the STEP 7 program has a data log open or is writing to a data log, the Web server is unable to
+delete, download, or retrieve and clear the data log ?le. In addition, while the Web server is
+---
+performing a download of a data log either through a download or a Retrieve and Clear, you can
+---
+Download a data log ?le
+You can download a data log ?le by clicking the ?le name. The Web server displays an error
+message if the ?le no longer exists or when another download is in progress. The error message
+---
+remains on the page until you initiate an operation to reload the Data Logs page. The following
+operations cause the Web server to reload the Data Logs page:
+Refreshing the Data Logs page or navigating away and returning to the Data Logs page
+---
+
+===== PAGE 48 =====
+48 , 11/2024
+Note: Data logs error message The Web server 's auto-refresh functionality does not
+remove the error message from the page.
+---
+
+===== PAGE 49 =====
+data log ?le and empty the contents, con?rm the operation from the Retrieve and Clear dialog.
+After you con?rm the operation, the Web server allows you to download the contents of the
+data log ?le. The Save File dialog lets you choose whether to save the data log. After your
+---
+selection, the Web server empties the contents of the data log ?le without deleting the ?le. You
+cannot cancel the clearing of the data log from the Save File dialog. You can only cancel the
+---
+
+===== PAGE 50 =====
+Note: User file managementKeep no more than 1,000 user files on the SIMATIC memory
+card. If more files are present, the Web server only allows you to view the first 1,000 files.
+Files are displayed in ascending, case-insensitive, alphabetical order.
+---
+
+===== PAGE 51 =====
+The error message remains on the page until you refresh the User Files page.
+Note: User files error message The Web server's auto-refresh functionality does not
+remove an error message from the User Files page.
+---
+
+===== PAGE 52 =====
+A Data Log User Files API feature is available for S7-1200 User Files and Data Logs. Refer to the
+S7-1500, ET200SP, ET200pro Web server manual for more information.
+1.8.17 File Browser
+---
+
+===== PAGE 53 =====
+If you begin a ?le upload, the upload operation continues as long as you remain on the File
+Browser Web page. If you enabled automatic update to refresh the Web server pages every ten
+seconds, then whenever a page refresh occurs you see the incremental progress of the ?le
+---
+progresses.
+If you navigate away from the File Browser page before the upload completes, the Web server
+deletes the incomplete ?le.
+---
+Additional information
+Note: File name conventionsFor the Web server to work with data log and recipe files, the
+characters in the file names must be from the ASCII character set with the exception of the
+---
+characters \ / : * ? " < > | and the space character.If your files are not compliant with this
+naming convention, the Web server can have errors in operations such as file upload or
+deletion. In this case, you might need to use a card reader and the Windows File Explorer to
+---
+1.9.1 Overview of user-de?ned Web pages
+The S7-1200 Web server also provides the means for you to create your own application-speci?c
+HTML pages that incorporate data from the PLC.
+---
+Note: Warning:Unauthorized access to the CPU through user-defined Web
+pagesUnauthorized access to the CPU through user-defined Web pages can
+---
+disrupt process operation. Coding of user-defined Web pages that is not
+---
+secure introduces security vulnerabilities such as cross-site scripting (XSS),
+---
+
+===== PAGE 54 =====
+Creating HTML pages with an HTML editor
+Including AWP commands in HTML comments in the HTML code:The AWP commands are a
+fixed set of commands that Siemens provides for accessing CPU information.
+---
+Compiling and downloading the blocks to the CPU
+Accessing the user-defined Web pages from your PC
+This process is illustrated below:
+---
+? HTML ?les with embedded AWP commands
+1.9.2 Creating HTML pages
+---
+You can use the software package of your choice to create your own HTML pages for use with
+the Web server. Be sure that your HTML code is compliant to the HTML standards of the W3C
+(World Wide Web Consortium). STEP 7 does not perform any veri?cation of your HTML syntax.
+---
+
+===== PAGE 55 =====
+your user-de?ned Web pages, use a memory card to provide external load memory.
+To program your HTML code to use data from the S7-1200, you include AWP commands as
+HTML comments. When ?nished, save your HTML pages to your PC and note the folder path
+---
+where you save them.
+Note: The file size limit for HTML files containing AWP commands is 64 kilobytes. You must
+keep your file size below this limit for STEP 7 to be able to successfully compile your
+---
+and html files) are created with a size not exceeding 512 KB; otherwise, problems can occur
+when sending the file from the Web server to the browser. You can view the size of the
+respective Web resource file in the file explorer of the directory.
+---
+this, refer to documentation on HTML and JavaScript.
+1.9.3 AWP commands supported by the S7-1200 Web server
+1.9.3.1 AWP commands supported by the S7-1200 web server
+---
+The S7-1200 Web server provides AWP commands that you embed in your user-de?ned Web
+---
+pages as HTML comments for the following purposes:
+---
+Reading variables
+Writing variables
+---
+Reading special variables
+---
+Writing special variables
+---
+Defining enum types
+---
+
+===== PAGE 56 =====
+56 , 11/2024
+Assigning variables to enum types
+Creating fragment data blocks
+---
+General syntax
+Except for the command to read a variable, the AWP commands are of the following syntax:
+<!-- AWP_ <command name and parameters> -->
+---
+You use the AWP commands in conjunction with typical HTML form commands to write to
+---
+variables in the CPU.
+---
+The descriptions of the AWP commands in the following pages use the following conventions:
+---
+Items enclosed in brackets [ ] are optional.
+---
+enclosed in quotation marks.
+Use a text editor or HTML editing mode to insert AWP commands into your pages.
+Note: Expected syntax of AWP commandsThe space after "<!--" and the space before "-
+---
+->" in the formulation of an AWP command are essential to proper compiling of the
+---
+command. Omission of the space characters can cause the compiler to be unable to
+---
+generate the proper code. The compiler does not display an error in this case.
+AWP command summary
+The details for using each AWP command are in the topics to follow, but here is a brief summary
+---
+of the commands:
+---
+Reading variables
+:=<Varname>:
+---
+
+===== PAGE 57 =====
+Referencing enum types
+<!-- AWP_In_Variable Name='<Varname>' Enum="<Enum type name>" -->
+<!-- AWP_Out_Variable Name='<Varname>' Enum="<Enum type name>" -->
+---
+Creating fragments
+---
+<!-- AWP_Start_Fragment Name='<Name>' [Type=<Type>][ID=<id>] -->
+Importing fragments
+---
+<!-- AWP_Import_Fragment Name='<Name>' -->
+1.9.3.2 Reading variables
+---
+User-de?ned Web pages can read variables (PLC tags) and data block tags from the CPU,
+---
+provided that you have con?gured the tags to be accessible from an HMI.
+---
+Syntax
+:=<Varname>:
+Parameters
+---
+<Varname> The variable to be read, which can be a PLC tag name from your STEP 7 program,
+a data block tag, I/O, or addressable memory. For memory or I/O addresses or
+---
+Examples
+:="Conveyor_speed":
+:="My_Data_Block".flag1:
+---
+:=I0.0:
+---
+:=MW100:
+---
+:="My_Data_Block".Array_Dim1[0]:
+---
+
+===== PAGE 58 =====
+characters.
+1.9.3.3 Writing variables
+User-de?ned pages can write data to the CPU. This is accomplished by using an AWP command
+---
+to identify a variable in the CPU to be writable from the HTML page. The variable must be
+---
+speci?ed by PLC tag name or data block tag name. You can declare multiple variable names in
+---
+one statement. To write the data to the CPU, you use standard HTTP POST commands.
+---
+A typical usage is to design a form in your HTML page with text input ?elds or select list choices
+that correspond to writable CPU variables. As with all user-de?ned pages, you then generate the
+blocks from STEP 7 such that they are included in your STEP 7 program. When a user with
+---
+privileges to modify variables subsequently accesses this page and types data into the input
+?elds or selects a choice from a select list, the Web server converts the input to the appropriate
+---
+data type for the variable, and writes the value to the variable in the CPU. Note that the name
+---
+clause for HTML input ?elds and HTML select lists uses syntax typical for the name clause of the
+---
+AWP_In_Variable command. Typically enclose the name in single quotation marks and if you
+reference a data block, enclose the data block name in double quotation marks.
+---
+Syntax
+<!-- AWP_In_Variable Name='<Varname1>' [Use='<Varname2>'] ... -->
+Parameters
+---
+<Varname1> If no Use clause is provided, Varname1 is the variable to be written. It can be a
+PLC tag name from your STEP 7 program, a tag from a speci?c data block, or a
+---
+data block name.
+If a Use clause is provided, Varname1 is an alternate name for the variable
+referenced in <Varname2>. It is a local name within the HTML page.
+---
+
+===== PAGE 59 =====
+Examples using HTML input ?eld
+<!-- AWP_In_Variable Name='"Target_Level"' -->
+<form method="post">
+---
+</form>
+<!-- AWP_In_Variable Name='"Data_block_1".Braking' -->
+<form method="post">
+---
+</form>
+<!-- AWP_In_Variable Name='"Data_block_1".Array_Dim2' -->
+<form method="post">
+---
+Example using Use clause
+<!-- AWP_In_Variable Name='"Braking"' Use='"Data_block_1".Braking' -->
+<form method="post">
+---
+Example using writable data block
+<!-- AWP_In_Variable Name='"Data_block_1"' -->
+<form method="post">
+---
+Example using HTML select list
+<!-- AWP_In_Variable Name='"Data_block_1".ManualOverrideEnable'-->
+<form method="post">
+---
+
+===== PAGE 60 =====
+Note: Only a user with the "Write process data through commands of the automation web
+page programming (AWP)" privilege can write data to the CPU. The Web server ignores the
+commands if the user does not have these privileges.
+---
+characters".
+1.9.3.4 Reading special variables
+The Web server provides the ability to read values from the PLC to store in special variables in
+---
+the HTTP response header. You might, for example, want to read a pathname from a PLC tag to
+---
+redirect the URL to another location using the HEADER:Location special variable.
+Syntax
+---
+<!-- AWP_Out_Variable Name='<Type>:<Name>' [Use='<Varname>'] -->
+Parameters
+---
+<Type> The type of special variable, which is one of the following:
+HEADER
+---
+COOKIE_EXPIRES
+<Name> Refer to HTTP documentation for a list of all the names of HEADER variables. A few
+examples are listed below:
+---
+The Name clause must be enclosed in single or double quotation marks.
+If no Use clause is speci?ed, the special variable name corresponds to a PLC tag
+name. Enclose the complete Name clause within single quotation marks and the PLC
+---
+
+===== PAGE 61 =====
+, 11/2024 61
+tag in double quotation marks. The special variable name and PLC tag name must
+match exactly.
+---
+<Varname> Name of the PLC tag or data block tag into which the variable is to be read
+The Varname must be enclosed in single quotation marks. Within the single
+---
+quotes, use double quotation marks around a PLC tag or data block name. The
+---
+characters.
+Example: Reading a special variable with no Use clause
+<!-- AWP_Out_Variable Name='"HEADER:Status"' -->
+---
+In this example, the HTTP special variable "HEADER:Status" receives the value of the PLC tag
+---
+"HEADER:Status". The name in the PLC tag table must match the name of the special variable
+---
+exactly if no Use clause is speci?ed.
+---
+Example: Reading a special variable with a Use clause
+<!-- AWP_Out_Variable Name='HEADER:Status' Use='"Status"' -->
+---
+In this example, the special variable "HEADER:Status" receives the value of the PLC tag "Status".
+---
+1.9.3.5 Writing special variables
+---
+The Web server provides the ability to write values to the CPU from special variables in the HTTP
+---
+request header. For example, you can store information in STEP 7 about the cookie associated
+---
+
+===== PAGE 62 =====
+Enclose the Name clause in single quotation marks.
+If no Use clause is speci?ed, the special variable name corresponds to a PLC
+variable name. Enclose the complete Name clause within single quotation marks
+---
+and the PLC tag in double quotation marks. The special variable name must
+---
+match the PLC tag name exactly.
+---
+Refer to HTTP documentation for a list of all the names of HEADER variables.
+<Varname> The variable name in your STEP 7 program into which you want to write the
+---
+special variable, which can be a PLC tag name, or a data block tag.
+---
+The Varname must be enclosed in single quotation marks. Within the single
+---
+quotes, use double quotation marks around a PLC tag or data block name. The
+---
+Examples
+<!-- AWP_In_Variable Name='"SERVER:current_user_id"' -->
+In this example, the Web page writes the value of the HTTP special variable
+---
+"SERVER:current_user_id" to the PLC tag named "SERVER:current_user_id ".
+---
+<!-- AWP_In_Variable Name=SERVER:current_user_id' Use='"my_userid"' -->
+In this example, the Web page writes the value of the HTTP special variable
+---
+"SERVER:current_user_id" to the PLC tag named "my_userid".
+---
+Note: Only a user with the "Write process data through commands of the automation web
+page programming (AWP)" privilege can write data to the CPU. The Web server ignores the
+commands if the user does not have these privileges.
+---
+
+===== PAGE 63 =====
+, 11/2024 63
+CPU, or you can equate a variable in the CPU with a special variable. The AWP Use clause
+provides this capability.
+---
+Syntax
+<-- AWP_In_Variable Name='<Varname1>' Use='<Varname2>' -->
+<-- AWP_Out_Variable Name='<Varname1>' Use='<Varname2>' -->
+---
+Parameters
+---
+Table 1.
+<Varname1> The alias name or special variable name
+Varname1 must be enclosed in single or double quotation marks.
+---
+<Varname2> Name of the PLC variable for which you want to assign an alias name. The
+---
+variable can be a PLC tag, a data block tag, or a special variable. Varname2 must
+---
+be enclosed in single quotation marks. Within the single quotes, use double
+---
+quotation marks around a PLC tag, special variable, or data block name. The
+data block name is within the double quotes but not the data block tag name.
+---
+Examples
+<-- AWP_In_Variable Name='SERVER:current_user_id'
+Use='"Data_Block_10".server_user' -->
+---
+In this example, the special variable SERVER:current_user_id is written to the tag "server_user" in
+data block "Data_Block_10".
+---
+<-- AWP_Out_Variable Name='Weight' Use='"Data_Block_10".Tank_data.Weight' --
+>
+---
+be referenced simply by "Weight" throughout the rest of the user-de?ned Web page.
+<-- AWP_Out_Variable Name='Weight' Use='"Raw_Milk_Tank_Weight"' -->
+In this example, the value in the PLC tag "Raw_Milk_Tank_Weight" can be referenced simply by
+---
+
+===== PAGE 64 =====
+Syntax
+<!-- AWP_Enum_Def Name='<Enum type name>' Values='<Value>, <Value>,... ' -->
+Parameters
+---
+Example
+<!-- AWP_Enum_Def Name='AlarmEnum' Values='0:"No alarms", 1:"Tank is full",
+2:"Tank is empty"' -->
+---
+1.9.3.8 Referencing CPU variables with an enum type
+You can assign a variable in the CPU to an enum type. This variable can be used elsewhere in
+---
+your user-de?ned Web page in a read operation or a write operation. On a read operation, the
+---
+Web server will replace the numerical value that is read from the CPU with the corresponding
+enum text value. On a write operation, the Web server will replace the text value with the
+---
+integer value of the enumeration that corresponds to the text before writing the value to the
+---
+Syntax
+<!-- AWP_In_Variable Name='<Varname>' Enum="<EnumType>" --><!--
+AWP_Out_Variable Name='<Varname>' Enum="<EnumType>" -->
+---
+---
+
+===== PAGE 65 =====
+Parameters
+<Varname> Name of PLC tag or data block tag to associate with the enum type, or the name
+of the alias name for a PLC tag if declared.
+---
+Varname must be enclosed in single quotation marks. Within the single quotes,
+use double quotation marks around a PLC tag or data block name. Note that for
+---
+The scope of an enum type reference is the current fragment.
+Example usage in a variable read
+<!-- AWP_Out_Variable Name='"Alarm"' Enum="AlarmEnum" -->...<p>The current
+---
+value of "Alarm" is :="Alarm":</p>
+---
+If the value of "Alarm" in the CPU is 2, the HTML page displays 'The current value of "Alarm" is
+---
+numerical value 2.
+Example usage in a variable write
+<!-- AWP_Enum_Def Name='AlarmEnum' Values='0:"No alarms", 1:"Tank is full",
+---
+2:"Tank is empty"' --><!-- AWP_In_Variable Name='"Alarm"' Enum='AlarmEnum' -
+---
+->...
+---
+written to the PLC tag named "Alarm" in the CPU.
+Note that the Enum clause in the AWP_In_Variable declaration must correspond exactly to the
+Name clause in the AWP_Enum_Def declaration.
+---
+Example usage in a variable write with use of an alias
+---
+<!-- AWP_Enum_Def Name='AlarmEnum' Values='0:"No alarms", 1:"Tank is full",
+---
+2:"Tank is empty"' --><!-- AWP_In_Variable Name='"Alarm"' Enum='AlarmEnum'
+---
+
+===== PAGE 66 =====
+characters.
+Note: Previous releases required a separate AWP_Enum_Ref declaration to associate a
+variable with a defined enum type. STEP 7 and the S7-1200 support existing code with
+---
+AWP_Enum_Ref declarations; however, this command is no longer needed.
+---
+1.9.3.9 Creating fragments
+---
+STEP 7 converts and stores user-de?ned Web pages as a control DB and fragment DBs when you
+click "Generate blocks" in the CPU Properties for the Web server. You can set up speci?c
+fragments for speci?c pages or for sections of speci?c pages. You can identify these fragments
+---
+by a name and number with the "Start_Fragment" AWP command. Everything in the page
+following the AWP_Start_Fragment command belongs to that fragment until another
+---
+AWP_Start_Command is issued or until end of ?le is reached.
+---
+Syntax
+---
+<!-- AWP_Start_Fragment Name='<Name>' [Type=<Type>][ID=<id>][Mode=<Mode>] --
+>
+---
+accordingly. Operation of the fragment must be controlled with STEP 7 and the
+control DB variables.
+automatic: The Web server processes the fragment automatically.
+---
+If you do not specify the type parameter, the default is "automatic".
+---
+
+===== PAGE 67 =====
+, 11/2024 67
+<id> Integer identi?cation number. If you do not specify the ID parameter, the Web server
+assigns a number by default. For manual fragments, set the ID to a low number. The
+---
+fragment elsewhere in your set of user-de?ned Web pages. For example, consider a set of user-
+de?ned Web pages that has a start page and then several other HTML pages accessible from
+links on the start page. Suppose each of the separate pages is to display the company logo on
+---
+the page. You could implement this by creating a fragment that loads the image of the company
+---
+logo. Each individual HTML page could then import this fragment to display the company logo.
+You use the AWP Import_Fragment command for this purpose. The HTML code for the fragment
+only exists in one fragment, but you can import this fragment DB as many times as necessary in
+---
+Syntax
+<!-- AWP_Import_Fragment Name='<Name>' -->
+Parameters
+---
+Excerpt from HTML code that creates a fragment to display an image:
+<!-- AWP_Start_Fragment Name='My_company_logo' --><p><img
+src="company_logo.jpg"></p>
+---
+
+===== PAGE 68 =====
+68 , 11/2024
+<!-- AWP_Import_Fragment Name='My_company_logo' -->
+Both .html ?les (the one that creates the fragment and the one that imports it) are in the folder
+---
+1.9.3.11 Combining de?nitions
+When declaring variables for use in your user-de?ned Web pages, you can combine a variable
+declaration and an alias for the variable. You can also declare multiple In_Variables in one
+---
+statement and multiple Out_Variables in one statement.
+---
+Examples
+---
+<!-- AWP_In_Variable Name='"Level"' Name='"Weight"' Name='"Temp"' -->
+<!-- AWP_Out_Variable Name='HEADER:Status'
+---
+Use='"Status"'         Name='HEADER:Location'
+---
+Use="Location"         Name='COOKIE_VALUE:name' Use="my_cookie" -->
+<!-- AWP_In_Variable Name='Alarm' Use='"Data_block_10".Alarm' -->
+1.9.3.12 Handling tag names that contain special characters
+---
+When specifying variable names in user-de?ned Web pages, you must take special care if tag
+names contain characters that have special meanings.
+---
+Reading variables
+You use the following syntax to read a variable:
+---
+:=<Varname>:
+---
+The following rules apply to reading variables:
+---
+For variable names from the PLC tag table, enclose the tag name in double quotation marks.
+---
+
+===== PAGE 69 =====
+, 11/2024 69
+:=special_tag:
+n/a T\ :="T\\":
+---
+n/a A \B 'C
+---
+:D
+<!--AWP_Out_Variable Name='another_special_tag' Use='"A
+\\B \'C :D"' -->
+---
+:=another_special_tag:
+n/a a<b <!--AWP_Out_Variable Name='a_less_than_b' Use='"a<b"' -
+---
+->
+---
+:=a_less_than_b:
+Data_block_1 Tag_1 :="Data_block_1".Tag_1:
+---
+Data_block_1 ABC:DEF <!-- AWP_Out_Variable Name='special_tag'
+---
+Use='"Data_block_1".ABC\:DEF'-->
+---
+:=special_tag:
+DB A' B C D$
+---
+E
+Tag :="DB A' B C D$ E".Tag:
+DB:DB Tag:Tag <!--AWP_Out_Variable Name='my_tag' Use
+---
+='"DB:DB".Tag\:Tag' -->
+---
+:=my_tag:
+Name and Use clauses
+---
+
+===== PAGE 70 =====
+1. Select the CPU in the Device Configuration view.
+2. Display the "Web server" properties in the inspector window for the CPU.
+3. If not already selected, select the check box for "Activate Web server on this module".
+---
+4. Select "Permit access only with HTTPS" to ensure that the Web server uses encrypted
+---
+communication and to increase the security of your Web-accessible CPU.
+---
+5. Enter or browse to the folder name on your PC where you saved the HTML default page
+(start page).
+6. Enter the name of the default page.
+---
+7. Provide a name for your application (optional). The Web server uses the application name to
+further subcategorize or group web pages. When you provide an application name, the Web
+---
+server creates an URL for your user-defined page in the following format:
+http[s]://ww.xx.yy.zz/awp/<application name>/<pagename>.html. If you do not provide an
+---
+application name, the URL is http[s]://ww.xx.yy.zz/awp/<pagename>.html.
+---
+Avoid special characters in the application name. Some characters can cause the Web server
+---
+to be unable to display the user-defined pages.
+---
+---
+
+===== PAGE 71 =====
+, 11/2024 71
+8. In the Advanced section, enter filename extensions of files that include AWP commands. By
+default, STEP 7 analyzes files with .htm, .html, or .js extensions. If you have additional file
+---
+extensions, append them. To save processing resources, do not enter file extensions if no
+files of that type include AWP commands.
+9. Keep the default for the Web DB number, or enter a number of your choice. This is the DB
+---
+data blocks, your user-de?ned Web pages are a part of your STEP 7 program. The blocks
+corresponding to these pages appear in the Web server folder, which is in the System blocks
+folder under Program blocks in the project navigation tree.
+---
+In the Device con?guration of the CPU, you have the opportunity to designate a user-de?ned
+Web page to be the entry page when you access the Web server from either a PC or a mobile
+device. Otherwise, the entry page is the Introduction standard Web page.
+---
+1. Select the CPU in the Device configuration view.
+2. In the inspector window, select "Web server" from the CPU properties and enable the Web
+server.
+---
+3. Select "Entry page" in the Web server properties.
+---
+
+===== PAGE 72 =====
+72 , 11/2024
+4. Select "AWP1" from the drop-down list to configure the Web server to display a user-
+defined page upon access. (The other selection, "Start page", sets the Web server to display
+---
+the standard Introduction Web page upon access.)
+---
+a call to the WWW instruction.
+After you have completed con?guration and downloaded the project to the CPU, the Web server
+can use the "Default HTML page" that you selected when you con?gured your user-de?ned Web
+---
+pages as the entry page.
+Note: The CPU must be in RUN mode to display a user-defined entry page.
+1.9.6 Programming the WWW instruction for user-de?ned web pages
+---
+LAD / FBD SCL Description
+ret_val :=
+WWW(    ctrl_db:=_uint_in_);
+---
+Provides access to user-de?ned Web
+---
+integer DB number of the control DB. You can ?nd this control DB block number (called Web DB
+Number) in the Web Server properties of the CPU after you create the blocks for the user-de?ned
+Web pages. Enter the integer DB number as the CTRL_DB parameter of the WWW instruction.
+---
+
+===== PAGE 73 =====
+process with no additional manipulation. However, the STEP 7 user program can set global
+commands in the control DB to deactivate the web server or to subsequently re-enable it. Also,
+for user-de?ned pages that you create as manual fragment DBs, the STEP 7 user program must
+---
+
+===== PAGE 74 =====
+74 , 11/2024
+Note: You can also define a user-defined page as the entry page for the Web server.
+1.9.9 Constraints speci?c to user-de?ned Web pages
+---
+memory consumption.
+Note: If you need to reduce the space required for your user-defined Web pages, reduce
+your use of images if applicable.
+---
+
+===== PAGE 76 =====
+Wind Turbine Monitor" Web page to see the data for that turbine. A user with the "Write process
+data" privilege can also put the turbine in manual mode and control the variables for turbine
+speed, yaw, and pitch from the Web page.
+---
+Wind_turbine.html: This is the HTML page that implements the display shown above, using
+AWP commands to access controller data.
+Wind_turbine.css: This is the cascading style sheet that contains formatting styles for the
+---
+Wind_turbine.jpg: This is the background image that the HTML page uses. Use of images in
+user-defined Web pages is, of course, optional, and does require additional space in the
+CPU.
+---
+Implementation
+The HTML page uses AWP commands to read values from the PLC for the display ?elds and to
+write values to the PLC for data coming from user input. This page also uses AWP commands for
+---
+enum type de?nition and reference for handling ON/OFF settings.
+---
+
+===== PAGE 77 =====
+value.
+In addition, the HTML page uses an AWP command to write the special variable that contains
+the user ID of the user that is accessing the page to a tag in the PLC tag table.
+---
+1.9.10.2 Reading and displaying controller data
+The "Remote Wind Turbine Monitor" HTML page uses numerous AWP commands for reading
+data from the controller and displaying it on the page. For example, consider the HTML code for
+---
+The following excerpt from the "Remote Wind Turbine Monitor" HTML page displays the text
+"Power Output:" in the left cell of a table row and reads the variable for the power output and
+displays it in the right cell of the table row along with the text abbreviation for kilowatts, kW.
+---
+The AWP command :="Data_block_1".PowerOutput: performs the read operation. Note that data
+blocks are referenced by name, not by data block number (that is, "Data_block_1" and not
+---
+<tr style="height:2%;"><td><p>Power output:</p></td><td><p style="margin-
+bottom:5px;"> :="Data_block_1".PowerOutput: kW</p></td></tr>
+1.9.10.3 Using an enum type
+---
+
+===== PAGE 78 =====
+the data block named "Data_block_1".
+<!-- AWP_In_Variable Name='"Data_block_1".ManualOverrideEnable'
+Enum="OverrideStatus" --><!-- AWP_Enum_Def Name="OverrideStatus"
+---
+Values='0:"Off",1:"On"' -->
+---
+Where the HTML page includes a display ?eld in a table cell for the current state of
+ManualOverrideEnable, it uses just a normal read variable command, but with the use of the
+previously declared and referenced enum type, the page displays "O?" or "On" rather than 0 or 1.
+---
+border-top-color: #ffffff;"><p>Manual override:
+:="Data_block_1".ManualOverrideEnable:</p></td>
+The HTML page includes a drop-down select list for the user to change the value of
+---
+1.9.10.4 Writing user input to the controller
+The "Remote Wind Turbine Monitor" HTML page includes several AWP commands for writing
+data to the controller. The HTML page declares AWP_In_Variables for Boolean variables so that a
+---
+user with the "Write process data" privilege can put the wind turbine under manual control and
+---
+enable manual override for the turbine speed, yaw override, and/or blade pitch override. The
+page also uses AWP_In_Variables to allow a user with these privileges to subsequently set
+?oating-point values for the turbine speed, yaw, pitch, and braking percentage. The page uses
+---
+an HTTP form post command to write the AWP_In_Variables to the controller.
+For example, consider the HTML code for manually setting the braking value:
+---
+
+===== PAGE 79 =====
+The following excerpt from the "Remote Wind Turbine Monitor" HTML page ?rst declares an
+AWP_In_Variable for "Data_block_1" that enables the HTML page to write to any tags in the data
+block "Data_block_1". The page displays the text "Braking:" in the left cell of a table row. In the
+---
+data block in the CPU that controls braking.
+<!-- AWP_In_Variable Name='"Data_block_1"' -->
+...
+---
+</tr>
+Note: Note that if a user-defined page has a data entry field for a writable data block tag
+that is a string data type, the user must enclose the string in single quotation marks when
+---
+entering the string value in the field.
+Note: Note that if you declare an entire data block in an AWP_In_Variable declaration such
+as <!-- AWP_In_Variable Name='"Data_block_1"' -->, then every tag within that data block
+---
+can be written from the user-defined Web page. Use this when you intend for all of the tags
+---
+in a data block to be writable. Otherwise, if you only want specific data block tags to be
+---
+writable from the user-defined Web page, declare it specifically with a declaration such as
+<!-- AWP_In_Variable Name='"Data_block_1".Braking' -->
+---
+1.9.10.5 Writing a special variable
+---
+The "Remote Wind Turbine Monitor" Web page writes the special variable
+---
+SERVER:current_user_id to a PLC tag in the CPU, providing that the user has the "Write process
+---
+the "Remote Wind Turbine Monitor" Web page.
+The Web page writes the special variable to the PLC and requires no user interface.
+Example HTML code
+---
+<!-- AWP_In_Variable Name="SERVER:current_user_id" Use="User_ID"-->
+---
+
+===== PAGE 80 =====
+Braking: Real
+The user-defined Web page displays current values for the PLC data, and
+provides a select list to set the three Booleans using an enumerated type
+---
+
+===== PAGE 81 =====
+, 11/2024 81
+<!-- AWP_In_Variable Name='"Data_block_1".ManualOverrideEnable'
+Enum="OverrideStatus" -->
+---
+<!-- AWP_In_Variable Name='"Data_block_1".PitchOverride'
+Enum="OverrideStatus" -->
+---
+<!-- AWP_In_Variable Name='"Data_block_1".YawOverride' Enum="OverrideStatus"
+-->
+---
+<!-- AWP_In_Variable Name="SERVER:current_user_id" Use="User_ID"-->
+<!-- AWP_Enum_Def Name="OverrideStatus" Values='0:"Off",1:"On"' -->
+---
+<html>
+---
+<td colspan="2">
+<h2>Remote Wind Turbine Monitor: Turbine #:="Data_block_1".TurbineNumber:
+</h2>
+---
+<tr style="height: 2%;"><td style="width: 25%;"><p>Wind speed:</p></td>
+<td><p> :="Data_block_1".WindSpeed: km/h</p></td>
+</tr>
+---
+<td style="width: 25%;"><p>Wind direction:</p></td>
+<td><p> :="Data_block_1".WindDirection: deg.</p></td>
+</tr>
+---
+<tr style="height: 2%;"><td style="width: 25%;"><p>Temperature:</p></td>
+<td><p> :="Data_block_1".Temperature: deg. C</p></td>
+</tr>
+---
+<td style="width: 25%;"><p>Power output:</p></td>
+<td><p style="margin-bottom:5px;"> :="Data_block_1".PowerOutput: kW</p>
+---
+
+===== PAGE 82 =====
+border-top-color: #ffffff;">
+<p>Manual override: :="Data_block_1".ManualOverrideEnable:</p>
+</td>
+---
+<select name='"Data_block_1".ManualOverrideEnable'>
+<option value=':="Data_block_1".ManualOverrideEnable:'> </option>
+<option value="On">Yes</option>
+---
+<p style="margin-bottom:5px;"><input name='"Data_block_1".TurbineSpeed'
+size="10" value=':="Data_block_1".TurbineSpeed:' type="text"> RPM</p>
+</td>
+---
+<td style="width: 25%;">
+<p>Yaw override: :="Data_block_1".YawOverride: </p>
+</td>
+---
+<select name='"Data_block_1".YawOverride'>
+<option value=':="Data_block_1".YawOverride:'> </option>
+<option value="On">Yes</option>
+---
+
+===== PAGE 83 =====
+<p style="margin-bottom:5px;"><input name='"Data_block_1".Yaw' size="10"
+value=':="Data_block_1".Yaw:' type="text"> deg.</p>
+</td>
+---
+<td style="width: 25%;">
+<p>Pitch override: :="Data_block_1".PitchOverride: </p>
+</td>
+---
+<select name='"Data_block_1".PitchOverride'>
+<option value=':="Data_block_1".PitchOverride:'> </option>
+<option value="On">Yes</option>
+---
+<p style="margin-bottom:5px;"><input name='"Data_block_1".Pitch' size="10"
+value=':="Data_block_1".Pitch:' type="text"> deg.</p>
+</td>
+---
+
+===== PAGE 84 =====
+<p> <input name='"Data_block_1".Braking' size="10"
+value=':="Data_block_1".Braking:' type="text"> %</p>
+</form>
+---
+
+===== PAGE 85 =====
+Access the CPU Properties for the S7-1200 that controls the wind turbine, and enter the
+con?guration information in the User-de?ned pages properties of the Web Server:
+Con?guration ?elds
+---
+HTML directory: This field specifies the fully-qualified pathname to the folder where the
+default page (home page or start page) is located on the computer. The "..." button allows
+you to browse to the folder that you need.
+---
+example, WindTurbine.html is the default HTML page. The Remote Wind Turbine Monitor
+example only consists of a single page, but in other user-defined applications the default
+page can call up additional pages from links on the default page. Within the HTML code, the
+---
+
+===== PAGE 86 =====
+1.9.11.1 Introduction
+The Web server provides the means for you to provide user-de?ned Web pages in the following
+languages:
+---
+languages and by setting a speci?c cookie named "siemens_automation_language" from your
+pages. The Web server responds to this cookie, and switches to the default page in the
+corresponding language folder.
+---
+
+===== PAGE 87 =====
+1.9.11.3 Programming the language switch
+The Web server performs switching between languages through the use of a cookie named
+"siemens_automation_language". This is a cookie de?ned and set in the HTML pages, and
+---
+interpreted by the Web server to display a page in the appropriate language from the language
+folder of the same name. The HTML page must include a JavaScript to set this cookie to one of
+---
+the pre-de?ned language identi?ers: "de", "en", "es", "fr", "it', or "zh".
+For example, if the HTML page sets the cookie to "de", the Web server switches to the "de" folder
+and displays the page with the default HTML page name as de?ned in the STEP 7 con?guration.
+---
+
+===== PAGE 88 =====
+function SetLangCookie(value) {
+var strval = "siemens_automation_language=";
+// This is the cookie by which the Web server
+---
+// detects the desired language
+---
+// This name is required by the Web server.
+strval = strval + value;
+---
+
+===== PAGE 89 =====
+, 11/2024 89
+var endttime = new Date(now.getTime() + expiration);
+strval = strval + "; expires=" +
+---
+}
+Note: If your user-defined Web page implementation includes HTML files within language-
+specific folders (en, de, for example) and also HTML files that are not in the language-
+---
+specific folders, note that you cannot define enum types with the AWP_Enum_Def command
+in files in both locations. If you use enums, you must define them either within files in the
+---
+When you select the default HTML page, you navigate into the language folder and select the
+HTML page that is to be the start page. When you subsequently generate blocks and download
+the blocks to the CPU, the Web server displays the start page in the language folder that you
+---
+con?gured.
+---
+
+===== PAGE 90 =====
+Note: Do not make changes in the control DB structure other than changes similar to those
+described below. Modifications to the control DB structure can prevent the Web server from
+operating correctly.
+---
+server.
+The global commands in the "Commandstate" structure apply to the Web server in general. You
+can deactivate the Web server or restart it from the control DB parameters.
+---
+Block tag Data type Description
+---
+Global states in the Commandstate structure
+The global states apply to the Web server in general and contain status information about the
+Web application.
+---
+
+===== PAGE 91 =====
+, 11/2024 91
+16#0006: fragment DB not for AWP
+16#0007: enumeration data is inconsistent
+---
+The request table is an array of structures containing commands and states that apply to
+individual fragment DBs. If you created fragments with the AWP_Start_Fragment command of
+type "manual", the STEP 7 user program must control these pages through the control DB. The
+---
+Array of structures for individual fragment DB control.
+The Web server can process up to four fragments at a time. The
+array index for a particular fragment is arbitrary when the Web
+---
+
+===== PAGE 92 =====
+commands take e?ect when the STEP 7 user program executes the WWW instruction.
+The STEP 7 user program can set the fragment_index explicitly, thus causing the Web server to
+process the speci?ed fragment with a request command. Otherwise, the Web server processes
+---
+the current fragment for the current page when the WWW instruction executes.
+---
+
+===== PAGE 93 =====
+, 11/2024 93
+application-speci?c tasks. Afterwards, it sets the continue ?ag so that the Web server will
+execute this fragment.
+---
+LDT
+You can ?nd the S7?1500 Web API supported data types in this S7-1500 Web server document at
+the following location: Application Programming Interface (API) > Read and write process data >
+---
+
+===== PAGE 94 =====
+1.10.1 Constraints
+The following IT considerations can a?ect your use of the Web server:
+Typically, you must use the IP address of the CPU to access the standard Web pages or user-
+---
+JavaScript or cookies, enable them. If you cannot enable them, some features are restricted.
+Use of JavaScript and cookies in user-defined Web pages is optional. If used, you must
+enable them in your browser.
+---
+The Web server supports Transport Layer Security (TLS). You can access the standard Web
+pages and user-defined Web pages with an URL of either http://ww.xx.yy.zz or
+---
+https://ww.xx.yy.zz, where "ww.xx.yy.zz" represents the IP address of the CPU.
+---
+
+===== PAGE 95 =====
+, 11/2024 95
+Siemens provides a security certificate for secure access to the Web server. From the
+Introduction standard Web page, you can download and import the certificate into the
+---
+Internet options of your Web browser. If you choose to not import the certificate, you will
+get a security verification prompt every time you access the Web server with https://.
+Number of connections
+---
+The Web server supports a maximum of 30 active connections. Various actions consume the 30
+connections, depending on the Web browser that you use and the number of di?erent objects
+---
+per page (.css ?les, images, JavaScript ?les, additional .html ?les). Some connections persist
+while the Web server is displaying a page; other connections do not persist after the initial
+connection.
+---
+reason, the Web pages may not load fully.
+Note: Log off prior to closing Web serverIf you have logged in to the Web server, be sure
+to log off prior to closing your Web browser. The Web server supports a maximum of seven
+---
+concurrent logins.Failure to log off can leave multiple connections open, depending on your
+---
+browser. By opening and closing Web server browser windows multiple times without
+logging off, you could consume all of the 30 connections. If you consume all of the
+---
+connections, you would then receive an "Invalid login" message when you attempt to log in.
+You would have to wait up to 30 minutes before the Web server frees up enough
+connections for you to log in again. To avoid this problem, always log off before closing the
+---
+Web server if you have logged in.
+1.10.2 Use of JavaScript
+---

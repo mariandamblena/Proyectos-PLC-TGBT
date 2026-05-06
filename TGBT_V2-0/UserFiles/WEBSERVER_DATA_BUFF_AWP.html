@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCMTA DATA_BUFF AWP</title>
+  <style>
+    body { font-family: Tahoma, Arial, sans-serif; margin: 18px; background: #f4f8fb; color: #0f2a3f; }
+    h1 { margin: 0 0 8px; }
+    .box { background: #fff; border: 1px solid #d6e3ef; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row { padding: 6px 0; border-bottom: 1px solid #eef4f9; }
+    .k { color: #40617d; }
+    .v { font-weight: 700; }
+    .hint { font-size: 12px; color: #5a748d; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <!-- IMPORTANT: AWP comments must keep a space after <!-- and before --> -->
+
+  <h1>SCMTA - DATA_BUFF (AWP)</h1>
+  <p class="hint">Pagina solo lectura para Web Server S7-1200 User-defined Pages. Los valores se leen por AWP.</p>
+
+  <div class="box">
+    <h2>Estado principal</h2>
+    <div class="grid">
+      <div class="row"><span class="k">SCMTA_STATE:</span> <span class="v">:="DATA_BUFF".SCMTA_STATE:</span></div>
+      <div class="row"><span class="k">SCMTA_STATE_NAME:</span> <span class="v">:="DATA_BUFF".SCMTA_STATE_NAME:</span></div>
+      <div class="row"><span class="k">IS_ON_GRID:</span> <span class="v">:="DATA_BUFF".IS_ON_GRID:</span></div>
+      <div class="row"><span class="k">IS_ON_GD:</span> <span class="v">:="DATA_BUFF".IS_ON_GD:</span></div>
+      <div class="row"><span class="k">IS_IN_TRANSFER:</span> <span class="v">:="DATA_BUFF".IS_IN_TRANSFER:</span></div>
+      <div class="row"><span class="k">IS_FAULT:</span> <span class="v">:="DATA_BUFF".IS_FAULT:</span></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>Mediciones RED</h2>
+    <div class="grid">
+      <div class="row"><span class="k">GRID_V_L1L2:</span> <span class="v">:="DATA_BUFF".GRID_V_L1L2:</span></div>
+      <div class="row"><span class="k">GRID_V_L2L3:</span> <span class="v">:="DATA_BUFF".GRID_V_L2L3:</span></div>
+      <div class="row"><span class="k">GRID_V_L3L1:</span> <span class="v">:="DATA_BUFF".GRID_V_L3L1:</span></div>
+      <div class="row"><span class="k">GRID_FREQ:</span> <span class="v">:="DATA_BUFF".GRID_FREQ:</span></div>
+      <div class="row"><span class="k">GRID_MEASUREMENT_OK:</span> <span class="v">:="DATA_BUFF".GRID_MEASUREMENT_OK:</span></div>
+      <div class="row"><span class="k">GRID_FAIL:</span> <span class="v">:="DATA_BUFF".GRID_FAIL:</span></div>
+    </div>
+  </div>
+
+  <div class="box hint">
+    URL esperada:
+    <br>sin Application Name: /awp/WEBSERVER_DATA_BUFF_AWP.html
+    <br>con Application Name = tgbt: /awp/tgbt/WEBSERVER_DATA_BUFF_AWP.html
+  </div>
+</body>
+</html>

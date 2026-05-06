@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCMTA | Monitor DATA_BUFF</title>
+  <style>
+    :root {
+      --bg-1: #08121e;
+      --bg-2: #13314d;
+      --panel: #ffffff;
+      --ink: #102033;
+      --muted: #5c6d7f;
+      --ok: #0e9f6e;
+      --bad: #d93b3b;
+      --warn: #f59e0b;
+      --line: #d7e0ea;
+      --accent: #1d7ac3;
+      --accent-2: #35b4a6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Bahnschrift", "Trebuchet MS", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #2a5f95 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #2a8c82 0%, transparent 45%),
+        linear-gradient(165deg, var(--bg-1), var(--bg-2));
+    }
+
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero {
+      background: linear-gradient(120deg, rgba(255,255,255,0.94), rgba(255,255,255,0.82));
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 16px;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.18);
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(22px, 2.9vw, 34px);
+      letter-spacing: 0.4px;
+    }
+
+    .hero-sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr 120px 120px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .toolbar input,
+    .toolbar button,
+    .toolbar select {
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .toolbar button {
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      border-color: #1667a7;
+      transition: transform 120ms ease, filter 120ms ease;
+    }
+
+    .toolbar button:hover {
+      filter: brightness(1.05);
+      transform: translateY(-1px);
+    }
+
+    .status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-weight: 700;
+      color: #29425a;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--warn);
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+    }
+
+    .dot.ok {
+      background: var(--ok);
+      box-shadow: 0 0 0 4px rgba(14, 159, 110, 0.18);
+    }
+
+    .dot.bad {
+      background: var(--bad);
+      box-shadow: 0 0 0 4px rgba(217, 59, 59, 0.18);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.14);
+      padding: 14px;
+      animation: rise 360ms ease both;
+    }
+
+    @keyframes rise {
+      from {
+        transform: translateY(8px);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      color: #163958;
+      border-bottom: 1px dashed #c6d5e3;
+      padding-bottom: 8px;
+      letter-spacing: 0.2px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      border-bottom: 1px solid #edf2f7;
+      padding: 7px 0;
+      font-size: 14px;
+    }
+
+    .kv:last-child { border-bottom: 0; }
+
+    .tag {
+      font-family: "Consolas", "Courier New", monospace;
+      color: #35516b;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .value {
+      font-weight: 800;
+      text-align: right;
+      color: #1a2f44;
+    }
+
+    .bool {
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 12px;
+      min-width: 58px;
+      text-align: center;
+      color: #fff;
+    }
+
+    .bool.true { background: var(--ok); }
+    .bool.false { background: var(--bad); }
+
+    .table-wrap {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.14);
+      overflow: hidden;
+    }
+
+    .table-head {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: linear-gradient(115deg, #e9f2fb, #eefaf6);
+      border-bottom: 1px solid #d7e3ef;
+    }
+
+    .table-head h2 {
+      margin: 0;
+      font-size: 16px;
+      color: #173c5e;
+    }
+
+    .table-head input {
+      width: min(320px, 100%);
+      border: 1px solid #bfd0e1;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: "Consolas", "Courier New", monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #edf2f7;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f8fbfe;
+      color: #274863;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    tbody tr:hover td { background: #f5fbff; }
+
+    .scroll {
+      max-height: 430px;
+      overflow: auto;
+    }
+
+    .mono {
+      font-family: "Consolas", "Courier New", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      .toolbar { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .table-head {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .table-head input { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <h1>Monitor Web DATA_BUFF</h1>
+      <p class="hero-sub">Visualizacion online del DB global para diagnostico y operacion en navegador.</p>
+
+      <div class="toolbar">
+        <input id="urlInput" type="text" value="/api/databuffer" aria-label="URL JSON" placeholder="Ej: /api/databuffer o /databuffer.json">
+        <select id="periodSelect" aria-label="Periodo refresco">
+          <option value="1000">1 s</option>
+          <option value="2000" selected>2 s</option>
+          <option value="5000">5 s</option>
+          <option value="10000">10 s</option>
+        </select>
+        <button id="refreshBtn" type="button">Refrescar</button>
+      </div>
+
+      <div class="status">
+        <span class="pill"><span id="connDot" class="dot"></span><span id="connText">Sin lectura</span></span>
+        <span>Ultima lectura: <strong id="lastRead">-</strong></span>
+        <span>Tags recibidos: <strong id="tagCount">0</strong></span>
+        <span>Fuente: <strong id="srcUrl">-</strong></span>
+      </div>
+    </section>
+
+    <section class="grid" id="cards"></section>
+
+    <section class="table-wrap">
+      <div class="table-head">
+        <h2>DATA_BUFF completo</h2>
+        <input id="filterInput" type="text" placeholder="Filtrar por nombre de tag...">
+      </div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 44%;">Tag</th>
+              <th style="width: 16%;">Tipo</th>
+              <th style="width: 40%;">Valor</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const sections = [
+      {
+        title: "Modo y Estado",
+        tags: [
+          "MODE_AUTO", "MODE_MANUAL", "SCMTA_STATE", "SCMTA_STATE_NAME",
+          "IS_ON_GRID", "IS_ON_GD", "IS_IN_TRANSFER", "IS_FAULT", "ACTIVE_GD"
+        ]
+      },
+      {
+        title: "Interruptores",
+        tags: [
+          "QT1_CLOSED", "QT1_OPEN", "QT1_FAULT", "QG1_CLOSED", "QG1_OPEN", "QG1_FAULT",
+          "QG2_CLOSED", "QG2_OPEN", "QG2_FAULT", "Q22_CLOSED", "Q22_FAULT"
+        ]
+      },
+      {
+        title: "Red Electrica",
+        tags: [
+          "GRID_V_L1L2", "GRID_V_L2L3", "GRID_V_L3L1", "GRID_FREQ",
+          "GRID_P_TOTAL", "GRID_MEASUREMENT_OK", "GRID_PHASE_LOSS", "GRID_ALM_UV", "GRID_ALM_OV"
+        ]
+      },
+      {
+        title: "Generadores",
+        tags: [
+          "GD1_READY", "GD1_RUNNING", "GD1_ALARM", "GD2_READY", "GD2_RUNNING", "GD2_ALARM",
+          "GD1_MEASUREMENT_OK", "GD2_MEASUREMENT_OK", "GD_STOP_REQ", "GD2_STOP_REQ"
+        ]
+      },
+      {
+        title: "Comunicacion",
+        tags: [
+          "COMM_OK", "COMM_ERRORS", "MODBUS_COMM_OK", "PM_COMM_OK",
+          "MODBUS_ACTIVE_DEVICE", "ACTIVE_DEVICE", "MB_PORT_CFG_DONE", "MB_PORT_CFG_ERROR", "MB_PORT_CFG_STATUS"
+        ]
+      },
+      {
+        title: "Alarmas y Bloqueos",
+        tags: [
+          "FAULT_CODE", "HMI_ALARM_ACTIVE", "HMI_ALARM_TEXT", "ALM_INTERLOCK_VIOLATION",
+          "BLOCK_LOCAL", "BLOCK_INTERLOCK", "BLOCK_CONFLICT", "RESET_FAULT", "ACK_ALARM"
+        ]
+      },
+      {
+        title: "Contadores",
+        tags: [
+          "TRANSFER_COUNT", "FAULT_COUNT", "SYSTEM_UPTIME", "ELAPSED_TIME", "DIAG_LAST_TRANSFER_TIME"
+        ]
+      }
+    ];
+
+    const state = {
+      timer: null,
+      data: {},
+      flatEntries: []
+    };
+
+    const cardsEl = document.getElementById("cards");
+    const tbodyEl = document.getElementById("tbody");
+    const connDotEl = document.getElementById("connDot");
+    const connTextEl = document.getElementById("connText");
+    const lastReadEl = document.getElementById("lastRead");
+    const tagCountEl = document.getElementById("tagCount");
+    const srcUrlEl = document.getElementById("srcUrl");
+    const urlInputEl = document.getElementById("urlInput");
+    const periodSelectEl = document.getElementById("periodSelect");
+    const filterInputEl = document.getElementById("filterInput");
+
+    function normalizePayload(payload) {
+      if (!payload || typeof payload !== "object") {
+        return {};
+      }
+      if (payload.DATA_BUFF && typeof payload.DATA_BUFF === "object") {
+        return payload.DATA_BUFF;
+      }
+      if (payload.data && payload.data.DATA_BUFF && typeof payload.data.DATA_BUFF === "object") {
+        return payload.data.DATA_BUFF;
+      }
+      return payload;
+    }
+
+    function detectType(v) {
+      if (typeof v === "boolean") return "BOOL";
+      if (typeof v === "number") return Number.isInteger(v) ? "INT" : "REAL";
+      if (typeof v === "string") return "STRING";
+      if (Array.isArray(v)) return "ARRAY";
+      if (v && typeof v === "object") return "STRUCT";
+      return "N/A";
+    }
+
+    function formatValue(v) {
+      if (typeof v === "number") {
+        if (!Number.isFinite(v)) return String(v);
+        return Number.isInteger(v) ? String(v) : v.toFixed(3);
+      }
+      if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+      if (typeof v === "string") return v;
+      if (Array.isArray(v) || (v && typeof v === "object")) {
+        return JSON.stringify(v);
+      }
+      return String(v);
+    }
+
+    function flattenObject(obj, prefix = "") {
+      const out = [];
+      Object.keys(obj).sort().forEach((key) => {
+        const val = obj[key];
+        const path = prefix ? prefix + "." + key : key;
+        if (val && typeof val === "object" && !Array.isArray(val)) {
+          out.push(...flattenObject(val, path));
+        } else {
+          out.push({ tag: path, value: val, type: detectType(val) });
+        }
+      });
+      return out;
+    }
+
+    function boolHtml(v) {
+      return '<span class="bool ' + (v ? 'true' : 'false') + '">' + (v ? 'TRUE' : 'FALSE') + '</span>';
+    }
+
+    function renderCards(data) {
+      cardsEl.innerHTML = "";
+      sections.forEach((section, index) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.style.animationDelay = (index * 35) + "ms";
+
+        const title = document.createElement("h2");
+        title.textContent = section.title;
+        card.appendChild(title);
+
+        section.tags.forEach((tag) => {
+          const row = document.createElement("div");
+          row.className = "kv";
+
+          const k = document.createElement("div");
+          k.className = "tag";
+          k.textContent = tag;
+
+          const v = document.createElement("div");
+          v.className = "value";
+
+          if (Object.prototype.hasOwnProperty.call(data, tag)) {
+            if (typeof data[tag] === "boolean") {
+              v.innerHTML = boolHtml(data[tag]);
+            } else {
+              v.textContent = formatValue(data[tag]);
+            }
+          } else {
+            v.textContent = "-";
+            v.style.color = "#9aa9b7";
+          }
+
+          row.appendChild(k);
+          row.appendChild(v);
+          card.appendChild(row);
+        });
+
+        cardsEl.appendChild(card);
+      });
+    }
+
+    function renderTable(rows, filter = "") {
+      const q = filter.trim().toLowerCase();
+      const filtered = q
+        ? rows.filter((r) => r.tag.toLowerCase().includes(q))
+        : rows;
+
+      tbodyEl.innerHTML = "";
+      filtered.forEach((r) => {
+        const tr = document.createElement("tr");
+
+        const tdTag = document.createElement("td");
+        tdTag.className = "mono";
+        tdTag.textContent = r.tag;
+
+        const tdType = document.createElement("td");
+        tdType.textContent = r.type;
+
+        const tdVal = document.createElement("td");
+        if (typeof r.value === "boolean") {
+          tdVal.innerHTML = boolHtml(r.value);
+        } else {
+          tdVal.className = "mono";
+          tdVal.textContent = formatValue(r.value);
+        }
+
+        tr.appendChild(tdTag);
+        tr.appendChild(tdType);
+        tr.appendChild(tdVal);
+        tbodyEl.appendChild(tr);
+      });
+    }
+
+    function setConnectionStatus(kind, text) {
+      connDotEl.className = "dot";
+      if (kind === "ok") connDotEl.classList.add("ok");
+      if (kind === "bad") connDotEl.classList.add("bad");
+      connTextEl.textContent = text;
+    }
+
+    async function loadData() {
+      const url = urlInputEl.value.trim();
+      if (!url) return;
+
+      srcUrlEl.textContent = url;
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("HTTP " + response.status);
+        }
+        const payload = await response.json();
+        state.data = normalizePayload(payload);
+        state.flatEntries = flattenObject(state.data);
+
+        renderCards(state.data);
+        renderTable(state.flatEntries, filterInputEl.value);
+
+        tagCountEl.textContent = String(state.flatEntries.length);
+        lastReadEl.textContent = new Date().toLocaleString("es-AR");
+        setConnectionStatus("ok", "Conectado");
+      } catch (err) {
+        setConnectionStatus("bad", "Error de lectura");
+        lastReadEl.textContent = new Date().toLocaleString("es-AR");
+        console.error("Error leyendo DATA_BUFF:", err);
+      }
+    }
+
+    function restartAutoRefresh() {
+      if (state.timer) {
+        clearInterval(state.timer);
+      }
+      const periodMs = Number(periodSelectEl.value);
+      state.timer = setInterval(loadData, periodMs);
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", loadData);
+
+    periodSelectEl.addEventListener("change", () => {
+      restartAutoRefresh();
+      loadData();
+    });
+
+    filterInputEl.addEventListener("input", () => {
+      renderTable(state.flatEntries, filterInputEl.value);
+    });
+
+    urlInputEl.addEventListener("change", () => {
+      loadData();
+    });
+
+    renderCards({});
+    renderTable([]);
+    restartAutoRefresh();
+    loadData();
+  </script>
+</body>
+</html>
