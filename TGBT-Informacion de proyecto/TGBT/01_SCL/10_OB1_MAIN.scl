@@ -386,45 +386,54 @@ BEGIN
 
     // ====================================================================
     // Registrar máximo mensual de consumo de la red (GRID)
-    // - Reset manual: poner DATA_BUFF.MONTH_MAX_GRID_RESET = TRUE desde HMI
+    // - Reset manual: poner DB_MONTH_MAX_GRID.MONTH_MAX_GRID_RESET = TRUE desde HMI
     // - Auto-reset al cambiar de mes usando RD_SYS_T
     // ====================================================================
     // Leer hora del sistema
     // Instrucción sistema: leer fecha/hora del CPU (module time)
-    RD_SYS_T(RET_VAL => rd_ret, OUT => currentDTL);
+    rd_ret := RD_SYS_T(currentDTL);
 
-    // Extraer mes (asumo campo .Month disponible en tipo DTL)
-    currentMonth := currentDTL.Month;
+    // Usar la fecha solo si la lectura fue correcta (rd_ret = 0)
+    IF rd_ret = 0 THEN
 
-    // Inicializar month si 0
-    IF "DATA_BUFF".MONTH_MAX_GRID_MONTH = 0 THEN
-        "DATA_BUFF".MONTH_MAX_GRID_MONTH := currentMonth;
-    END_IF;
+        // Extraer mes (asumo campo .Month disponible en tipo DTL)
+        currentMonth := currentDTL.Month;
 
-    // Reset automático al cambiar de mes
-    IF currentMonth <> "DATA_BUFF".MONTH_MAX_GRID_MONTH THEN
-        "DATA_BUFF".MONTH_MAX_GRID_P := 0.0;
-        "DATA_BUFF".MONTH_MAX_GRID_TS := currentDTL;
-        "DATA_BUFF".MONTH_MAX_GRID_MONTH := currentMonth;
-        "DATA_BUFF".MONTH_MAX_GRID_SCAN := 0;
-    END_IF;
-
-    // Reset manual
-    IF "DATA_BUFF".MONTH_MAX_GRID_RESET THEN
-        "DATA_BUFF".MONTH_MAX_GRID_P := 0.0;
-        "DATA_BUFF".MONTH_MAX_GRID_TS := currentDTL;
-        "DATA_BUFF".MONTH_MAX_GRID_MONTH := currentMonth;
-        "DATA_BUFF".MONTH_MAX_GRID_SCAN := 0;
-        "DATA_BUFF".MONTH_MAX_GRID_RESET := FALSE;
-    END_IF;
-
-    // Actualizar máximo y timestamp cuando corresponde
-    IF "DATA_BUFF".GRID_MEASUREMENT_OK THEN
-        IF "DATA_BUFF".GRID_P_TOTAL > "DATA_BUFF".MONTH_MAX_GRID_P THEN
-            "DATA_BUFF".MONTH_MAX_GRID_P := "DATA_BUFF".GRID_P_TOTAL;
-            "DATA_BUFF".MONTH_MAX_GRID_TS := currentDTL;
-            "DATA_BUFF".MONTH_MAX_GRID_SCAN := "DATA_BUFF".SYSTEM_UPTIME; 
+        // Inicializar month si 0
+        IF "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_MONTH = 0 THEN
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_MONTH := currentMonth;
         END_IF;
+
+        // Reset automático al cambiar de mes
+        IF currentMonth <> "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_MONTH THEN
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_P := 0.0;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_TS := currentDTL;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_MONTH := currentMonth;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_SCAN := 0;
+        END_IF;
+
+        // Reset manual
+        IF "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_RESET THEN
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_P := 0.0;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_TS := currentDTL;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_MONTH := currentMonth;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_SCAN := 0;
+            "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_RESET := FALSE;
+        END_IF;
+
+        // Actualizar máximo y timestamp cuando corresponde
+        IF "DATA_BUFF".GRID_MEASUREMENT_OK THEN
+            IF "DATA_BUFF".GRID_P_TOTAL > "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_P THEN
+                "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_P := "DATA_BUFF".GRID_P_TOTAL;
+                "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_TS := currentDTL;
+                IF "DATA_BUFF".SYSTEM_UPTIME >= T#0ms THEN
+                    "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_SCAN := DINT_TO_UDINT(TIME_TO_DINT("DATA_BUFF".SYSTEM_UPTIME));
+                ELSE
+                    "DB_MONTH_MAX_GRID".MONTH_MAX_GRID_SCAN := 0;
+                END_IF;
+            END_IF;
+        END_IF;
+
     END_IF;
 
 

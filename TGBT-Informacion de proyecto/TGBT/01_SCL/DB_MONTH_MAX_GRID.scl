@@ -1,0 +1,20 @@
+DATA_BLOCK "DB_MONTH_MAX_GRID"
+// ============================================================
+// Registrador de máximo mensual de potencia de la RED (GRID)
+// Versión: 1.0  Fecha: 2026-05-30
+// DB separado para el máximo mensual de la red
+// ============================================================
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+NON_RETAIN
+   STRUCT
+      MONTH_MAX_GRID_P : Real;               // Máximo kW del mes
+      MONTH_MAX_GRID_TS : DTL;               // Timestamp del pico máximo
+      MONTH_MAX_GRID_MONTH : UInt;           // Mes actual (1..12) para auto-reset
+      MONTH_MAX_GRID_RESET : Bool;           // Bandera de reset manual desde HMI
+      MONTH_MAX_GRID_SCAN : UDInt;           // Contador de scans cuando se registró el pico
+   END_STRUCT;
+
+BEGIN
+
+END_DATA_BLOCK
