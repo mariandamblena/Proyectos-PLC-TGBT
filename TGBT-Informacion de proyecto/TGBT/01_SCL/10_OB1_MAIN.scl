@@ -337,6 +337,8 @@ BEGIN
     "DATA_BUFF".GRID_ALM_UV  := "06_FB_MODBUS_MANAGER_DB".PM_ALARM[1];
     "DATA_BUFF".GRID_ALM_OV  := "06_FB_MODBUS_MANAGER_DB".PM_ALARM[1];
     "DATA_BUFF".GRID_MEASUREMENT_OK := "06_FB_MODBUS_MANAGER_DB".PM_COMM_OK[1];
+    // Copiar potencia total de la red (PM_P_TOTAL indice 1)
+    "DATA_BUFF".GRID_P_TOTAL := "06_FB_MODBUS_MANAGER_DB".PM_P_TOTAL[1];
 
     // Copiar mediciones GD1 (C01-GD1 = indice 2)
     "DATA_BUFF".GD1_I_L1    := "06_FB_MODBUS_MANAGER_DB".PM_I_L1[2];
@@ -376,6 +378,24 @@ BEGIN
     "DATA_BUFF".C06_V_L1L2  := "06_FB_MODBUS_MANAGER_DB".PM_V_L1L2[7];
     "DATA_BUFF".C06_P_TOTAL := "06_FB_MODBUS_MANAGER_DB".PM_P_TOTAL[7];
     "DATA_BUFF".C06_MEASUREMENT_OK := "06_FB_MODBUS_MANAGER_DB".PM_COMM_OK[7];
+
+    // ====================================================================
+    // Registrar máximo mensual de consumo de la red (GRID)
+    // - Reset manual: poner DATA_BUFF.MONTH_MAX_GRID_RESET = TRUE desde HMI
+    // ====================================================================
+    IF "DATA_BUFF".MONTH_MAX_GRID_RESET THEN
+        "DATA_BUFF".MONTH_MAX_GRID_P := 0.0;
+        "DATA_BUFF".MONTH_MAX_GRID_SCAN := 0;
+        "DATA_BUFF".MONTH_MAX_GRID_RESET := FALSE;
+    END_IF;
+
+    IF "DATA_BUFF".GRID_MEASUREMENT_OK THEN
+        IF "DATA_BUFF".GRID_P_TOTAL > "DATA_BUFF".MONTH_MAX_GRID_P THEN
+            "DATA_BUFF".MONTH_MAX_GRID_P := "DATA_BUFF".GRID_P_TOTAL;
+            // opcional: registrar contador de scans si se desea
+            "DATA_BUFF".MONTH_MAX_GRID_SCAN := "DATA_BUFF".SYSTEM_UPTIME; 
+        END_IF;
+    END_IF;
 
 
     // ========================================================================
