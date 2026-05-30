@@ -52,7 +52,8 @@ VERSION : 0.1
    END_VAR
 
    VAR
-        pollIndex         : Int  := 1;    // Indice activo 1..7
+                pollIndex         : Int  := 1;    // Indice activo de la secuencia ponderada
+            currentDeviceIndex : Int  := 1;    // Indice real 1..7 para guardar las lecturas
       retryCount        : Int;
       currentSlaveAddr  : UInt;
       portConfigured    : Bool;
@@ -72,7 +73,7 @@ VERSION : 0.1
    END_VAR
 
    VAR CONSTANT
-      N_DEVICES    : Int   := 7;
+       N_SLOTS      : Int   := 10;
       MB_DATA_ADDR : UDInt := 43000;  // Modbus addr 43000 = FC03 holding reg 3000
       MB_DATA_LEN  : UInt  := 120;
       MB_MODE_READ : USInt := 0;      // FC03 Read Holding Registers
@@ -109,25 +110,30 @@ BEGIN
     // ========================================================================
     IF #portConfigured AND NOT #initialized THEN
         #pollIndex        := 1;
+        #currentDeviceIndex := 1;
         #currentSlaveAddr := #SLAVE_C02;
         #ACTIVE_DEVICE    := 'C02_RED';
         #initialized      := TRUE;
     END_IF;
 
-    IF #pollIndex < 1 OR #pollIndex > #N_DEVICES THEN
+    IF #pollIndex < 1 OR #pollIndex > #N_SLOTS THEN
         #pollIndex := 1;
     END_IF;
 
-    // Resolver slave activo segun indice actual
+    // Resolver slave activo segun el slot ponderado actual
     CASE #pollIndex OF
-        1: #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
-        2: #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
-        3: #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
-        4: #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
-        5: #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
-        6: #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
-        7: #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
+        1:  #currentDeviceIndex := 1; #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+        2:  #currentDeviceIndex := 2; #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+        3:  #currentDeviceIndex := 3; #currentSlaveAddr := #SLAVE_C01_GD2; #ACTIVE_DEVICE := 'C01_GD2';
+        4:  #currentDeviceIndex := 1; #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+        5:  #currentDeviceIndex := 2; #currentSlaveAddr := #SLAVE_C01_GD1; #ACTIVE_DEVICE := 'C01_GD1';
+        6:  #currentDeviceIndex := 4; #currentSlaveAddr := #SLAVE_C03;     #ACTIVE_DEVICE := 'C03';
+        7:  #currentDeviceIndex := 1; #currentSlaveAddr := #SLAVE_C02;     #ACTIVE_DEVICE := 'C02_RED';
+        8:  #currentDeviceIndex := 5; #currentSlaveAddr := #SLAVE_C04;     #ACTIVE_DEVICE := 'C04';
+        9:  #currentDeviceIndex := 6; #currentSlaveAddr := #SLAVE_C05;     #ACTIVE_DEVICE := 'C05';
+        10: #currentDeviceIndex := 7; #currentSlaveAddr := #SLAVE_C06;     #ACTIVE_DEVICE := 'C06_Q22';
     ELSE
+        #currentDeviceIndex := 1;
         #currentSlaveAddr := #SLAVE_C02;
         #ACTIVE_DEVICE := 'C02_RED';
     END_CASE;
@@ -180,43 +186,43 @@ BEGIN
             //   [60..61] reg 3060  Active Power Total     [kW]
             //   [110..111] reg 3110  Frequency            [Hz]
             // -----------------------------------------------------------------
-            #PM_I_L1[#pollIndex] := DWORD_TO_REAL(
+            #PM_I_L1[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[0]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[1]));
-            #PM_I_L2[#pollIndex] := DWORD_TO_REAL(
+            #PM_I_L2[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[2]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[3]));
-            #PM_I_L3[#pollIndex] := DWORD_TO_REAL(
+            #PM_I_L3[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[4]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[5]));
-            #PM_V_L1L2[#pollIndex] := DWORD_TO_REAL(
+            #PM_V_L1L2[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[20]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[21]));
-            #PM_V_L2L3[#pollIndex] := DWORD_TO_REAL(
+            #PM_V_L2L3[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[22]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[23]));
-            #PM_V_L3L1[#pollIndex] := DWORD_TO_REAL(
+            #PM_V_L3L1[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[24]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[25]));
-            #PM_P_TOTAL[#pollIndex] := DWORD_TO_REAL(
+            #PM_P_TOTAL[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[60]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[61]));
-            #PM_FREQ[#pollIndex] := DWORD_TO_REAL(
+            #PM_FREQ[#currentDeviceIndex] := DWORD_TO_REAL(
                 SHL(IN := WORD_TO_DWORD(#rxBuffer[110]), N := 16)
                 OR  WORD_TO_DWORD(#rxBuffer[111]));
 
-            #PM_COMM_OK[#pollIndex] := TRUE;
+            #PM_COMM_OK[#currentDeviceIndex] := TRUE;
             #COMM_OK                := TRUE;
             #ERROR                  := FALSE;
             #retryCount             := 0;
 
-            IF #pollIndex = 1 THEN
+            IF #currentDeviceIndex = 1 THEN
                 #GRID_MEAS_OK := TRUE;
             END_IF;
 
             // Avanzar al siguiente slave para la proxima transaccion
             #pollIndex := #pollIndex + 1;
-            IF #pollIndex > #N_DEVICES THEN #pollIndex := 1; END_IF;
+            IF #pollIndex > #N_SLOTS THEN #pollIndex := 1; END_IF;
 
         ELSIF #mbError AND NOT #errorLastScan THEN
             // -----------------------------------------------------------------
@@ -229,23 +235,23 @@ BEGIN
 
             IF #retryCount >= #MAX_RETRIES THEN
                 // Marcar falla de este medidor y continuar al siguiente
-                #PM_COMM_OK[#pollIndex] := FALSE;
-                #PM_I_L1[#pollIndex] := 0.0;
-                #PM_I_L2[#pollIndex] := 0.0;
-                #PM_I_L3[#pollIndex] := 0.0;
-                #PM_V_L1L2[#pollIndex] := 0.0;
-                #PM_V_L2L3[#pollIndex] := 0.0;
-                #PM_V_L3L1[#pollIndex] := 0.0;
-                #PM_FREQ[#pollIndex] := 0.0;
-                #PM_P_TOTAL[#pollIndex] := 0.0;
-                #PM_ALARM[#pollIndex] := FALSE;
-                IF #pollIndex = 1 THEN
+                #PM_COMM_OK[#currentDeviceIndex] := FALSE;
+                #PM_I_L1[#currentDeviceIndex] := 0.0;
+                #PM_I_L2[#currentDeviceIndex] := 0.0;
+                #PM_I_L3[#currentDeviceIndex] := 0.0;
+                #PM_V_L1L2[#currentDeviceIndex] := 0.0;
+                #PM_V_L2L3[#currentDeviceIndex] := 0.0;
+                #PM_V_L3L1[#currentDeviceIndex] := 0.0;
+                #PM_FREQ[#currentDeviceIndex] := 0.0;
+                #PM_P_TOTAL[#currentDeviceIndex] := 0.0;
+                #PM_ALARM[#currentDeviceIndex] := FALSE;
+                IF #currentDeviceIndex = 1 THEN
                     #GRID_MEAS_OK := FALSE;
                 END_IF;
                 #retryCount := 0;
 
                 #pollIndex := #pollIndex + 1;
-                IF #pollIndex > #N_DEVICES THEN #pollIndex := 1; END_IF;
+                IF #pollIndex > #N_SLOTS THEN #pollIndex := 1; END_IF;
             END_IF;
         END_IF;
 
