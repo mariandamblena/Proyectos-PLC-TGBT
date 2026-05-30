@@ -14,6 +14,11 @@ TITLE = "Main Program Sweep (Cycle) — V4.0"
 //   - Mantenido: 03_FB_SHED (ENABLE=FALSE en DB_PARAMS)
 // ============================================================================
 VERSION : 0.1
+   VAR_TEMP
+       rd_ret : Int;
+       currentDTL : DTL;
+       currentMonth : UInt;
+   END_VAR
 
 BEGIN
 
@@ -382,17 +387,42 @@ BEGIN
     // ====================================================================
     // Registrar máximo mensual de consumo de la red (GRID)
     // - Reset manual: poner DATA_BUFF.MONTH_MAX_GRID_RESET = TRUE desde HMI
+    // - Auto-reset al cambiar de mes usando RD_SYS_T
     // ====================================================================
+    // Leer hora del sistema
+    // Instrucción sistema: leer fecha/hora del CPU (module time)
+    RD_SYS_T(RET_VAL => rd_ret, OUT => currentDTL);
+
+    // Extraer mes (asumo campo .Month disponible en tipo DTL)
+    currentMonth := currentDTL.Month;
+
+    // Inicializar month si 0
+    IF "DATA_BUFF".MONTH_MAX_GRID_MONTH = 0 THEN
+        "DATA_BUFF".MONTH_MAX_GRID_MONTH := currentMonth;
+    END_IF;
+
+    // Reset automático al cambiar de mes
+    IF currentMonth <> "DATA_BUFF".MONTH_MAX_GRID_MONTH THEN
+        "DATA_BUFF".MONTH_MAX_GRID_P := 0.0;
+        "DATA_BUFF".MONTH_MAX_GRID_TS := currentDTL;
+        "DATA_BUFF".MONTH_MAX_GRID_MONTH := currentMonth;
+        "DATA_BUFF".MONTH_MAX_GRID_SCAN := 0;
+    END_IF;
+
+    // Reset manual
     IF "DATA_BUFF".MONTH_MAX_GRID_RESET THEN
         "DATA_BUFF".MONTH_MAX_GRID_P := 0.0;
+        "DATA_BUFF".MONTH_MAX_GRID_TS := currentDTL;
+        "DATA_BUFF".MONTH_MAX_GRID_MONTH := currentMonth;
         "DATA_BUFF".MONTH_MAX_GRID_SCAN := 0;
         "DATA_BUFF".MONTH_MAX_GRID_RESET := FALSE;
     END_IF;
 
+    // Actualizar máximo y timestamp cuando corresponde
     IF "DATA_BUFF".GRID_MEASUREMENT_OK THEN
         IF "DATA_BUFF".GRID_P_TOTAL > "DATA_BUFF".MONTH_MAX_GRID_P THEN
             "DATA_BUFF".MONTH_MAX_GRID_P := "DATA_BUFF".GRID_P_TOTAL;
-            // opcional: registrar contador de scans si se desea
+            "DATA_BUFF".MONTH_MAX_GRID_TS := currentDTL;
             "DATA_BUFF".MONTH_MAX_GRID_SCAN := "DATA_BUFF".SYSTEM_UPTIME; 
         END_IF;
     END_IF;

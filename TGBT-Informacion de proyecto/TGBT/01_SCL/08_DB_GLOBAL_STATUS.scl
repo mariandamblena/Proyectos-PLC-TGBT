@@ -82,6 +82,8 @@ NON_RETAIN
       GRID_PF : Real;
       MONTH_MAX_GRID_P : Real;
       MONTH_MAX_GRID_RESET : Bool;
+      MONTH_MAX_GRID_TS : DTL;               // Timestamp of monthly peak
+      MONTH_MAX_GRID_MONTH : UInt;           // Month number (1..12) of stored peak
       MONTH_MAX_GRID_SCAN : UDInt;
       GRID_PHASE_LOSS : Bool;    // Alarma pérdida de fase desde PM5350P
       GRID_ALM_UV : Bool;        // Alarma subtensión desde PM5350P
