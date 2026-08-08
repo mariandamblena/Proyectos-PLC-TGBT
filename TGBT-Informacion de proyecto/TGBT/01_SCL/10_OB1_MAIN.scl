@@ -18,6 +18,10 @@ VERSION : 0.1
        rd_ret : Int;
        currentDTL : DTL;
        currentMonth : UInt;
+       scmtaGd1RunReq : Bool;
+       scmtaGd2RunReq : Bool;
+       hmiGd1RunReq : Bool;
+       hmiGd2RunReq : Bool;
    END_VAR
 
 BEGIN
@@ -171,9 +175,9 @@ BEGIN
         REQ_SCMTA_CLOSE_QG2  => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_QG2,
         REQ_SCMTA_OPEN_Q22   => "02_FB_SCMTA_DB".REQ_SCMTA_OPEN_Q22,
         REQ_SCMTA_CLOSE_Q22  => "02_FB_SCMTA_DB".REQ_SCMTA_CLOSE_Q22,
-        DO_GD_START          => %Q1.0,
+        DO_GD_START          => #scmtaGd1RunReq,
         DO_GD_STOP           => "DATA_BUFF".GD_STOP_REQ,
-        DO_GD2_START         => %Q1.1,
+        DO_GD2_START         => #scmtaGd2RunReq,
         DO_GD2_STOP          => "DATA_BUFF".GD2_STOP_REQ,
         IS_ON_GRID           => "DATA_BUFF".IS_ON_GRID,
         IS_ON_GD             => "DATA_BUFF".IS_ON_GD,
@@ -191,6 +195,25 @@ BEGIN
         GD1_AVAILABLE        => "DATA_BUFF".GD1_AVAILABLE,
         GD2_AVAILABLE        => "DATA_BUFF".GD2_AVAILABLE
     );
+
+    // Habilitacion HMI para prueba de marcha GD, sin transferencia.
+    "DATA_BUFF".HMI_GD1_RUN_ENABLE :=
+        "DATA_BUFF".MODE_MANUAL
+        AND NOT "DATA_BUFF".IS_IN_TRANSFER
+        AND NOT "DATA_BUFF".QG1_CLOSED;
+    "DATA_BUFF".HMI_GD2_RUN_ENABLE :=
+        "DATA_BUFF".MODE_MANUAL
+        AND NOT "DATA_BUFF".IS_IN_TRANSFER
+        AND NOT "DATA_BUFF".QG2_CLOSED;
+
+    #hmiGd1RunReq := "DATA_BUFF".REQ_MAN_GD1_RUN
+                     AND "DATA_BUFF".HMI_GD1_RUN_ENABLE;
+    #hmiGd2RunReq := "DATA_BUFF".REQ_MAN_GD2_RUN
+                     AND "DATA_BUFF".HMI_GD2_RUN_ENABLE;
+
+    // Salidas RUN GD: SCMTA automatico OR prueba manual desde HMI.
+    %Q1.0 := #scmtaGd1RunReq OR #hmiGd1RunReq;
+    %Q1.1 := #scmtaGd2RunReq OR #hmiGd2RunReq;
 
     // GD STOP: reset Q1.0/Q1.1 cuando SCMTA pide parar
     IF "DATA_BUFF".GD_STOP_REQ  THEN %Q1.0 := FALSE; END_IF;

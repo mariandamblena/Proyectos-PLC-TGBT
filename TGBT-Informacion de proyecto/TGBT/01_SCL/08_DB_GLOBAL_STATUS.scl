@@ -197,6 +197,11 @@ NON_RETAIN
       FAULT_COUNT : Int;
       LAST_TRANSFER_TIMESTAMP {InstructionName := 'DTL'; LibVersion := '1.0'} : DTL;
       LAST_FAULT_TIMESTAMP {InstructionName := 'DTL'; LibVersion := '1.0'} : DTL;
+      // ---- COMANDOS HMI PRUEBA GD (agregados al final para no mover offsets existentes) ----
+      REQ_MAN_GD1_RUN : Bool;    // TRUE = mantener marcha GD1 desde HMI en modo MANUAL
+      REQ_MAN_GD2_RUN : Bool;    // TRUE = mantener marcha GD2 desde HMI en modo MANUAL
+      HMI_GD1_RUN_ENABLE : Bool; // TRUE = habilita switch HMI marcha GD1
+      HMI_GD2_RUN_ENABLE : Bool; // TRUE = habilita switch HMI marcha GD2
    END_STRUCT;
 
 

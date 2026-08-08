@@ -60,6 +60,7 @@
 | INSTRUCCIONES_CORRECCION_OB1.md | Renombrado DB_GLOBAL_STATUS → DATA_BUFF + instancias | Programador |
 | GUIA_COMPLETA_SCL_LADDER.md | Comparación SCL vs LADDER, recomendaciones | Decisión |
 | INTRODUCCION_TECNICA_INGENIERO.md | Guía onboarding ingeniero nuevo (plan 20 días) | Nuevo miembro |
+| PROMPT_BASE_NUEVO_PROYECTO_PLC.md | Prompt reutilizable para iniciar nuevos proyectos PLC con la misma estructura | Ingeniería |
 | VALIDACION_SCL_TIA_V18.md | Validación compatibilidad código SCL con TIA V18 | QA |
 | DESCRIPCION_FUNCIONAL_V4.html | Descripción funcional del sistema V4 actualizada | Todos |
 | INDEX.md | **Este archivo** | Todos |
