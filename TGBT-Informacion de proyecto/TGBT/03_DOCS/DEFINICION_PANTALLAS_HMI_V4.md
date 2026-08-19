@@ -349,6 +349,7 @@ Configuración de umbrales de calidad de red, tiempos de transferencia y habilit
 | T_GRID_FAIL_FILTER | `DB_PARAMS.T_GRID_FAIL_FILTER` | Time | ms |
 | T_START_GD_DELAY | `DB_PARAMS.T_START_GD_DELAY` | Time | ms |
 | T_GD_READY_TIMEOUT | `DB_PARAMS.T_GD_READY_TIMEOUT` | Time | ms |
+| MAX_GD_START_RETRIES | `DB_PARAMS.MAX_GD_START_RETRIES` | Int | 0..5 |
 | T_GD_STABILIZATION | `DB_PARAMS.T_GD_STABILIZATION` | Time | ms |
 | T_CLOSE_QG1 | `DB_PARAMS.T_CLOSE_QG1` | Time | ms |
 | T_GRID_STABLE | `DB_PARAMS.T_GRID_STABLE` | Time | ms |

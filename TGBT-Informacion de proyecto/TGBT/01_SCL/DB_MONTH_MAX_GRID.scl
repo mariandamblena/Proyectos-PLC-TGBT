@@ -10,6 +10,10 @@ NON_RETAIN
    STRUCT
       MONTH_MAX_GRID_P : Real;               // Máximo kW del mes
       MONTH_MAX_GRID_TS : DTL;               // Timestamp del pico máximo
+      MONTH_MIN_GRID_P : Real;               // Minimo kW del mes
+      MONTH_MIN_GRID_TS : DTL;               // Timestamp del minimo
+      MONTH_MIN_GRID_SCAN : UDInt;           // Contador de scans cuando se registro el minimo
+      MONTH_MIN_GRID_VALID : Bool;           // TRUE tras primera muestra valida del mes
       MONTH_MAX_GRID_MONTH : UInt;           // Mes actual (1..12) para auto-reset
       MONTH_MAX_GRID_RESET : Bool;           // Bandera de reset manual desde HMI
       MONTH_MAX_GRID_SCAN : UDInt;           // Contador de scans cuando se registró el pico

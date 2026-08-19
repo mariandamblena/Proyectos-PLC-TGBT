@@ -438,6 +438,7 @@ BEGIN
         // Delays de proceso: reducidos para test
         T_START_GD_DELAY   := T#2s,
         T_GD_READY_TIMEOUT := T#30s,
+        MAX_GD_START_RETRIES := 2,
         T_GD_STABILIZATION := T#30s,
         T_GRID_STABLE      := T#5s,    // Normalmente 120s
         T_GD_COOLDOWN      := T#5s,    // Normalmente 60s

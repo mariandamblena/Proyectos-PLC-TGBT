@@ -576,6 +576,7 @@ Contiene todos los parámetros configurables del sistema, modificables desde HMI
    - `T_OPEN_QT1 = T#2s`
    - `T_START_GD_DELAY = T#3s`
    - `T_GD_READY_TIMEOUT = T#30s`
+   - `MAX_GD_START_RETRIES = 2` (reintentos adicionales antes de lockout)
    - `T_GD_STABILIZATION = T#5s`
    - `T_CLOSE_QG1 = T#2s`
    - `T_GRID_FAIL_FILTER = T#2s`

@@ -62,6 +62,7 @@ VERSION : 0.1
       T_OPEN_QT1 : Time := T#3s;
       T_START_GD_DELAY : Time := T#3s;
       T_GD_READY_TIMEOUT : Time := T#30s;
+      MAX_GD_START_RETRIES : Int := 2;  // Reintentos adicionales antes de lockout
       T_GD_STABILIZATION : Time := T#5s;
       T_CLOSE_QG1 : Time := T#3s;
       T_CLOSE_QG2 : Time := T#3s;
@@ -117,6 +118,8 @@ VERSION : 0.1
     gd1SourceOk : Bool;
     gd2SourceOk : Bool;
       activeGDInternal : Int;
+      gd1StartRetryCount : Int;
+      gd2StartRetryCount : Int;
       cmdSent : Bool;                 // Flag: pulso de comando ya emitido en estado actual
       timeoutDetected : Bool;
       tonStateTimer {InstructionName := 'TON_TIME'; LibVersion := '1.0'; S7_SetPoint := 'False'} : TON_TIME;
@@ -133,6 +136,7 @@ VERSION : 0.1
       phaseVoltsOk : Bool;
       freqOk : Bool;
       gridAlarmFree : Bool;
+      maxGdStartRetries : Int;
    END_VAR
 
    VAR CONSTANT 
@@ -228,6 +232,12 @@ BEGIN
     // Disponibilidad de selección de equipo (no depende de DI de alarma externas)
     #GD1_AVAILABLE := TRUE;
     #GD2_AVAILABLE := #ENABLE_QG2;
+
+    IF #MAX_GD_START_RETRIES < 0 THEN
+        #maxGdStartRetries := 0;
+    ELSE
+        #maxGdStartRetries := #MAX_GD_START_RETRIES;
+    END_IF;
     
     
     // ========================================================================
@@ -263,6 +273,8 @@ BEGIN
         #FAULT_CODE      := 0;  #faultCodeLatch := 0;
         #TRANSFER_TO_GD  := FALSE;
         #activeGDInternal := 0;
+        #gd1StartRetryCount := 0;
+        #gd2StartRetryCount := 0;
         #cmdSent := FALSE;
         
         IF #GRID_OK AND #QT1_CLOSED THEN
@@ -314,6 +326,8 @@ BEGIN
             #STATE := #ST_CLOSE_QT1;
         ELSIF #MODE_AUTO AND #GRID_FAIL THEN
             // Arranque robusto: si la red ya esta en falla, iniciar transferencia.
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
             #STATE := #ST_GRID_FAIL_DETECTED;
         END_IF;
         
@@ -324,6 +338,8 @@ BEGIN
         #IS_IN_TRANSFER  := FALSE; #TRANSFER_TO_GD := FALSE;
         #DO_GD_START     := FALSE; #DO_GD2_START   := FALSE;
         #activeGDInternal := 0;
+        #gd1StartRetryCount := 0;
+        #gd2StartRetryCount := 0;
         IF #QT1_FAULT THEN
             #faultCodeLatch := #FAULT_TIMEOUT_OPEN_QT1;
             #STATE := #ST_FAULT_LOCKOUT;
@@ -332,6 +348,8 @@ BEGIN
             // intentar reconectar RED cerrando QT1.
             #STATE := #ST_CLOSE_QT1;
         ELSIF #MODE_AUTO AND #GRID_FAIL THEN
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
             #STATE := #ST_GRID_FAIL_DETECTED;
         END_IF;
         
@@ -353,13 +371,23 @@ BEGIN
         
     // ---- 4: DELAY antes de arrancar GD1 ----
     #ST_START_GD1_DELAY:
-        IF #ELAPSED_TIME >= #T_START_GD_DELAY THEN
+        #DO_GD_START := FALSE;
+        IF #GRID_OK THEN
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF #ELAPSED_TIME >= #T_START_GD_DELAY THEN
             #STATE := #ST_START_GD1;
         END_IF;
         
     // ---- 5: START_GD1 ----
     #ST_START_GD1:
-        IF NOT #GD1_AVAILABLE THEN
+        IF #GRID_OK THEN
+            #DO_GD_START := FALSE;
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF NOT #GD1_AVAILABLE THEN
             IF #ENABLE_QG2 AND #GD2_AVAILABLE THEN
                 #STATE := #ST_START_GD2_DELAY;
             ELSE
@@ -374,7 +402,14 @@ BEGIN
     // ---- 6: WAIT_GD1_READY ----
     #ST_WAIT_GD1_READY:
         #DO_GD_START := TRUE;
-        IF #gd1SourceOk THEN
+        IF #GRID_OK THEN
+            #DO_GD_START := FALSE;
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
+            #tonGdStabilization(IN := FALSE, PT := #T_GD_STABILIZATION);
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF #gd1SourceOk THEN
+            #gd1StartRetryCount := 0;
             #tonGdStabilization(IN := TRUE, PT := #T_GD_STABILIZATION);
             IF #tonGdStabilization.Q THEN
                 #STATE := #ST_CLOSE_QG1;
@@ -383,8 +418,15 @@ BEGIN
             #tonGdStabilization(IN := FALSE, PT := #T_GD_STABILIZATION);
             IF #ELAPSED_TIME >= #T_GD_READY_TIMEOUT THEN
                 #DO_GD_START := FALSE;
-                #faultCodeLatch := #FAULT_GD1_NOT_READY;
-                #STATE := #ST_FAULT_LOCKOUT;
+                IF #gd1StartRetryCount < #maxGdStartRetries THEN
+                    #gd1StartRetryCount := #gd1StartRetryCount + 1;
+                    #STATE := #ST_START_GD1_DELAY;
+                ELSIF #ENABLE_QG2 AND #GD2_AVAILABLE THEN
+                    #STATE := #ST_START_GD2_DELAY;
+                ELSE
+                    #faultCodeLatch := #FAULT_GD1_NOT_READY;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
         END_IF;
         
@@ -525,7 +567,12 @@ BEGIN
         
     // ---- 15-20: Path GD2 (solo si ENABLE_QG2 = TRUE) ----
     #ST_START_GD2_DELAY:
-        IF NOT #ENABLE_QG2 THEN
+        #DO_GD2_START := FALSE;
+        IF #GRID_OK THEN
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF NOT #ENABLE_QG2 THEN
             #faultCodeLatch := #FAULT_BOTH_GD_UNAVAILABLE;
             #STATE := #ST_FAULT_LOCKOUT;
         ELSIF #ELAPSED_TIME >= #T_START_GD_DELAY THEN
@@ -533,7 +580,12 @@ BEGIN
         END_IF;
         
     #ST_START_GD2:
-        IF NOT #ENABLE_QG2 OR NOT #GD2_AVAILABLE THEN
+        IF #GRID_OK THEN
+            #DO_GD2_START := FALSE;
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF NOT #ENABLE_QG2 OR NOT #GD2_AVAILABLE THEN
             #faultCodeLatch := #FAULT_BOTH_GD_UNAVAILABLE;
             #STATE := #ST_FAULT_LOCKOUT;
         ELSE
@@ -543,15 +595,27 @@ BEGIN
         
     #ST_WAIT_GD2_READY:
         #DO_GD2_START := TRUE;
-        IF #gd2SourceOk THEN
+        IF #GRID_OK THEN
+            #DO_GD2_START := FALSE;
+            #gd1StartRetryCount := 0;
+            #gd2StartRetryCount := 0;
+            #tonGdStabilization(IN := FALSE, PT := #T_GD_STABILIZATION);
+            #STATE := #ST_CLOSE_QT1;
+        ELSIF #gd2SourceOk THEN
+            #gd2StartRetryCount := 0;
             #tonGdStabilization(IN := TRUE, PT := #T_GD_STABILIZATION);
             IF #tonGdStabilization.Q THEN #STATE := #ST_CLOSE_QG2; END_IF;
         ELSE
             #tonGdStabilization(IN := FALSE, PT := #T_GD_STABILIZATION);
             IF #ELAPSED_TIME >= #T_GD_READY_TIMEOUT THEN
                 #DO_GD2_START := FALSE;
-                #faultCodeLatch := #FAULT_GD2_NOT_READY;
-                #STATE := #ST_FAULT_LOCKOUT;
+                IF #gd2StartRetryCount < #maxGdStartRetries THEN
+                    #gd2StartRetryCount := #gd2StartRetryCount + 1;
+                    #STATE := #ST_START_GD2_DELAY;
+                ELSE
+                    #faultCodeLatch := #FAULT_GD2_NOT_READY;
+                    #STATE := #ST_FAULT_LOCKOUT;
+                END_IF;
             END_IF;
         END_IF;
         
